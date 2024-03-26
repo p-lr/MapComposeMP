@@ -1,20 +1,23 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import androidx.lifecycle.ViewModel
+import cafe.adriel.voyager.core.model.ScreenModel
+import ovh.plrapps.mapcompose.demo.utils.getKtorClient
+import io.ktor.client.HttpClient
+import io.ktor.client.request.get
+import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.readBytes
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
-import java.io.BufferedInputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * Shows how MapCompose behaves with remote HTTP tiles.
  */
-class HttpTilesVM : ViewModel() {
-    private val tileStreamProvider = makeTileStreamProvider()
+class HttpTilesVM() : ScreenModel {
+    private val httpClient = getKtorClient()
+    private val tileStreamProvider = makeTileStreamProvider(httpClient)
 
     val state = MapState(
         levelCount = 4,
@@ -31,15 +34,11 @@ class HttpTilesVM : ViewModel() {
 /**
  * A [TileStreamProvider] which performs HTTP requests.
  */
-private fun makeTileStreamProvider() =
+private fun makeTileStreamProvider(httpClient: HttpClient) =
     TileStreamProvider { row, col, zoomLvl ->
         try {
-            val url =
-                URL("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.doInput = true
-            connection.connect()
-            BufferedInputStream(connection.inputStream)
+            val response: HttpResponse = httpClient.get("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg")
+            response.readBytes()
         } catch (e: Exception) {
             e.printStackTrace()
             null

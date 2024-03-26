@@ -1,17 +1,18 @@
 package ovh.plrapps.mapcompose.demo.utils
 
-import android.content.res.Resources
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * Convert px to dp
  */
-fun pxToDp(px: Int): Int {
-    return (px / Resources.getSystem().displayMetrics.density).toInt()
-}
+@Composable
+fun pxToDp(px: Int): Dp = LocalDensity.current.run { px.toDp() }
 
 /**
  * Convert dp to px
  */
-fun dpToPx(dp: Int): Int {
-    return (dp * Resources.getSystem().displayMetrics.density).toInt()
-}
+@Composable
+fun dpToPx(dp: Int): Int = LocalDensity.current.run { dp.dp.toPx().toInt() }

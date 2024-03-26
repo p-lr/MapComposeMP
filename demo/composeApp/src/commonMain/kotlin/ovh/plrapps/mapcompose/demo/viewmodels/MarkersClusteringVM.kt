@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -11,14 +10,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
+import cafe.adriel.voyager.core.model.ScreenModel
+import mapcompose_mp.demo.composeapp.generated.resources.Res
+import mapcompose_mp.demo.composeapp.generated.resources.map_marker
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.ExperimentalClusteringApi
 import ovh.plrapps.mapcompose.api.addClusterer
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
-import ovh.plrapps.mapcompose.demo.R
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
@@ -27,9 +28,9 @@ import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
 /**
  * Shows how to define and use a marker clusterer.
  */
-@OptIn(ExperimentalClusteringApi::class)
-class MarkersClusteringVM(application: Application) : AndroidViewModel(application) {
-    private val tileStreamProvider = makeTileStreamProvider(application.applicationContext)
+@OptIn(ExperimentalClusteringApi::class, ExperimentalResourceApi::class)
+class MarkersClusteringVM() : ScreenModel {
+    private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096) {
         scale(0.2f)
@@ -76,7 +77,7 @@ class MarkersClusteringVM(application: Application) : AndroidViewModel(applicati
             clickable = false
         ) {
             Icon(
-                painter = painterResource(id = R.drawable.map_marker),
+                painter = painterResource(Res.drawable.map_marker),
                 contentDescription = null,
                 modifier = Modifier.size(50.dp),
                 tint = Color(0xEEF44336)
@@ -87,7 +88,7 @@ class MarkersClusteringVM(application: Application) : AndroidViewModel(applicati
     @Composable
     private fun Marker() {
         Icon(
-            painter = painterResource(id = R.drawable.map_marker),
+            painter = painterResource(Res.drawable.map_marker),
             contentDescription = null,
             modifier = Modifier.size(50.dp),
             tint = Color(0xEE2196F3)

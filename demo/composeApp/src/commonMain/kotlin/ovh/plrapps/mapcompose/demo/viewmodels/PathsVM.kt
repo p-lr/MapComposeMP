@@ -1,14 +1,15 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import cafe.adriel.voyager.core.model.ScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
+import mapcompose_mp.demo.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.api.addCallout
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addPath
@@ -29,8 +30,8 @@ import ovh.plrapps.mapcompose.utils.dpToPx
 /**
  * In this sample, we add "tracks" to the map. The tracks are rendered as paths using MapCompose.
  */
-class PathsVM(application: Application) : AndroidViewModel(application) {
-    private val tileStreamProvider = makeTileStreamProvider(application.applicationContext)
+class PathsVM() : ScreenModel {
+    private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096).apply {
         addLayer(tileStreamProvider)
@@ -67,7 +68,7 @@ class PathsVM(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        viewModelScope.launch {
+        screenModelScope.launch {
             scrollTo(0.72, 0.3)
         }
     }
@@ -100,6 +101,7 @@ class PathsVM(application: Application) : AndroidViewModel(application) {
      * points or a list of points.
      * Here, since we're getting points from a sequence, we add them on the fly using [PathDataBuilder.addPoint].
      */
+    @OptIn(ExperimentalResourceApi::class)
     private fun addTrack(
         trackName: String,
         color: Color? = null,
@@ -107,17 +109,15 @@ class PathsVM(application: Application) : AndroidViewModel(application) {
         clickable: Boolean = true
     ) {
         with(state) {
-            val lines = getApplication<Application>().applicationContext.assets?.open(
-                "tracks/$trackName.txt"
-            )?.bufferedReader()?.lineSequence()
-                ?: return@with
-
-            addPath(
-                id = trackName, color = color, clickable = true, pattern = pattern
-            ) {
-                for (line in lines) {
-                    val values = line.split(',').map(String::toDouble)
-                    addPoint(values[0], values[1])
+            val lines = screenModelScope.launch {
+                val lines = Res.readBytes("files/tracks/$trackName.txt").decodeToString().lineSequence()
+                addPath(
+                    id = trackName, color = color, clickable = true, pattern = pattern
+                ) {
+                    for (line in lines) {
+                        val values = line.split(',').map(String::toDouble)
+                        addPoint(values[0], values[1])
+                    }
                 }
             }
         }

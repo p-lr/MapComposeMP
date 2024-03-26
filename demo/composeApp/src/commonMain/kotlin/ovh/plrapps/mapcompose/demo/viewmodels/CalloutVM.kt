@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.Icon
 import androidx.compose.runtime.getValue
@@ -9,9 +8,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
+import cafe.adriel.voyager.core.model.ScreenModel
+import mapcompose_mp.demo.composeapp.generated.resources.Res
+import mapcompose_mp.demo.composeapp.generated.resources.map_marker
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.addCallout
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
@@ -19,13 +21,12 @@ import ovh.plrapps.mapcompose.api.onCalloutClick
 import ovh.plrapps.mapcompose.api.onMarkerClick
 import ovh.plrapps.mapcompose.api.removeCallout
 import ovh.plrapps.mapcompose.api.scale
-import ovh.plrapps.mapcompose.demo.R
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.demo.ui.widgets.Callout
 import ovh.plrapps.mapcompose.ui.state.MapState
 
-class CalloutVM(application: Application) : AndroidViewModel(application) {
-    private val tileStreamProvider = makeTileStreamProvider(application.applicationContext)
+class CalloutVM(): ScreenModel {
+    private val tileStreamProvider = makeTileStreamProvider()
 
     /* Define the markers data (id and position) */
     private val markers = listOf(
@@ -35,6 +36,7 @@ class CalloutVM(application: Application) : AndroidViewModel(application) {
         MarkerInfo(TAP_TO_DISMISS_ID, 0.4, 0.3)
     )
 
+    @OptIn(ExperimentalResourceApi::class)
     val state = MapState(4, 4096, 4096).apply {
         addLayer(tileStreamProvider)
 
@@ -42,7 +44,7 @@ class CalloutVM(application: Application) : AndroidViewModel(application) {
         for (marker in markers) {
             addMarker(marker.id, marker.x, marker.y) {
                 Icon(
-                    painter = painterResource(id = R.drawable.map_marker),
+                    painter = painterResource(Res.drawable.map_marker),
                     contentDescription = null,
                     modifier = Modifier.size(50.dp),
                     tint = Color(0xCC2196F3)

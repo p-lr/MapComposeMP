@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -13,8 +12,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import cafe.adriel.voyager.core.model.ScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
@@ -35,8 +34,8 @@ import ovh.plrapps.mapcompose.ui.state.MapState
  * [p2x], and [p2y] states. In turn, when those state change, the line joining the two markers updates.
  * The line is added as a custom view inside [MapUI] composable.
  */
-class CustomDrawVM(application: Application) : AndroidViewModel(application) {
-    private val tileStreamProvider = makeTileStreamProvider(application.applicationContext)
+class CustomDrawVM(): ScreenModel {
+    private val tileStreamProvider = makeTileStreamProvider()
 
     var p1x by mutableStateOf(0.6)
     var p1y by mutableStateOf(0.6)
@@ -47,7 +46,7 @@ class CustomDrawVM(application: Application) : AndroidViewModel(application) {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()
-        viewModelScope.launch {
+        screenModelScope.launch {
             scrollTo(0.5, 0.5, 1.1f)
         }
     }

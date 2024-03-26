@@ -1,10 +1,10 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
-import android.content.Context
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import cafe.adriel.voyager.core.model.ScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
+import mapcompose_mp.demo.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.enableRotation
 import ovh.plrapps.mapcompose.api.scrollTo
@@ -13,13 +13,13 @@ import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 
-class LayersVM(application: Application) : AndroidViewModel(application) {
+class LayersVM() : ScreenModel {
     private val tileStreamProvider =
-        makeTileStreamProvider(application.applicationContext, "mont_blanc")
+        makeTileStreamProvider("mont_blanc")
     private val satelliteProvider =
-        makeTileStreamProvider(application.applicationContext, "mont_blanc_satellite")
+        makeTileStreamProvider("mont_blanc_satellite")
     private val ignV2Provider =
-        makeTileStreamProvider(application.applicationContext, "mont_blanc_ignv2")
+        makeTileStreamProvider("mont_blanc_ignv2")
 
     private var satelliteId: String? = null
     private var ignV2Id: String? = null
@@ -27,7 +27,7 @@ class LayersVM(application: Application) : AndroidViewModel(application) {
     val state = MapState(4, 4096, 4096).apply {
         shouldLoopScale = true
         enableRotation()
-        viewModelScope.launch {
+        screenModelScope.launch {
             scrollTo(0.5, 0.5, 1f)
         }
 
@@ -36,10 +36,11 @@ class LayersVM(application: Application) : AndroidViewModel(application) {
         ignV2Id = addLayer(ignV2Provider, 0.5f)
     }
 
-    private fun makeTileStreamProvider(appContext: Context, folder: String) =
+    @OptIn(ExperimentalResourceApi::class)
+    private fun makeTileStreamProvider(folder: String) =
         TileStreamProvider { row, col, zoomLvl ->
             try {
-                appContext.assets?.open("tiles/$folder/$zoomLvl/$row/$col.jpg")
+                Res.readBytes("files/tiles/$folder/$zoomLvl/$row/$col.jpg")
             } catch (e: Exception) {
                 null
             }

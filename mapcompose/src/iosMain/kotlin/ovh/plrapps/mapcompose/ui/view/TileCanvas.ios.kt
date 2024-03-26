@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.asSkiaColorFilter
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import org.jetbrains.skia.Paint
 import ovh.plrapps.mapcompose.core.ColorFilterProvider
@@ -59,8 +60,6 @@ internal actual fun TileCanvas(
                 val tileScaled = (tileSize / scaleForLevel).toInt()
                 val l = tile.col * tileScaled
                 val t = tile.row * tileScaled
-                val r = l + tileScaled
-                val b = t + tileScaled
 
                 val colorFilter = colorFilterProvider?.getColorFilter(tile.row, tile.col, tile.zoom)
 
@@ -72,7 +71,8 @@ internal actual fun TileCanvas(
                 drawIntoCanvas {
                     it.drawImageRect(
                         bitmap,
-                        dstSize = IntSize(width = r - l, height = t - b),
+                        dstOffset = IntOffset(l, t),
+                        dstSize = IntSize(width = tileScaled, height = tileScaled),
                         paint= paint.asComposePaint()
                     )
                 }

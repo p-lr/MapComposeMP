@@ -4,14 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import androidx.lifecycle.viewmodel.compose.viewModel
+import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.screen.Screen
 
-@Composable
-fun PathsDemo(
-    modifier: Modifier = Modifier, viewModel: PathsVM = viewModel()
-) {
-    MapUI(
-        modifier,
-        state = viewModel.state
-    )
+object PathsDemo : Screen {
+    @Composable
+    override fun Content() {
+        val screenModel = rememberScreenModel { PathsVM() }
+
+        MapUI(
+            Modifier,
+            state = screenModel.state
+        )
+    }
 }

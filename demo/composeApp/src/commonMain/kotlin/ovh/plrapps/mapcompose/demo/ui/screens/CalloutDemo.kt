@@ -6,17 +6,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.CalloutVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import androidx.lifecycle.viewmodel.compose.viewModel
+import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.screen.Screen
 
-@Composable
-fun CalloutDemo(
-    modifier: Modifier = Modifier,
-    viewModel: CalloutVM = viewModel()
-) {
-    Column(modifier.fillMaxSize()) {
-        MapUI(
-            modifier.weight(2f),
-            state = viewModel.state
-        )
+object CalloutDemo : Screen {
+    @Composable
+    override fun Content() {
+        val screenModel = rememberScreenModel { CalloutVM() }
+
+        Column(Modifier.fillMaxSize()) {
+            MapUI(
+                Modifier.weight(2f),
+                state = screenModel.state
+            )
+        }
     }
 }

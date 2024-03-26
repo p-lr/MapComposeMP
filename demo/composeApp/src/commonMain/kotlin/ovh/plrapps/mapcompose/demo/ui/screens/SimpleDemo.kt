@@ -4,12 +4,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import androidx.lifecycle.viewmodel.compose.viewModel
+import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.screen.Screen
 
 
-@Composable
-fun MapDemoSimple(
-    modifier: Modifier = Modifier, viewModel: SimpleDemoVM = viewModel()
-) {
-    MapUI(modifier, state = viewModel.state)
+object MapDemoSimple : Screen {
+    @Composable
+    override fun Content() {
+        val screenModel = rememberScreenModel { SimpleDemoVM() }
+
+        MapUI(modifier = Modifier, state = screenModel.state)
+    }
 }

@@ -1,4 +1,4 @@
-package dev.kreienbuehl.mapcomposekmp.utils
+package ovh.plrapps.mapcompose.demo.utils
 
 import io.ktor.client.HttpClient
 

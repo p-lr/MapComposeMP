@@ -1,13 +1,9 @@
 package ovh.plrapps.mapcompose.demo.ui.widgets
 
-import android.animation.TimeInterpolator
-import android.view.animation.OvershootInterpolator
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -22,8 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.math.RoundingMode
-import java.text.DecimalFormat
+import kotlin.math.round
 
 /**
  * A callout which animates its entry with an overshoot scaling interpolator.
@@ -40,7 +35,7 @@ fun Callout(
         if (shouldAnimate) {
             Animatable(0f).animateTo(
                 targetValue = 1f,
-                animationSpec = tween(250, easing = overshootEasing)
+                animationSpec = tween(250)
             ) {
                 animVal = value
             }
@@ -69,7 +64,7 @@ fun Callout(
                 color = Color.Black
             )
             Text(
-                text = "position ${df.format(x)} , ${df.format(y)}",
+                text = "position ${x.format()} , ${x.format()}",
                 modifier = Modifier
                     .align(alignment = Alignment.CenterHorizontally)
                     .padding(top = 4.dp),
@@ -81,12 +76,6 @@ fun Callout(
     }
 }
 
-private val df = DecimalFormat("#.##").apply {
-    roundingMode = RoundingMode.CEILING
-}
-
-private val overshootEasing = OvershootInterpolator(1.2f).toEasing()
-
-private fun TimeInterpolator.toEasing() = Easing { x ->
-    getInterpolation(x)
+private fun Double.format(): String {
+    return (round(this * 100) / 100).toString()
 }

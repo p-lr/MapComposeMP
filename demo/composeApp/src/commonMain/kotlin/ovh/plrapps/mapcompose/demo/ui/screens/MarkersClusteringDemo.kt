@@ -3,10 +3,15 @@ package ovh.plrapps.mapcompose.demo.ui.screens
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.MarkersClusteringVM
-import androidx.lifecycle.viewmodel.compose.viewModel
+import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.ui.MapUI
 
-@Composable
-fun MarkersClusteringDemo(modifier: Modifier = Modifier, viewModel: MarkersClusteringVM = viewModel()) {
-    MapUI(modifier, state = viewModel.state)
+object MarkersClusteringDemo : Screen {
+    @Composable
+    override fun Content() {
+        val screenModel = rememberScreenModel { MarkersClusteringVM() }
+
+        MapUI(Modifier, state = screenModel.state)
+    }
 }

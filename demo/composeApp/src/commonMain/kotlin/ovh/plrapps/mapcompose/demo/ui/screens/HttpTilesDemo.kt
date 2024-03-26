@@ -4,14 +4,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.HttpTilesVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import androidx.lifecycle.viewmodel.compose.viewModel
+import cafe.adriel.voyager.core.model.rememberScreenModel
+import cafe.adriel.voyager.core.screen.Screen
 
-@Composable
-fun HttpTilesDemo(
-    modifier: Modifier = Modifier, viewModel: HttpTilesVM = viewModel()
-) {
-    MapUI(
-        modifier,
-        state = viewModel.state
-    )
+object HttpTilesDemo : Screen {
+    @Composable
+    override fun Content() {
+        val screenModel = rememberScreenModel { HttpTilesVM() }
+
+        MapUI(
+            Modifier,
+            state = screenModel.state
+        )
+    }
 }

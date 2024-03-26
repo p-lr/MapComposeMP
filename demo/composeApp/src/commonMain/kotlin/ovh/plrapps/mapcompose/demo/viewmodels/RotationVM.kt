@@ -1,8 +1,7 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
+import cafe.adriel.voyager.core.model.ScreenModel
+import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.enableRotation
@@ -15,8 +14,8 @@ import ovh.plrapps.mapcompose.api.setStateChangeListener
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 
-class RotationVM(application: Application) : AndroidViewModel(application) {
-    private val tileStreamProvider = makeTileStreamProvider(application.applicationContext)
+class RotationVM : ScreenModel {
+    private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096).apply {
         addLayer(tileStreamProvider)
@@ -31,7 +30,7 @@ class RotationVM(application: Application) : AndroidViewModel(application) {
     }
 
     fun onRotate() {
-        viewModelScope.launch {
+        screenModelScope.launch {
             state.rotateTo(state.rotation + 90f)
         }
     }
