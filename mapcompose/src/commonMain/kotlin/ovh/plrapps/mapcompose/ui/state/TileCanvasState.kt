@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.ui.state
 
-import android.graphics.Bitmap
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,7 +9,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.*
 import ovh.plrapps.mapcompose.core.*
-import java.util.concurrent.Executors
 import kotlin.math.pow
 
 /**
@@ -31,7 +29,7 @@ internal class TileCanvasState(
 ) {
 
     /* This view-model uses a background thread for its computations */
-    private val singleThreadDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val singleThreadDispatcher = Dispatchers.Default.limitedParallelism(1)
     private val scope = CoroutineScope(
         parentScope.coroutineContext + singleThreadDispatcher
     )
@@ -136,7 +134,7 @@ internal class TileCanvasState(
     }
 
     fun shutdown() {
-        singleThreadDispatcher.close()
+        scope.cancel()
         tileCollector.shutdownNow()
     }
 
@@ -407,10 +405,6 @@ internal class TileCanvasState(
      * After a [Tile] is no longer visible, recycle its Bitmap and Paint if possible, for later use.
      */
     private fun Tile.recycle() {
-        val b = bitmap ?: return
-        if (b.isMutable) {
-            bitmapPool.put(b)
-        }
         alpha = 0f
     }
 

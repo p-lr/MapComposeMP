@@ -1,8 +1,5 @@
 package ovh.plrapps.mapcompose.ui.paths
 
-import android.graphics.DashPathEffect
-import android.graphics.Paint
-import android.graphics.Path
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,11 +11,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.PaintingStyle
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PathEffect.Companion.dashPathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -89,13 +91,13 @@ internal fun PathCanvas(
         zoomPRState.scale
     ) {
         Paint().apply {
-            style = Paint.Style.STROKE
-            strokeJoin = Paint.Join.ROUND
-            this.color = drawablePathState.color.toArgb()
+            style = PaintingStyle.Stroke
+            strokeJoin = StrokeJoin.Round
+            this.color = drawablePathState.color
             strokeCap = when (drawablePathState.cap) {
-                Cap.Butt -> Paint.Cap.BUTT
-                Cap.Round -> Paint.Cap.ROUND
-                Cap.Square -> Paint.Cap.SQUARE
+                Cap.Butt -> StrokeCap.Companion.Butt
+                Cap.Round -> StrokeCap.Companion.Round
+                Cap.Square -> StrokeCap.Companion.Square
             }
             pathEffect = dashPathEffect
             strokeWidth = widthPx / zoomPRState.scale
@@ -106,8 +108,8 @@ internal fun PathCanvas(
         drawablePathState.fillColor,
     ) {
         Paint().apply {
-            style = Paint.Style.FILL
-            this.color = drawablePathState.fillColor?.toArgb() ?: Color.Transparent.toArgb()
+            style = PaintingStyle.Fill
+            this.color = drawablePathState.fillColor ?: Color.Transparent
         }
     }
 
@@ -132,9 +134,9 @@ internal fun PathCanvas(
                 if (visible) {
                     drawIntoCanvas {
                         if (drawablePathState.fillColor != null) {
-                            it.nativeCanvas.drawPath(path, fillPaint)
+                            it.drawPath(path, fillPaint)
                         }
-                        it.nativeCanvas.drawPath(path, paint)
+                        it.drawPath(path, paint)
                     }
                 }
             }
@@ -167,7 +169,6 @@ class PathDataBuilder internal constructor(
     /**
      * Add a point to the path. Values are relative coordinates (in range [0f..1f]).
      */
-    @Synchronized
     fun addPoint(x: Double, y: Double) = apply {
         points.add(createOffset(x, y))
     }
@@ -175,7 +176,6 @@ class PathDataBuilder internal constructor(
     /**
      * Add points to the path. Values are relative coordinates (in range [0f..1f]).
      */
-    @Synchronized
     fun addPoints(points: List<Pair<Double, Double>>) = apply {
         this.points += points.map { (x, y) -> createOffset(x, y) }
     }
@@ -193,7 +193,6 @@ class PathDataBuilder internal constructor(
         yMax = yMax?.coerceAtLeast(y) ?: y
     }
 
-    @Synchronized
     fun build(): PathData? {
         /* If there is only one point, the path has no sense */
         if (points.size < 2) return null
@@ -237,9 +236,9 @@ internal fun generatePath(pathData: PathData, offset: Int, count: Int, simplify:
     return p
 }
 
-internal fun makePathEffect(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float): DashPathEffect? {
+internal fun makePathEffect(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float): PathEffect? {
     val data = makeIntervals(pattern, strokeWidthPx, scale) ?: return null
-    return DashPathEffect(data.intervals, data.phase)
+    return dashPathEffect(data.intervals, data.phase)
 }
 
 internal fun concatGap(pattern: List<PatternItem>): List<PatternItem> {
