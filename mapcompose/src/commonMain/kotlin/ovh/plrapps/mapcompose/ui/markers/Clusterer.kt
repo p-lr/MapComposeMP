@@ -20,7 +20,6 @@ import ovh.plrapps.mapcompose.utils.contains
 import ovh.plrapps.mapcompose.utils.dpToPx
 import ovh.plrapps.mapcompose.utils.map
 import ovh.plrapps.mapcompose.utils.throttle
-import java.util.*
 import kotlin.math.*
 
 internal class Clusterer(
@@ -133,7 +132,7 @@ internal class Clusterer(
         val markersById = markers.associateByTo(mutableMapOf()) { it.uuid }
 
         val clusterIds = mutableListOf<String>()
-        val markerIds = mutableListOf<UUID>()
+        val markerIds = mutableListOf<String>()
 
         markersOnMap.forEach { markerData ->
             if (markerData.id.startsWith(clusterIdPrefix)) {
@@ -461,7 +460,7 @@ private sealed interface Placeable
 private data class Marker(
     val markerData: MarkerData,
 ) : Placeable {
-    val uuid: UUID
+    val uuid: String
         get() = markerData.uuid
     val id: String
         get() = markerData.id

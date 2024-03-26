@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import ovh.plrapps.mapcompose.ui.state.markers.DragInterceptor
-import java.util.*
+import ovh.plrapps.mapcompose.utils.generateId
 
 internal class MarkerData(
     val id: String,
@@ -38,7 +38,7 @@ internal class MarkerData(
     var measuredHeight = 0
     var xPlacement: Int? = null
     var yPlacement: Int? = null
-    val uuid: UUID = UUID.randomUUID()
+    val uuid: String = generateId()
 
     fun contains(x: Int, y: Int): Boolean {
         val (centerX, centerY) = getCenter() ?: return false
@@ -61,9 +61,7 @@ internal class MarkerData(
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as MarkerData
+        if (other !is MarkerData) return false
 
         return (id == other.id && x == other.x && y == other.y && uuid == other.uuid)
     }

@@ -12,3 +12,9 @@ fun <T> MutableCollection<T>.removeFirst(predicate: (T) -> Boolean): Boolean {
     }
     return removed
 }
+
+fun <T> MutableList<T>.swap(i1: Int, i2: Int): MutableList<T> = apply {
+    val t = this[i1]
+    this[i1] = this[i2]
+    this[i2] = t
+}

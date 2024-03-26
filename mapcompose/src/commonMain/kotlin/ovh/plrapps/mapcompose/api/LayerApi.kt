@@ -4,7 +4,7 @@ package ovh.plrapps.mapcompose.api
 
 import ovh.plrapps.mapcompose.core.*
 import ovh.plrapps.mapcompose.ui.state.MapState
-import java.util.*
+import ovh.plrapps.mapcompose.utils.swap
 
 
 /**
@@ -92,7 +92,7 @@ fun MapState.moveLayerUp(layerId: String) {
     }
 
     if (index < layers.lastIndex) {
-        Collections.swap(layers, index + 1, index)
+        layers.swap(index + 1, index)
         setLayers(layers)
     }
 }
@@ -109,7 +109,7 @@ fun MapState.moveLayerDown(layerId: String) {
     }
 
     if (index > 0) {
-        Collections.swap(layers, index - 1, index)
+        layers.swap(index - 1, index)
         setLayers(layers)
     }
 }

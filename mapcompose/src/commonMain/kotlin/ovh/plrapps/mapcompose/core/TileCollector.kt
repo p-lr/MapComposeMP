@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalCoroutinesApi::class)
+
 package ovh.plrapps.mapcompose.core
 
 import android.graphics.Bitmap
@@ -174,12 +176,13 @@ internal class TileCollector(
                 null
             } ?: continue // If the decoding of the first layer failed, skip the rest
 
-            canvas.setBitmap(resultBitmap)
+            val image = resultBitmap.toImage() ?: continue
+            val canvas = Canvas(image)
 
             for (result in bitmapForLayers.drop(1)) {
-                paint.alpha = (255f * result.layer.alpha).toInt()
+                paint.alpha = result.layer.alpha
                 if (result.bitmap == null) continue
-                canvas.drawBitmap(result.bitmap, 0f, 0f, paint)
+                canvas.drawImage(image = result.bitmap.toImage() ?: continue, Offset.Zero, paint)
             }
 
             val tile = Tile(
@@ -190,7 +193,7 @@ internal class TileCollector(
                 layerIds,
                 layers.map { it.alpha }
             ).apply {
-                this.bitmap = resultBitmap
+                this.bitmap = image
             }
             tilesOutput.send(tile)
             tilesDownloaded.send(spec)
@@ -229,25 +232,13 @@ internal class TileCollector(
      * Attempts to stop all actively executing tasks, halts the processing of waiting tasks.
      */
     fun shutdownNow() {
-        executor.shutdownNow()
+        backgroundDispatcher.close()
     }
 
-    /**
-     * When using a [LinkedBlockingQueue], the core pool size mustn't be 0, or the active thread
-     * count won't be greater than 1. Previous versions used a [SynchronousQueue], which could have
-     * a core pool size of 0 and a growing count of active threads. However, a [Runnable] could be
-     * rejected when no thread were available. Starting from kotlinx.coroutines 1.4.0, this cause
-     * the associated coroutine to be cancelled. By using a [LinkedBlockingQueue], we avoid rejections.
-     */
-    private val executor = ThreadPoolExecutor(
-        workerCount, workerCount,
-        60L, TimeUnit.SECONDS, LinkedBlockingQueue()
-    ).apply {
-        allowCoreThreadTimeOut(true)
-    }
-    private val dispatcher = executor.asCoroutineDispatcher()
+    private val backgroundDispatcher = newFixedThreadPoolContext(workerCount, "TileCollectorPool")
+    private val dispatcher = backgroundDispatcher.limitedParallelism(workerCount) //executor.asCoroutineDispatcher()
 }
 
 internal data class BitmapConfiguration(val bitmapConfig: Config, val bytesPerPixel: Int)
 
-private data class BitmapForLayer(val bitmap: Bitmap?, val layer: Layer)
+private class BitmapForLayer(val bitmap: ByteArray?, val layer: Layer)

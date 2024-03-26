@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.core
 
-import android.view.ViewConfiguration
 
 /**
  * Configuration of various gestures.
