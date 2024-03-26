@@ -1,9 +1,9 @@
 package ovh.plrapps.mapcompose.core
 
-import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 
 /**
  * A [Tile] is defined by its coordinates in the "pyramid". A [Tile] is sub-sampled when the
@@ -20,7 +20,7 @@ internal data class Tile(
     val layerIds: List<String>,
     val opacities: List<Float>
 ) {
-    var bitmap: Bitmap? = null
+    var bitmap: ImageBitmap? = null
     var alpha: Float by mutableStateOf(0f)
 }
 

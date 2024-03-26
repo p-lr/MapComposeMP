@@ -40,8 +40,6 @@ internal class TileCanvasState(
     private val _layerFlow = MutableStateFlow<List<Layer>>(listOf())
     internal val layerFlow = _layerFlow.asStateFlow()
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val bitmapPool = BitmapPool(Dispatchers.Default.limitedParallelism(1))
     private val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
     private val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
     private val visibleStateFlow = MutableStateFlow<VisibleState?>(null)
@@ -51,11 +49,10 @@ internal class TileCanvasState(
         }
     internal var colorFilterProvider: ColorFilterProvider? by mutableStateOf(null)
 
-    private val bitmapConfig = if (highFidelityColors) {
-        BitmapConfiguration(Bitmap.Config.ARGB_8888, 4)
-    } else {
-        BitmapConfiguration(Bitmap.Config.RGB_565, 2)
-    }
+    private val bitmapConfig = BitmapConfiguration(
+        highFidelityColors,
+        bytesPerPixel = if (highFidelityColors) 4 else 2
+    )
 
     private val lastVisible: VisibleTiles?
         get() = visibleStateFlow.value?.visibleTiles
@@ -107,8 +104,7 @@ internal class TileCanvasState(
                 tileCollector.collectTiles(
                     tileSpecs = visibleTileLocationsChannel,
                     tilesOutput = tilesOutput,
-                    layers = layers,
-                    bitmapPool = bitmapPool
+                    layers = layers
                 )
             }
         }

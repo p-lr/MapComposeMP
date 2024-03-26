@@ -2,22 +2,17 @@
 
 package ovh.plrapps.mapcompose.core
 
-import android.graphics.Bitmap
-import android.graphics.Bitmap.Config
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Paint
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.Paint
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.selects.select
-import java.io.InputStream
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.SynchronousQueue
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
+import ovh.plrapps.mapcompose.utils.toImage
 import kotlin.math.pow
+import kotlin.concurrent.Volatile
 
 
 /**
@@ -68,8 +63,7 @@ internal class TileCollector(
     suspend fun collectTiles(
         tileSpecs: ReceiveChannel<TileSpec>,
         tilesOutput: SendChannel<Tile>,
-        layers: List<Layer>,
-        bitmapPool: BitmapPool
+        layers: List<Layer>
     ) = coroutineScope {
         val tilesToDownload = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
         val tilesDownloadedFromWorker = Channel<TileSpec>(capacity = 1)
@@ -79,8 +73,7 @@ internal class TileCollector(
                 tilesToDownload,
                 tilesDownloadedFromWorker,
                 tilesOutput,
-                layers,
-                bitmapPool
+                layers
             )
         }
         tileCollectorKernel(tileSpecs, tilesToDownload, tilesDownloadedFromWorker)
@@ -91,47 +84,10 @@ internal class TileCollector(
         tilesDownloaded: SendChannel<TileSpec>,
         tilesOutput: SendChannel<Tile>,
         layers: List<Layer>,
-        bitmapPool: BitmapPool
     ) = launch(dispatcher) {
 
         val layerIds = layers.map { it.id }
-        val bitmapLoadingOptionsForLayer = layerIds.associateWith {
-            BitmapFactory.Options().apply {
-                inPreferredConfig = bitmapConfiguration.bitmapConfig
-            }
-        }
-        val bitmapForLayer = layerIds.associateWith {
-            Bitmap.createBitmap(tileSize, tileSize, bitmapConfiguration.bitmapConfig)
-        }
-        val canvas = Canvas()
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
-
-        suspend fun getBitmapFromPoolOrCreate(subSamplingRatio: Int): Bitmap {
-            val subSampledSize = tileSize / subSamplingRatio
-            val allocationByteCount = subSampledSize * subSampledSize * bitmapConfiguration.bytesPerPixel
-            return bitmapPool.get(allocationByteCount) ?: Bitmap.createBitmap(subSampledSize, subSampledSize, bitmapConfiguration.bitmapConfig)
-        }
-
-        fun getBitmap(
-            subSamplingRatio: Int,
-            layer: Layer,
-            inputStream: InputStream,
-            inBitmapForced: Bitmap? = null
-        ): BitmapForLayer {
-            val bitmapLoadingOptions =
-                bitmapLoadingOptionsForLayer[layer.id] ?: return BitmapForLayer(null, layer)
-
-            bitmapLoadingOptions.inMutable = true
-            bitmapLoadingOptions.inBitmap = inBitmapForced ?: bitmapForLayer[layer.id]
-            bitmapLoadingOptions.inSampleSize = subSamplingRatio
-
-            return inputStream.use {
-                val bitmap = runCatching {
-                    BitmapFactory.decodeStream(inputStream, null, bitmapLoadingOptions)
-                }.getOrNull()
-                BitmapForLayer(bitmap, layer)
-            }
-        }
+        val paint = Paint()
 
         for (spec in tilesToDownload) {
             if (layers.isEmpty()) {
@@ -139,21 +95,12 @@ internal class TileCollector(
                 continue
             }
 
+            // TODO: bring back support for subsampling and bitmap pooling
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
             val bitmapForLayers = layers.mapIndexed { index, layer ->
                 async {
-                    val i = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
-                    if (i != null) {
-                        getBitmap(
-                            subSamplingRatio = subSamplingRatio,
-                            layer = layer,
-                            inputStream = i,
-                            /* Attempt to reuse an existing bitmap for the first layer */
-                            inBitmapForced = if (index == 0) getBitmapFromPoolOrCreate(
-                                subSamplingRatio
-                            ) else null
-                        )
-                    } else BitmapForLayer(null, layer)
+                    val byteArray = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
+                    BitmapForLayer(byteArray, layer)
                 }
             }.awaitAll()
 
@@ -239,6 +186,6 @@ internal class TileCollector(
     private val dispatcher = backgroundDispatcher.limitedParallelism(workerCount) //executor.asCoroutineDispatcher()
 }
 
-internal data class BitmapConfiguration(val bitmapConfig: Config, val bytesPerPixel: Int)
+internal data class BitmapConfiguration(val highFidelityColors: Boolean, val bytesPerPixel: Int)
 
 private class BitmapForLayer(val bitmap: ByteArray?, val layer: Layer)
