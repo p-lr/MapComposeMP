@@ -105,19 +105,16 @@ class PathsVM() : ScreenModel {
     private fun addTrack(
         trackName: String,
         color: Color? = null,
-        pattern: List<PatternItem>? = null,
-        clickable: Boolean = true
+        pattern: List<PatternItem>? = null
     ) {
-        with(state) {
-            val lines = screenModelScope.launch {
-                val lines = Res.readBytes("files/tracks/$trackName.txt").decodeToString().lineSequence()
-                addPath(
-                    id = trackName, color = color, clickable = true, pattern = pattern
-                ) {
-                    for (line in lines) {
-                        val values = line.split(',').map(String::toDouble)
-                        addPoint(values[0], values[1])
-                    }
+        screenModelScope.launch {
+            val lines = Res.readBytes("files/tracks/$trackName.txt").decodeToString().lineSequence()
+            state.addPath(
+                id = trackName, color = color, clickable = true, pattern = pattern
+            ) {
+                for (line in lines) {
+                    val values = line.split(',').map(String::toDouble)
+                    addPoint(values[0], values[1])
                 }
             }
         }
