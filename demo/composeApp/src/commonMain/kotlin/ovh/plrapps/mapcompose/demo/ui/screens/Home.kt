@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
@@ -19,6 +20,7 @@ import mapcompose_mp.demo.composeapp.generated.resources.app_name
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.stringResource
 import ovh.plrapps.mapcompose.demo.ui.MainDestinations
+import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 
 object HomeScreen : Screen {
     @OptIn(ExperimentalResourceApi::class)
@@ -26,6 +28,7 @@ object HomeScreen : Screen {
     override fun Content() {
         val demoListState = rememberLazyListState()
         val navigator = LocalNavigator.currentOrThrow
+        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
 
         Scaffold(
             topBar = {
@@ -45,7 +48,7 @@ object HomeScreen : Screen {
                             text = dest.title,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { navigator.push(dest.screen) }
+                                .clickable { globalScreenModel.navigateTo(navigator, dest.screen) }
                                 .padding(16.dp),
                             textAlign = TextAlign.Center
                         )

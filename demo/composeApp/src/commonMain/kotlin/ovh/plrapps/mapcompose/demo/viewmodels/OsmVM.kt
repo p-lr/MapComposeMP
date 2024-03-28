@@ -16,8 +16,7 @@ import kotlin.math.pow
 /**
  * Shows how to use WMTS tile servers with MapCompose, such as Open Street Map.
  */
-class OsmVM() : ScreenModel {
-    private val httpClient = getKtorClient()
+class OsmVM(httpClient: HttpClient) : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider(httpClient)
 
     private val maxLevel = 16
