@@ -27,10 +27,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
 import ovh.plrapps.mapcompose.api.centerOnMarker
 import ovh.plrapps.mapcompose.api.setVisibleAreaPadding
+import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
@@ -38,6 +42,9 @@ object VisibleAreaPaddingDemo : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { VisibleAreaPaddingVM() }
+        val navigator = LocalNavigator.currentOrThrow
+        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
+        globalScreenModel.activeMapState = screenModel.state
 
         val obstructionSize = 100.dp
         val obstructionColor = Color(0xA0000000)

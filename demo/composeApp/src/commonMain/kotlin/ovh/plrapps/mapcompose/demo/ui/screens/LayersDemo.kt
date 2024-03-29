@@ -7,8 +7,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
@@ -16,6 +20,9 @@ object LayersDemoSimple : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { LayersVM() }
+        val navigator = LocalNavigator.currentOrThrow
+        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
+        globalScreenModel.activeMapState = screenModel.state
 
         var satelliteSliderValue by remember {
             mutableFloatStateOf(1f)

@@ -17,6 +17,7 @@ object HttpTilesDemo : Screen {
         val navigator = LocalNavigator.currentOrThrow
         val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
         val screenModel = rememberScreenModel { HttpTilesVM(globalScreenModel.ktorClient()) }
+        globalScreenModel.activeMapState = screenModel.state
 
         MapUI(
             Modifier,

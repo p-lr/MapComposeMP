@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import ovh.plrapps.mapcompose.api.DefaultCanvas
 import ovh.plrapps.mapcompose.api.fullSize
 import ovh.plrapps.mapcompose.api.scale
@@ -31,6 +32,9 @@ import kotlin.math.log10
 import kotlin.math.pow
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 
 /**
  * This demo shows how to embed custom drawings inside [MapUI].
@@ -39,6 +43,9 @@ object CustomDraw : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { CustomDrawVM() }
+        val navigator = LocalNavigator.currentOrThrow
+        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
+        globalScreenModel.activeMapState = screenModel.state
 
         Box {
             MapUI(Modifier, state = screenModel.state) {

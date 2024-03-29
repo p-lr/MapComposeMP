@@ -8,15 +8,23 @@ import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import ovh.plrapps.mapcompose.demo.viewmodels.CenteringOnMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
+import cafe.adriel.voyager.navigator.LocalNavigator
+import cafe.adriel.voyager.navigator.currentOrThrow
+import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 
 object CenteringOnMarkerDemo : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { CenteringOnMarkerVM() }
+        val navigator = LocalNavigator.currentOrThrow
+        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
+        globalScreenModel.activeMapState = screenModel.state
+
         val onCenter: () -> Unit = screenModel::onCenter
 
         Column(Modifier.fillMaxSize()) {

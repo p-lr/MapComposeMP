@@ -19,6 +19,7 @@ object OsmDemo : Screen {
         val navigator = LocalNavigator.currentOrThrow
         val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
         val screenModel = rememberScreenModel { OsmVM(globalScreenModel.ktorClient()) }
+        globalScreenModel.activeMapState = screenModel.state
 
         MapUI(
             Modifier,
