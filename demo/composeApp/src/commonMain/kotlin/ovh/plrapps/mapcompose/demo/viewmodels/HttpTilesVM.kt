@@ -3,13 +3,11 @@ package ovh.plrapps.mapcompose.demo.viewmodels
 import cafe.adriel.voyager.core.model.ScreenModel
 import ovh.plrapps.mapcompose.demo.utils.getKtorClient
 import io.ktor.client.HttpClient
-import io.ktor.client.request.get
-import io.ktor.client.statement.HttpResponse
-import io.ktor.client.statement.readBytes
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.demo.utils.getStream
 import ovh.plrapps.mapcompose.ui.state.MapState
 
 /**
@@ -42,8 +40,10 @@ class HttpTilesVM() : ScreenModel {
 private fun makeTileStreamProvider(httpClient: HttpClient) =
     TileStreamProvider { row, col, zoomLvl ->
         try {
-            val response: HttpResponse = httpClient.get("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg")
-            response.readBytes()
+            getStream(
+                httpClient,
+                path = "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg"
+            )
         } catch (e: Exception) {
             e.printStackTrace()
             null

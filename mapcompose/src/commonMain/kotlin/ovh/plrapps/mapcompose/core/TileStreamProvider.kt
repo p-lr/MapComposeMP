@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.core
 
+import kotlinx.io.RawSource
 
 /**
  * Defines how tiles should be fetched. It must be supplied as part of the configuration of
@@ -19,5 +20,5 @@ package ovh.plrapps.mapcompose.core
  * unrecoverable failures.
  */
 fun interface TileStreamProvider {
-    suspend fun getTileStream(row: Int, col: Int, zoomLvl: Int): ByteArray?
+    suspend fun getTileStream(row: Int, col: Int, zoomLvl: Int): RawSource?
 }

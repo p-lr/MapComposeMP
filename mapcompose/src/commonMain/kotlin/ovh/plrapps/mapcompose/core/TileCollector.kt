@@ -10,6 +10,9 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.selects.select
+import kotlinx.io.Buffer
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
 import ovh.plrapps.mapcompose.utils.toImage
 import kotlin.math.pow
 import kotlin.concurrent.Volatile
@@ -99,8 +102,11 @@ internal class TileCollector(
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
             val bitmapForLayers = layers.mapIndexed { index, layer ->
                 async {
-                    val byteArray = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
-                    BitmapForLayer(byteArray, layer)
+                    val source = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
+                    val sink = Buffer()
+                    // TODO: use pool
+                    source?.buffered()?.transferTo(sink)
+                    BitmapForLayer(sink.readByteArray(), layer)
                 }
             }.awaitAll()
 

@@ -44,6 +44,7 @@ kotlin {
             implementation(compose.components.uiToolingPreview)
             implementation(libs.kotlinx.coroutines)
             implementation(libs.skia)
+            api(libs.kotlinx.io.core)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)

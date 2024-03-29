@@ -3,14 +3,13 @@ package ovh.plrapps.mapcompose.demo.viewmodels
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
-import mapcompose_mp.demo.composeapp.generated.resources.Res
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.enableRotation
 import ovh.plrapps.mapcompose.api.scrollTo
 import ovh.plrapps.mapcompose.api.setLayerOpacity
 import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.demo.providers.assetFileProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 
 class LayersVM() : ScreenModel {
@@ -36,11 +35,10 @@ class LayersVM() : ScreenModel {
         ignV2Id = addLayer(ignV2Provider, 0.5f)
     }
 
-    @OptIn(ExperimentalResourceApi::class)
     private fun makeTileStreamProvider(folder: String) =
         TileStreamProvider { row, col, zoomLvl ->
             try {
-                Res.readBytes("files/tiles/$folder/$zoomLvl/$row/$col.jpg")
+                assetFileProvider.get("files/tiles/$folder/$zoomLvl/$row/$col.jpg")
             } catch (e: Exception) {
                 null
             }
