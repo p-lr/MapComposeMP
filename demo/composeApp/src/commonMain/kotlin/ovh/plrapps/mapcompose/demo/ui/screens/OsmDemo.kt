@@ -9,7 +9,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.OsmVM
 expect object OsmDemo : Screen
 
 @Composable
-fun OsmDemo.View(screenModel: OsmVM) {
+fun OsmCommonUi(screenModel: OsmVM) {
     MapUI(
         Modifier,
         state = screenModel.state

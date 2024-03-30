@@ -10,7 +10,7 @@ actual object AddingMarkerDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { AddingMarkerVM() }
 
-        AddingMarkerDemo.View(screenModel)
+        AddingMarkerCommonUi(screenModel)
     }
 
 }

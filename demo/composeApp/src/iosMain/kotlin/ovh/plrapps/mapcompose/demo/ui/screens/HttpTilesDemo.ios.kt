@@ -10,6 +10,6 @@ actual object HttpTilesDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { HttpTilesVM() }
 
-        View(screenModel)
+        HttpTilesCommonUi(screenModel)
     }
 }

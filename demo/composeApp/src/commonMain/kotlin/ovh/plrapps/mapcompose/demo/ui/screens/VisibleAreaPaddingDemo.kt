@@ -36,7 +36,7 @@ import ovh.plrapps.mapcompose.ui.MapUI
 expect object VisibleAreaPaddingDemo : Screen
 
 @Composable
-fun VisibleAreaPaddingDemo.View(screenModel: VisibleAreaPaddingVM) {
+fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
     val obstructionSize = 100.dp
     val obstructionColor = Color(0xA0000000)
     var leftObstructionEnabled by remember { mutableStateOf(true) }

@@ -14,7 +14,7 @@ import ovh.plrapps.mapcompose.ui.MapUI
 expect object LayersDemoSimple : Screen
 
 @Composable
-fun LayersDemoSimple.View(screenModel: LayersVM) {
+fun LayersCommonUi(screenModel: LayersVM) {
     var satelliteSliderValue by remember {
         mutableFloatStateOf(1f)
     }

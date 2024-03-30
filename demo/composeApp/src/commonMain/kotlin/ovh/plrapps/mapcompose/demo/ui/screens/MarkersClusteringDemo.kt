@@ -9,6 +9,6 @@ import ovh.plrapps.mapcompose.ui.MapUI
 expect object MarkersClusteringDemo : Screen
 
 @Composable
-fun MarkersClusteringDemo.View(screenModel: MarkersClusteringVM) {
+fun MarkersClusteringCommonUi(screenModel: MarkersClusteringVM) {
     MapUI(Modifier, state = screenModel.state)
 }

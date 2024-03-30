@@ -10,6 +10,6 @@ actual object MapDemoSimple : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { SimpleDemoVM() }
 
-        View(screenModel)
+        MapSimpleCommonUi(screenModel)
     }
 }

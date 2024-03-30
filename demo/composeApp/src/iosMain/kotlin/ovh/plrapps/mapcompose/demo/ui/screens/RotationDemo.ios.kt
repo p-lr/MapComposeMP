@@ -10,6 +10,6 @@ actual object RotationDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { RotationVM() }
 
-        View(screenModel)
+        RotationCommonUi(screenModel)
     }
 }

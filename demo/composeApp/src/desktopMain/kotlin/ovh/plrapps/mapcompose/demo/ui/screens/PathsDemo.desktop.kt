@@ -4,15 +4,15 @@ import androidx.compose.runtime.Composable
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
-import ovh.plrapps.ui.MapContent
+import ovh.plrapps.ui.MapWithZoomControl
 
 actual object PathsDemo : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { PathsVM() }
 
-        MapContent(state = screenModel.state) {
-            View(screenModel)
+        MapWithZoomControl(state = screenModel.state) {
+            PathsCommonUi(screenModel)
         }
     }
 }

@@ -9,7 +9,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object HttpTilesDemo : Screen
 
 @Composable
-fun HttpTilesDemo.View(screenModel: HttpTilesVM) {
+fun HttpTilesCommonUi(screenModel: HttpTilesVM) {
     MapUI(
         Modifier,
         state = screenModel.state

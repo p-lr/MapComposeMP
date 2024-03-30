@@ -10,6 +10,6 @@ actual object MarkersClusteringDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { MarkersClusteringVM() }
 
-        View(screenModel)
+        MarkersClusteringCommonUi(screenModel)
     }
 }

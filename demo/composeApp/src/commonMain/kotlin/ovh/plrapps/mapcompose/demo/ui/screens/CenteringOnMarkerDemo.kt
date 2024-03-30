@@ -15,7 +15,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object CenteringOnMarkerDemo : Screen
 
 @Composable
-fun CenteringOnMarkerDemo.View(screenModel: CenteringOnMarkerVM) {
+fun CenteringOnMarkerCommonUi(screenModel: CenteringOnMarkerVM) {
     val onCenter: () -> Unit = screenModel::onCenter
 
     Column(Modifier.fillMaxSize()) {

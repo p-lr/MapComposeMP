@@ -13,6 +13,6 @@ actual object CustomDraw : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { CustomDrawVM() }
 
-        View(screenModel)
+        CustomDrawCommonUi(screenModel)
     }
 }

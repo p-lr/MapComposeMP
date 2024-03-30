@@ -11,7 +11,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object CalloutDemo : Screen
 
 @Composable
-fun CalloutDemo.View(screenModel: CalloutVM) {
+fun CalloutCommonUi(screenModel: CalloutVM) {
     Column(Modifier.fillMaxSize()) {
         MapUI(
             Modifier.weight(2f),

@@ -10,6 +10,6 @@ actual object CalloutDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { CalloutVM() }
 
-        View(screenModel)
+        CalloutCommonUi(screenModel)
     }
 }

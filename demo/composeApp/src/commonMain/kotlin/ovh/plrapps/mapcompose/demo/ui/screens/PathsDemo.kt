@@ -9,7 +9,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object PathsDemo : Screen
 
 @Composable
-fun PathsDemo.View(screenModel: PathsVM) {
+fun PathsCommonUi(screenModel: PathsVM) {
     MapUI(
         Modifier,
         state = screenModel.state

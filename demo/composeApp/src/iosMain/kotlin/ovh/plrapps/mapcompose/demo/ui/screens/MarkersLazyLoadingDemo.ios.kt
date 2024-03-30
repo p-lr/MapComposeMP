@@ -10,6 +10,6 @@ actual object MarkersLazyLoadingDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { MarkersLazyLoadingVM() }
 
-        View(screenModel)
+        MarkersLazyLoadingCommonUi(screenModel)
     }
 }

@@ -9,6 +9,6 @@ import ovh.plrapps.mapcompose.ui.MapUI
 expect object MarkersLazyLoadingDemo : Screen
 
 @Composable
-fun MarkersLazyLoadingDemo.View(screenModel: MarkersLazyLoadingVM) {
+fun MarkersLazyLoadingCommonUi(screenModel: MarkersLazyLoadingVM) {
     MapUI(Modifier, state = screenModel.state)
 }

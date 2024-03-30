@@ -10,6 +10,6 @@ actual object VisibleAreaPaddingDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { VisibleAreaPaddingVM() }
 
-        View(screenModel)
+        VisibleAreaPaddingCommonUi(screenModel)
     }
 }

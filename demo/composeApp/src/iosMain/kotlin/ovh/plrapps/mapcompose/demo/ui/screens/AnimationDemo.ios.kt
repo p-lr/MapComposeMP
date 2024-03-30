@@ -10,6 +10,6 @@ actual object AnimationDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { AnimationDemoVM() }
 
-        View(screenModel)
+        AnimationCommonUi(screenModel)
     }
 }

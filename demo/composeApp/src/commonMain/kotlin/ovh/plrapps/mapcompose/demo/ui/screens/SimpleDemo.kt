@@ -9,6 +9,6 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object MapDemoSimple : Screen
 
 @Composable
-fun MapDemoSimple.View(screenModel: SimpleDemoVM) {
+fun MapSimpleCommonUi(screenModel: SimpleDemoVM) {
     MapUI(modifier = Modifier, state = screenModel.state)
 }

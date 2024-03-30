@@ -14,7 +14,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object AddingMarkerDemo : Screen
 
 @Composable
-fun AddingMarkerDemo.View(screenModel: AddingMarkerVM) {
+fun AddingMarkerCommonUi(screenModel: AddingMarkerVM) {
     Column(Modifier.fillMaxSize()) {
         MapUI(
             Modifier.weight(2f),

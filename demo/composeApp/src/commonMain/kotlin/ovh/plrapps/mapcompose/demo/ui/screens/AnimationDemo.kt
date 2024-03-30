@@ -16,7 +16,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object AnimationDemo : Screen
 
 @Composable
-fun AnimationDemo.View(screenModel: AnimationDemoVM) {
+fun AnimationCommonUi(screenModel: AnimationDemoVM) {
     val onRestart: () -> Unit = screenModel::startAnimation
 
     Column(Modifier.fillMaxSize()) {

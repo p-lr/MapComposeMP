@@ -21,7 +21,7 @@ expect object HomeScreen : Screen
 
 @Composable
 @OptIn(ExperimentalResourceApi::class)
-fun HomeScreen.View(navigateTo: (screen: Screen) -> Unit) {
+fun HomeScreenCommonUi(onNavigate: (screen: Screen) -> Unit) {
     val demoListState = rememberLazyListState()
 
     Scaffold(
@@ -42,7 +42,7 @@ fun HomeScreen.View(navigateTo: (screen: Screen) -> Unit) {
                         text = dest.title,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { navigateTo(dest.screen) }
+                            .clickable { onNavigate(dest.screen) }
                             .padding(16.dp),
                         textAlign = TextAlign.Center
                     )

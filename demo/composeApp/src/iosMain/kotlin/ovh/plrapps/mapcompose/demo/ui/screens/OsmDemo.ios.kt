@@ -10,6 +10,6 @@ actual object OsmDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { OsmVM() }
 
-        View(screenModel)
+        OsmCommonUi(screenModel)
     }
 }

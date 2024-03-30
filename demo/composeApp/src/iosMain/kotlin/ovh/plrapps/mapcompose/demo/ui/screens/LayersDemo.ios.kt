@@ -10,6 +10,6 @@ actual object LayersDemoSimple : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { LayersVM() }
 
-        View(screenModel)
+        LayersCommonUi(screenModel)
     }
 }

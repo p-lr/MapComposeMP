@@ -19,7 +19,7 @@ import ovh.plrapps.utils.zoomIn
 import ovh.plrapps.utils.zoomOut
 
 @Composable
-fun MapContent(state: MapState, content: @Composable () -> Unit) {
+fun MapWithZoomControl(state: MapState, content: @Composable () -> Unit) {
     val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {

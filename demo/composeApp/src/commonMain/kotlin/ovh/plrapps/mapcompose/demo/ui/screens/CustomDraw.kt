@@ -37,7 +37,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object CustomDraw : Screen
 
 @Composable
-fun CustomDraw.View(screenModel: CustomDrawVM) {
+fun CustomDrawCommonUi(screenModel: CustomDrawVM) {
     Box {
         MapUI(Modifier, state = screenModel.state) {
             Square(

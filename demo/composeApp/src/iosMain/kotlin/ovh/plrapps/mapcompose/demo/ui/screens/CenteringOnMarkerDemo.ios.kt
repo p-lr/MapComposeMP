@@ -10,6 +10,6 @@ actual object CenteringOnMarkerDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { CenteringOnMarkerVM() }
 
-        View(screenModel)
+        CenteringOnMarkerCommonUi(screenModel)
     }
 }

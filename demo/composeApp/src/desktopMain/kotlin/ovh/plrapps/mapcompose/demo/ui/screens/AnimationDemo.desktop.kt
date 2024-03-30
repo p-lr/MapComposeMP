@@ -4,15 +4,15 @@ import androidx.compose.runtime.Composable
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.AnimationDemoVM
-import ovh.plrapps.ui.MapContent
+import ovh.plrapps.ui.MapWithZoomControl
 
 actual object AnimationDemo : Screen {
     @Composable
     override fun Content() {
         val screenModel = rememberScreenModel { AnimationDemoVM() }
 
-        MapContent(state = screenModel.state) {
-            View(screenModel)
+        MapWithZoomControl(state = screenModel.state) {
+            AnimationCommonUi(screenModel)
         }
     }
 }

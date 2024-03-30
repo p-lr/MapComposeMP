@@ -10,6 +10,6 @@ actual object HomeScreen : Screen {
     override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
 
-        View(navigateTo = { navigator.push(it)})
+        HomeScreenCommonUi(onNavigate = { navigator.push(it) })
     }
 }

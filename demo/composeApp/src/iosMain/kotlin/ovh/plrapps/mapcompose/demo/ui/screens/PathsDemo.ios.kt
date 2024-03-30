@@ -10,6 +10,6 @@ actual object PathsDemo : Screen {
     override fun Content() {
         val screenModel = rememberScreenModel { PathsVM() }
 
-        View(screenModel)
+        PathsCommonUi(screenModel)
     }
 }

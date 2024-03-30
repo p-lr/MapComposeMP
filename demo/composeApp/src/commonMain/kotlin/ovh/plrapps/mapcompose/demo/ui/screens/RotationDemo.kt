@@ -15,7 +15,7 @@ import cafe.adriel.voyager.core.screen.Screen
 expect object RotationDemo : Screen
 
 @Composable
-fun RotationDemo.View(screenModel: RotationVM) {
+fun RotationCommonUi(screenModel: RotationVM) {
     val sliderValue = screenModel.state.rotation / 360f
 
     Column(Modifier.fillMaxSize()) {
