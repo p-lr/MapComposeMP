@@ -16,13 +16,15 @@ fun iOSApp() {
     MaterialTheme {
         Navigator(HomeScreen) { navigator ->
             Scaffold(
-                topBar = { TopAppBar() {
+                topBar = {
                     if (navigator.lastItem != HomeScreen) {
-                        Button(onClick = { navigator.pop() }) {
-                            Text("Back")
+                        TopAppBar() {
+                            Button(onClick = { navigator.pop() }) {
+                                Text("Back")
+                            }
                         }
                     }
-                } },
+                },
                 content = { CurrentScreen() },
             )
         }

@@ -10,25 +10,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.demo.viewmodels.CenteringOnMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 
-object CenteringOnMarkerDemo : Screen {
-    @Composable
-    override fun Content() {
-        val screenModel = rememberScreenModel { CenteringOnMarkerVM() }
-        val onCenter: () -> Unit = screenModel::onCenter
+expect object CenteringOnMarkerDemo : Screen
 
-        Column(Modifier.fillMaxSize()) {
-            MapUI(
-                Modifier.weight(2f),
-                state = screenModel.state
-            )
-            Button(onClick = {
-                onCenter()
-            }, Modifier.padding(8.dp)) {
-                Text(text = "Center on marker")
-            }
+@Composable
+fun CenteringOnMarkerDemo.View(screenModel: CenteringOnMarkerVM) {
+    val onCenter: () -> Unit = screenModel::onCenter
+
+    Column(Modifier.fillMaxSize()) {
+        MapUI(
+            Modifier.weight(2f),
+            state = screenModel.state
+        )
+        Button(onClick = {
+            onCenter()
+        }, Modifier.padding(8.dp)) {
+            Text(text = "Center on marker")
         }
     }
 }

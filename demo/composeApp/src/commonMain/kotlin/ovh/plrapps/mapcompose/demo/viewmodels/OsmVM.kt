@@ -30,6 +30,11 @@ class OsmVM() : ScreenModel {
         addLayer(tileStreamProvider)
         scale = 0f  // to zoom out initially
     }
+
+    override fun onDispose() {
+        httpClient.close()
+        super.onDispose()
+    }
 }
 
 /**

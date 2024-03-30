@@ -29,6 +29,11 @@ class HttpTilesVM() : ScreenModel {
         scale = 0f
         shouldLoopScale = true
     }
+
+    override fun onDispose() {
+        httpClient.close()
+        super.onDispose()
+    }
 }
 
 /**

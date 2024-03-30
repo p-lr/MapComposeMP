@@ -10,32 +10,30 @@ import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.api.rotation
 import ovh.plrapps.mapcompose.demo.viewmodels.RotationVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 
-object RotationDemo : Screen {
-    @Composable
-    override fun Content() {
-        val screenModel = rememberScreenModel { RotationVM() }
-        val sliderValue = screenModel.state.rotation / 360f
+expect object RotationDemo : Screen
 
-        Column(Modifier.fillMaxSize()) {
-            MapUI(
-                Modifier.weight(2f),
-                state = screenModel.state
-            )
-            Row {
-                Button(onClick = { screenModel.onRotate() }, Modifier.padding(8.dp)) {
-                    Text(text = "Rotate 90°")
-                }
-                Slider(
-                    value = sliderValue,
-                    valueRange = 0f..0.9999f,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    onValueChange = { v -> screenModel.state.rotation = v * 360f })
+@Composable
+fun RotationDemo.View(screenModel: RotationVM) {
+    val sliderValue = screenModel.state.rotation / 360f
+
+    Column(Modifier.fillMaxSize()) {
+        MapUI(
+            Modifier.weight(2f),
+            state = screenModel.state
+        )
+        Row {
+            Button(onClick = { screenModel.onRotate() }, Modifier.padding(8.dp)) {
+                Text(text = "Rotate 90°")
             }
+            Slider(
+                value = sliderValue,
+                valueRange = 0f..0.9999f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                onValueChange = { v -> screenModel.state.rotation = v * 360f })
         }
     }
 }
