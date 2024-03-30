@@ -7,52 +7,42 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
-import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.navigator.LocalNavigator
-import cafe.adriel.voyager.navigator.currentOrThrow
-import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
-object LayersDemoSimple : Screen {
-    @Composable
-    override fun Content() {
-        val screenModel = rememberScreenModel { LayersVM() }
-        val navigator = LocalNavigator.currentOrThrow
-        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
-        globalScreenModel.activeMapState = screenModel.state
+expect object LayersDemoSimple : Screen
 
-        var satelliteSliderValue by remember {
-            mutableFloatStateOf(1f)
+@Composable
+fun LayersDemoSimple.View(screenModel: LayersVM) {
+    var satelliteSliderValue by remember {
+        mutableFloatStateOf(1f)
+    }
+
+    var ignV2SliderValue by remember {
+        mutableFloatStateOf(0.5f)
+    }
+
+    Column {
+        BoxWithConstraints {
+            MapUI(Modifier.size(maxWidth, maxHeight - 100.dp), state = screenModel.state)
         }
-
-        var ignV2SliderValue by remember {
-            mutableFloatStateOf(0.5f)
-        }
-
-        Column {
-            BoxWithConstraints {
-                MapUI(Modifier.size(maxWidth, maxHeight - 100.dp), state = screenModel.state)
+        LayerSlider(
+            name = "Satellite",
+            value = satelliteSliderValue,
+            onValueChange = {
+                satelliteSliderValue = it
+                screenModel.setSatelliteOpacity(it)
             }
-            LayerSlider(
-                name = "Satellite",
-                value = satelliteSliderValue,
-                onValueChange = {
-                    satelliteSliderValue = it
-                    screenModel.setSatelliteOpacity(it)
-                }
-            )
-            LayerSlider(
-                name = "IGN v2",
-                value = ignV2SliderValue,
-                onValueChange = {
-                    ignV2SliderValue = it
-                    screenModel.setIgnV2Opacity(it)
-                }
-            )
-        }
+        )
+        LayerSlider(
+            name = "IGN v2",
+            value = ignV2SliderValue,
+            onValueChange = {
+                ignV2SliderValue = it
+                screenModel.setIgnV2Opacity(it)
+            }
+        )
     }
 }
 

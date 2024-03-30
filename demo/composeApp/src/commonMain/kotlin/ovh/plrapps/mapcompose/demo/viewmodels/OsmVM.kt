@@ -16,7 +16,8 @@ import kotlin.math.pow
 /**
  * Shows how to use WMTS tile servers with MapCompose, such as Open Street Map.
  */
-class OsmVM(httpClient: HttpClient) : ScreenModel {
+class OsmVM() : ScreenModel {
+    private val httpClient = getKtorClient()
     private val tileStreamProvider = makeTileStreamProvider(httpClient)
 
     private val maxLevel = 16
@@ -28,6 +29,11 @@ class OsmVM(httpClient: HttpClient) : ScreenModel {
     }.apply {
         addLayer(tileStreamProvider)
         scale = 0f  // to zoom out initially
+    }
+
+    override fun onDispose() {
+        httpClient.close()
+        super.onDispose()
     }
 }
 

@@ -15,7 +15,8 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 /**
  * Shows how MapCompose behaves with remote HTTP tiles.
  */
-class HttpTilesVM(httpClient: HttpClient) : ScreenModel {
+class HttpTilesVM() : ScreenModel {
+    private val httpClient = getKtorClient()
     private val tileStreamProvider = makeTileStreamProvider(httpClient)
 
     val state = MapState(
@@ -27,6 +28,11 @@ class HttpTilesVM(httpClient: HttpClient) : ScreenModel {
         addLayer(tileStreamProvider)
         scale = 0f
         shouldLoopScale = true
+    }
+
+    override fun onDispose() {
+        httpClient.close()
+        super.onDispose()
     }
 }
 

@@ -20,7 +20,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.rememberNavigatorScreenModel
 import ovh.plrapps.mapcompose.api.DefaultCanvas
 import ovh.plrapps.mapcompose.api.fullSize
 import ovh.plrapps.mapcompose.api.scale
@@ -30,68 +29,59 @@ import ovh.plrapps.mapcompose.ui.MapUI
 import ovh.plrapps.mapcompose.ui.state.MapState
 import kotlin.math.log10
 import kotlin.math.pow
-import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
-import cafe.adriel.voyager.navigator.LocalNavigator
-import cafe.adriel.voyager.navigator.currentOrThrow
-import ovh.plrapps.mapcompose.demo.viewmodels.GlobalVM
 
 /**
  * This demo shows how to embed custom drawings inside [MapUI].
  */
-object CustomDraw : Screen {
-    @Composable
-    override fun Content() {
-        val screenModel = rememberScreenModel { CustomDrawVM() }
-        val navigator = LocalNavigator.currentOrThrow
-        val globalScreenModel = navigator.rememberNavigatorScreenModel { GlobalVM }
-        globalScreenModel.activeMapState = screenModel.state
+expect object CustomDraw : Screen
 
-        Box {
-            MapUI(Modifier, state = screenModel.state) {
-                Square(
-                    modifier = Modifier,
-                    mapState = screenModel.state,
-                    position = Offset(
-                        screenModel.state.fullSize.width / 2f - 300f,
-                        screenModel.state.fullSize.height / 2f - 300f
-                    ),
-                    color = Color(0xff5c6bc0),
-                    isScaling = true
-                )
-                Square(
-                    modifier = Modifier,
-                    mapState = screenModel.state,
-                    position = Offset(
-                        screenModel.state.fullSize.width / 2f,
-                        screenModel.state.fullSize.height / 2f
-                    ),
-                    color = Color(0xff087f23),
-                    isScaling = false
-                )
-                Line(
-                    modifier = Modifier,
-                    mapState = screenModel.state,
-                    color = Color(0xAAF44336),
-                    p1 = with(screenModel) {
-                        Offset(
-                            (p1x * state.fullSize.width).toFloat(),
-                            (p1y * state.fullSize.height).toFloat()
-                        )
-                    },
-                    p2 = with(screenModel) {
-                        Offset(
-                            (p2x * state.fullSize.width).toFloat(),
-                            (p2y * state.fullSize.height).toFloat()
-                        )
-                    }
-                )
-            }
-            ScaleIndicator(
-                controller = screenModel.scaleIndicatorController,
-                lineColor = Color.Black
+@Composable
+fun CustomDraw.View(screenModel: CustomDrawVM) {
+    Box {
+        MapUI(Modifier, state = screenModel.state) {
+            Square(
+                modifier = Modifier,
+                mapState = screenModel.state,
+                position = Offset(
+                    screenModel.state.fullSize.width / 2f - 300f,
+                    screenModel.state.fullSize.height / 2f - 300f
+                ),
+                color = Color(0xff5c6bc0),
+                isScaling = true
+            )
+            Square(
+                modifier = Modifier,
+                mapState = screenModel.state,
+                position = Offset(
+                    screenModel.state.fullSize.width / 2f,
+                    screenModel.state.fullSize.height / 2f
+                ),
+                color = Color(0xff087f23),
+                isScaling = false
+            )
+            Line(
+                modifier = Modifier,
+                mapState = screenModel.state,
+                color = Color(0xAAF44336),
+                p1 = with(screenModel) {
+                    Offset(
+                        (p1x * state.fullSize.width).toFloat(),
+                        (p1y * state.fullSize.height).toFloat()
+                    )
+                },
+                p2 = with(screenModel) {
+                    Offset(
+                        (p2x * state.fullSize.width).toFloat(),
+                        (p2y * state.fullSize.height).toFloat()
+                    )
+                }
             )
         }
+        ScaleIndicator(
+            controller = screenModel.scaleIndicatorController,
+            lineColor = Color.Black
+        )
     }
 }
 
