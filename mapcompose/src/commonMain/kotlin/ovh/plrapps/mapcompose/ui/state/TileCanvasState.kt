@@ -38,6 +38,8 @@ internal class TileCanvasState(
     private val _layerFlow = MutableStateFlow<List<Layer>>(listOf())
     internal val layerFlow = _layerFlow.asStateFlow()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val pool = BitmapPool(Dispatchers.Default.limitedParallelism(1))
     private val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
     private val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
     private val visibleStateFlow = MutableStateFlow<VisibleState?>(null)
@@ -102,7 +104,8 @@ internal class TileCanvasState(
                 tileCollector.collectTiles(
                     tileSpecs = visibleTileLocationsChannel,
                     tilesOutput = tilesOutput,
-                    layers = layers
+                    layers = layers,
+                    tilePool = pool
                 )
             }
         }
@@ -406,6 +409,7 @@ internal class TileCanvasState(
      */
     private fun Tile.recycle() {
         alpha = 0f
+        pool.put(bitmap ?: return)
     }
 
     private fun Int.minAtGreaterLevel(n: Int): Int {
