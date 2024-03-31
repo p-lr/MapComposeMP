@@ -1,20 +1,16 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
 import cafe.adriel.voyager.core.model.ScreenModel
-import ovh.plrapps.mapcompose.demo.utils.getKtorClient
-import io.ktor.client.HttpClient
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
-import ovh.plrapps.mapcompose.demo.utils.getStream
 import ovh.plrapps.mapcompose.ui.state.MapState
 
 /**
  * Shows how MapCompose behaves with remote HTTP tiles.
  */
 class HttpTilesVM : ScreenModel {
-    private val httpClient = getKtorClient()
     private val tileStreamProvider = makeHttpTileStreamProvider()
 
     val state = MapState(
@@ -27,28 +23,6 @@ class HttpTilesVM : ScreenModel {
         scale = 0f
         shouldLoopScale = true
     }
-
-    override fun onDispose() {
-        httpClient.close()
-        super.onDispose()
-    }
 }
 
 expect fun makeHttpTileStreamProvider(): TileStreamProvider
-
-/**
- * A [TileStreamProvider] which performs HTTP requests.
- */
-private fun makeTileStreamProvider(httpClient: HttpClient): TileStreamProvider {
-    return TileStreamProvider { row, col, zoomLvl ->
-        try {
-            getStream(
-                httpClient,
-                path = "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg"
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-}

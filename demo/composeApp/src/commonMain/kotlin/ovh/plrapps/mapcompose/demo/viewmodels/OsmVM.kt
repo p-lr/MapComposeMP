@@ -1,12 +1,9 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
 import cafe.adriel.voyager.core.model.ScreenModel
-import ovh.plrapps.mapcompose.demo.utils.getKtorClient
-import io.ktor.client.HttpClient
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
-import ovh.plrapps.mapcompose.demo.utils.getStream
 import ovh.plrapps.mapcompose.ui.layout.Forced
 import ovh.plrapps.mapcompose.ui.state.MapState
 import kotlin.math.pow
@@ -14,9 +11,8 @@ import kotlin.math.pow
 /**
  * Shows how to use WMTS tile servers with MapCompose, such as Open Street Map.
  */
-class OsmVM() : ScreenModel {
-    private val httpClient = getKtorClient()
-    private val tileStreamProvider = makeTileStreamProvider(httpClient)
+class OsmVM : ScreenModel {
+    private val tileStreamProvider = makeOsmTileStreamProvider()
 
     private val maxLevel = 16
     private val minLevel = 12
@@ -28,26 +24,9 @@ class OsmVM() : ScreenModel {
         addLayer(tileStreamProvider)
         scale = 0f  // to zoom out initially
     }
-
-    override fun onDispose() {
-        httpClient.close()
-        super.onDispose()
-    }
 }
 
-/**
- * A [TileStreamProvider] which performs HTTP requests.
- */
-private fun makeTileStreamProvider(httpClient: HttpClient): TileStreamProvider {
-    return TileStreamProvider { row, col, zoomLvl ->
-        try {
-            getStream(httpClient, "https://tile.openstreetmap.org/$zoomLvl/$col/$row.png")
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-}
+expect fun makeOsmTileStreamProvider(): TileStreamProvider
 
 /**
  * wmts level are 0 based.

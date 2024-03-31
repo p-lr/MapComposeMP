@@ -20,3 +20,17 @@ actual fun makeHttpTileStreamProvider(): TileStreamProvider {
         }
     }
 }
+
+actual fun makeOsmTileStreamProvider(): TileStreamProvider {
+    // TODO: use a blocking http client. MapCompose already switches context when calling the provided TileStreamProvider,
+    // so there is no need for an asynchronous http client such as Ktor.
+    val httpClient = getKtorClient()
+    return TileStreamProvider { row, col, zoomLvl ->
+        try {
+            getStream(httpClient, "https://tile.openstreetmap.org/$zoomLvl/$col/$row.png")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+}
