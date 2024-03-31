@@ -1,4 +1,4 @@
-package ovh.plrapps.utils
+package ovh.plrapps.mapcompose.demo.utils
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.TweenSpec

@@ -13,9 +13,9 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 /**
  * Shows how MapCompose behaves with remote HTTP tiles.
  */
-class HttpTilesVM() : ScreenModel {
+class HttpTilesVM : ScreenModel {
     private val httpClient = getKtorClient()
-    private val tileStreamProvider = makeTileStreamProvider(httpClient)
+    private val tileStreamProvider = makeHttpTileStreamProvider()
 
     val state = MapState(
         levelCount = 4,
@@ -34,11 +34,13 @@ class HttpTilesVM() : ScreenModel {
     }
 }
 
+expect fun makeHttpTileStreamProvider(): TileStreamProvider
+
 /**
  * A [TileStreamProvider] which performs HTTP requests.
  */
-private fun makeTileStreamProvider(httpClient: HttpClient) =
-    TileStreamProvider { row, col, zoomLvl ->
+private fun makeTileStreamProvider(httpClient: HttpClient): TileStreamProvider {
+    return TileStreamProvider { row, col, zoomLvl ->
         try {
             getStream(
                 httpClient,
@@ -49,3 +51,4 @@ private fun makeTileStreamProvider(httpClient: HttpClient) =
             null
         }
     }
+}

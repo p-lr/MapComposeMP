@@ -1,4 +1,4 @@
-package ovh.plrapps.ui
+package ovh.plrapps.mapcompose.demo.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,8 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.ui.state.MapState
-import ovh.plrapps.utils.zoomIn
-import ovh.plrapps.utils.zoomOut
+import ovh.plrapps.mapcompose.demo.utils.zoomIn
+import ovh.plrapps.mapcompose.demo.utils.zoomOut
 
 @Composable
 fun MapWithZoomControl(state: MapState, content: @Composable () -> Unit) {

@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import cafe.adriel.voyager.core.model.rememberScreenModel
 import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM
-import ovh.plrapps.ui.MapWithZoomControl
+import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 
 actual object MapDemoSimple : Screen {
     @Composable
