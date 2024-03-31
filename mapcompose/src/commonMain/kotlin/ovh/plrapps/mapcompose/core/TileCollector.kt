@@ -101,6 +101,7 @@ internal class TileCollector(
             }
 
             // TODO: bring back support for subsampling and bitmap pooling
+            // See https://github.com/JetBrains/skiko/issues/853
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
             val bitmapForLayers = layers.mapIndexed { index, layer ->
                 async {
