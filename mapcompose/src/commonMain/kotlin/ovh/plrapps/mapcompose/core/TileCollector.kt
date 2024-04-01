@@ -129,13 +129,19 @@ internal class TileCollector(
                 null
             } ?: continue // If the decoding of the first layer failed, skip the rest
 
-            val image = resultBitmap.toImage(tilePool.get()) ?: continue
+            val image = resultBitmap.toImage(
+                tilePool.get(),
+                bitmapConfiguration.highFidelityColors
+            ) ?: continue
             val canvas = Canvas(image)
 
             for (result in bitmapForLayers.drop(1)) {
                 paint.alpha = result.layer.alpha
                 if (result.source == null) continue
-                canvas.drawImage(image = result.source.toImage(null) ?: continue, Offset.Zero, paint)
+                canvas.drawImage(
+                    image = result.source.toImage(null, bitmapConfiguration.highFidelityColors) ?: continue,
+                    Offset.Zero, paint
+                )
             }
 
             val tile = Tile(
