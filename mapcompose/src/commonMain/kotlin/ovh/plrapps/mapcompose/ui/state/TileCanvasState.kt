@@ -29,7 +29,8 @@ internal class TileCanvasState(
 ) {
 
     /* This view-model uses a background thread for its computations */
-    private val singleThreadDispatcher = Dispatchers.Default.limitedParallelism(1)
+    private val singleThreadDispatcher = newSingleThreadContext("TileCanvasThread")
+    @OptIn(ExperimentalCoroutinesApi::class)
     private val scope = CoroutineScope(
         parentScope.coroutineContext + singleThreadDispatcher
     )
@@ -138,7 +139,6 @@ internal class TileCanvasState(
 
     fun shutdown() {
         scope.cancel()
-        tileCollector.shutdownNow()
     }
 
     suspend fun setViewport(viewport: Viewport) {

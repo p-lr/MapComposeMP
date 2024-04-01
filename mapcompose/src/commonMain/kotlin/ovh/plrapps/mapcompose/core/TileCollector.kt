@@ -89,7 +89,7 @@ internal class TileCollector(
         tilesOutput: SendChannel<Tile>,
         layers: List<Layer>,
         tilePool: BitmapPool
-    ) = launch(dispatcher) {
+    ) = launch(workerDispatcher) {
 
         val layerIds = layers.map { it.id }
         val paint = Paint()
@@ -181,15 +181,7 @@ internal class TileCollector(
         }
     }
 
-    /**
-     * Attempts to stop all actively executing tasks, halts the processing of waiting tasks.
-     */
-    fun shutdownNow() {
-        backgroundDispatcher.close()
-    }
-
-    private val backgroundDispatcher = newFixedThreadPoolContext(workerCount, "TileCollectorPool")
-    private val dispatcher = backgroundDispatcher.limitedParallelism(workerCount) //executor.asCoroutineDispatcher()
+    private val workerDispatcher = Dispatchers.IO.limitedParallelism(workerCount)
 }
 
 internal data class BitmapConfiguration(val highFidelityColors: Boolean, val bytesPerPixel: Int)
