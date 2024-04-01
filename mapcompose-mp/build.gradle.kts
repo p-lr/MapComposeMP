@@ -1,9 +1,9 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.jetbrainsCompose)
+    `maven-publish`
+    signing
 }
 
 kotlin {
@@ -13,6 +13,7 @@ kotlin {
                 jvmTarget = "11"
             }
         }
+        publishLibraryVariants("release")
     }
     
     jvm("desktop")
@@ -23,7 +24,7 @@ kotlin {
         iosSimulatorArm64()
     ).forEach { iosTarget ->
         iosTarget.binaries.framework {
-            baseName = "MapCompose"
+            baseName = "MapComposeMP"
             isStatic = true
         }
     }
@@ -85,16 +86,67 @@ android {
     }
 }
 
-compose.desktop {
-    application {
-        mainClass = "MainKt"
+task("testClasses")
 
-        nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "ovh.plrapps.mapcomposemp"
-            packageVersion = "1.0.0"
+val GROUP: String by project
+val VERSION_NAME: String by project
+
+group = GROUP
+version = VERSION_NAME
+
+publishing {
+    repositories {
+        maven {
+            val releasesRepoUrl = uri(System.getenv("releaseRepositoryUrl") ?: "")
+            val snapshotsRepoUrl = uri(System.getenv("snapshotRepositoryUrl") ?: "")
+            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+
+            credentials(PasswordCredentials::class) {
+                username = System.getenv("NEXUS_USERNAME")
+                password = System.getenv("NEXUS_PASSWORD")
+            }
+        }
+    }
+
+    publications.withType<MavenPublication> {
+
+        artifact(tasks.register("${name}JavadocJar", Jar::class) {
+            archiveClassifier.set("javadoc")
+            archiveAppendix.set(this@withType.name)
+        })
+
+        pom {
+            name = "MapComposeMP"
+            description =
+                "A Compose Multiplatform library to display tiled maps, with support for markers, paths, and rotation"
+            url = "https://github.com/p-lr/MapComposeMP"
+            inceptionYear = "2024"
+
+            licenses {
+                license {
+                    name = "The Apache Software License, Version 2.0"
+                    url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+                }
+            }
+            developers {
+                developer {
+                    id = "p-lr"
+                    name = "Pierre Laurence"
+                    email = "https://github.com/p-lr/"
+                }
+            }
+            scm {
+                connection = "scm:git@github.com:p-lr/MapComposeMP.git"
+                developerConnection = "scm:git@github.com:p-lr/MapComposeMP.git"
+                url = "https://github.com/p-lr/MapComposeMP"
+            }
         }
     }
 }
+ext["signing.keyId"] = System.getenv("signingKeyId")
+ext["signing.password"] = System.getenv("signingPwd")
+ext["signing.secretKeyRingFile"] = System.getenv("signingKeyFile")
 
-task("testClasses")
+signing {
+    sign(publishing.publications)
+}
