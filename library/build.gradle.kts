@@ -90,6 +90,7 @@ task("testClasses")
 
 val GROUP: String by project
 val VERSION_NAME: String by project
+val ARTIFACT_ID: String by project
 
 group = GROUP
 version = VERSION_NAME
@@ -109,6 +110,13 @@ publishing {
     }
 
     publications.withType<MavenPublication> {
+        if (name == "kotlinMultiplatform") {
+            artifactId = ARTIFACT_ID
+        } else if (name == "androidRelease") {
+            afterEvaluate { artifactId = "$ARTIFACT_ID-android" }
+        } else {
+            artifactId = "$ARTIFACT_ID-$name"
+        }
 
         artifact(tasks.register("${name}JavadocJar", Jar::class) {
             archiveClassifier.set("javadoc")

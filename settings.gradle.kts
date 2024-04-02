@@ -19,4 +19,4 @@ dependencyResolutionManagement {
 }
 
 include(":demo:composeApp")
-include(":mapcompose-mp")
+include(":library")
