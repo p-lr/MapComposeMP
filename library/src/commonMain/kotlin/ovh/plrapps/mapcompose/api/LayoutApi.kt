@@ -116,12 +116,15 @@ fun MapState.setVisibleAreaPadding(
     top: Dp = 0.dp,
     bottom: Dp = 0.dp
 ) {
-    setVisibleAreaPadding(
-        left = dpToPx(left.value).roundToInt(),
-        right = dpToPx(right.value).roundToInt(),
-        top = dpToPx(top.value).roundToInt(),
-        bottom = dpToPx(bottom.value).roundToInt()
-    )
+    scope.launch {
+        val density = density.await()
+        setVisibleAreaPadding(
+            left = with(density) { left.toPx() }.roundToInt(),
+            right = with(density) { right.toPx() }.roundToInt(),
+            top = with(density) { top.toPx() }.roundToInt(),
+            bottom = with(density) { bottom.toPx() }.roundToInt()
+        )
+    }
 }
 
 /**

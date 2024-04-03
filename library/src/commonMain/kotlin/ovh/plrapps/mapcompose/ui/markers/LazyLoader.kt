@@ -12,7 +12,6 @@ import ovh.plrapps.mapcompose.ui.state.markers.MarkerRenderState
 import ovh.plrapps.mapcompose.ui.state.markers.model.MarkerData
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
 import ovh.plrapps.mapcompose.utils.contains
-import ovh.plrapps.mapcompose.utils.dpToPx
 import ovh.plrapps.mapcompose.utils.map
 import ovh.plrapps.mapcompose.utils.throttle
 
@@ -37,9 +36,12 @@ internal class LazyLoader(
 
     init {
         job = scope.launch {
+            val density = mapState.density.await()
+            val padding = with(density) {
+                padding.toPx()
+            }.toInt()
             markers.throttle(100).collectLatest {
                 referentialSnapshotFlow.throttle(100).collectLatest {
-                    val padding = dpToPx(padding.value).toInt()
                     val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
 
                     /* Get the list of lazy loaded markers */

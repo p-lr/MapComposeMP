@@ -112,6 +112,7 @@ internal class PathState(
         val xPx = (x * fullWidth).toFloat()
         val yPx = (y * fullHeight).toFloat()
 
+        // TODO: find a way to use reliable density
         val radius = dpToPx(12f)
         val threshold = radius / scale
 

@@ -3,8 +3,10 @@ package ovh.plrapps.mapcompose.ui
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotate
 import ovh.plrapps.mapcompose.ui.markers.MarkerComposer
@@ -21,6 +23,11 @@ fun MapUI(
     val zoomPRState = state.zoomPanRotateState
     val markerState = state.markerRenderState
     val pathState = state.pathState
+
+    val density = LocalDensity.current
+    remember(density) {
+        state.density.complete(density)
+    }
 
     key(state) {
         ZoomPanRotate(

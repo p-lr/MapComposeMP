@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -17,7 +18,6 @@ import ovh.plrapps.mapcompose.ui.state.markers.model.Custom
 import ovh.plrapps.mapcompose.ui.state.markers.model.Default
 import ovh.plrapps.mapcompose.ui.state.markers.model.None
 import ovh.plrapps.mapcompose.utils.contains
-import ovh.plrapps.mapcompose.utils.dpToPx
 import ovh.plrapps.mapcompose.utils.map
 import ovh.plrapps.mapcompose.utils.throttle
 import kotlin.math.*
@@ -47,14 +47,19 @@ internal class Clusterer(
 
     private val referentialSnapshotFlow = mapState.referentialSnapshotFlow()
     private val clusterIdPrefix = "#cluster#-$id"
-    private val epsilon = dpToPx(clusteringThreshold.value)
 
     init {
         scope.launch {
+            val density = mapState.density.await()
+            val epsilon = with(density) {
+                clusteringThreshold.toPx()
+            }
+            val padding = with(density) {
+                100.dp.toPx()
+            }.toInt()
             markers.throttle(100).collectLatest {
                 referentialSnapshotFlow.throttle(500).collectLatest {
                     val scale = it.scale
-                    val padding = dpToPx(100f).toInt()
                     val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
 
                     /* Get the list of rendered clusterer managed (by this clusterer) markers */

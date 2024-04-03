@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Density
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -95,6 +97,7 @@ class MapState(
         consumeLateInitialValues = {}
         applyLateInitialValues(initialValues)
     }
+    internal val density = CompletableDeferred<Density>()
 
     /**
      * Cancels all internal tasks.
