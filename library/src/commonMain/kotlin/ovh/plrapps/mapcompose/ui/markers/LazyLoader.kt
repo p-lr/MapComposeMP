@@ -36,28 +36,32 @@ internal class LazyLoader(
 
     init {
         job = scope.launch {
-            val density = mapState.density.await()
-            val padding = with(density) {
-                padding.toPx()
-            }.toInt()
-            markers.throttle(100).collectLatest {
-                referentialSnapshotFlow.throttle(100).collectLatest {
-                    val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
+            // The density might change at runtime (on desktop when switching screen)
+            mapState.densityState.collectLatest { density ->
+                if (density == null) return@collectLatest
+                val padding = with(density) {
+                    padding.toPx()
+                }.toInt()
 
-                    /* Get the list of lazy loaded markers */
-                    val markersOnMap =
-                        markerRenderState.getLazyLoadedMarkers().filter { markerData ->
-                            (markerData.renderingStrategy is RenderingStrategy.LazyLoading)
-                                    && markerData.renderingStrategy.lazyLoaderId == id
+                markers.throttle(100).collectLatest {
+                    referentialSnapshotFlow.throttle(100).collectLatest {
+                        val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
+
+                        /* Get the list of lazy loaded markers */
+                        val markersOnMap =
+                            markerRenderState.getLazyLoadedMarkers().filter { markerData ->
+                                (markerData.renderingStrategy is RenderingStrategy.LazyLoading)
+                                        && markerData.renderingStrategy.lazyLoaderId == id
+                            }
+
+                        val visibleMarkers = withContext(Dispatchers.Default) {
+                            markers.value.filter { dataSnapshot ->
+                                visibleArea.contains(dataSnapshot.x, dataSnapshot.y)
+                            }
                         }
 
-                    val visibleMarkers = withContext(Dispatchers.Default) {
-                        markers.value.filter { dataSnapshot ->
-                            visibleArea.contains(dataSnapshot.x, dataSnapshot.y)
-                        }
+                        render(markersOnMap, visibleMarkers)
                     }
-
-                    render(markersOnMap, visibleMarkers)
                 }
             }
         }

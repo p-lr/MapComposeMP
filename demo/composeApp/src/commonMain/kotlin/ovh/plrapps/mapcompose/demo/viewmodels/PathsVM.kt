@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
@@ -25,7 +26,6 @@ import ovh.plrapps.mapcompose.ui.paths.model.PatternItem
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem.Dash
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem.Gap
 import ovh.plrapps.mapcompose.ui.state.MapState
-import ovh.plrapps.mapcompose.utils.dpToPx
 
 /**
  * In this sample, we add "tracks" to the map. The tracks are rendered as paths using MapCompose.
@@ -78,7 +78,7 @@ class PathsVM() : ScreenModel {
         /* Add tracks */
         addTrack("track1", Color(0xFF448AFF))
         addTrack("track2", Color(0xFFFFFF00))
-        addTrack("track3", pattern = listOf(Dash(dpToPx(8f)), Gap(dpToPx(4f))))
+        addTrack("track3", pattern = listOf(Dash(8.dp), Gap(4.dp)))
 
         // filled polygon
         with(state) {

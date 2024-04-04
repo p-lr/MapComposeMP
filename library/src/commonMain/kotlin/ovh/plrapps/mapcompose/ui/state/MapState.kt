@@ -7,11 +7,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Density
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import ovh.plrapps.mapcompose.core.GestureConfiguration
 import ovh.plrapps.mapcompose.core.Viewport
 import ovh.plrapps.mapcompose.core.VisibleTilesResolver
@@ -97,7 +97,7 @@ class MapState(
         consumeLateInitialValues = {}
         applyLateInitialValues(initialValues)
     }
-    internal val density = CompletableDeferred<Density>()
+    internal val densityState = MutableStateFlow<Density?>(null)
 
     /**
      * Cancels all internal tasks.
@@ -138,8 +138,9 @@ class MapState(
 
     override fun interceptsTap(x: Double, y: Double, xPx: Int, yPx: Int): Boolean {
         val markerHandled = markerState.onHit(xPx, yPx, hitType = HitType.Click)
-        val pathHandled = if (!markerHandled) {
-            pathState.onHit(x, y, zoomPanRotateState.scale, hitType = HitType.Click)
+        val density = densityState.value
+        val pathHandled = if (!markerHandled && density != null) {
+            pathState.onHit(x, y, zoomPanRotateState.scale, hitType = HitType.Click, density)
         } else false
 
         return markerHandled || pathHandled
@@ -147,8 +148,9 @@ class MapState(
 
     override fun interceptsLongPress(x: Double, y: Double, xPx: Int, yPx: Int): Boolean {
         val markerHandled = markerState.onHit(xPx, yPx, hitType = HitType.LongPress)
-        val pathHandled = if (!markerHandled) {
-            pathState.onHit(x, y, zoomPanRotateState.scale, hitType = HitType.LongPress)
+        val density = densityState.value
+        val pathHandled = if (!markerHandled && density != null) {
+            pathState.onHit(x, y, zoomPanRotateState.scale, hitType = HitType.LongPress, density)
         } else false
 
         return markerHandled || pathHandled

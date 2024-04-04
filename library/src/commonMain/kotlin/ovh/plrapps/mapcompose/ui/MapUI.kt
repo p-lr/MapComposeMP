@@ -26,7 +26,7 @@ fun MapUI(
 
     val density = LocalDensity.current
     remember(density) {
-        state.density.complete(density)
+        state.densityState.value = density
     }
 
     key(state) {

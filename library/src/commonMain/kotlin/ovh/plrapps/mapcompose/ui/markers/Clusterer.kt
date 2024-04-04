@@ -50,26 +50,31 @@ internal class Clusterer(
 
     init {
         scope.launch {
-            val density = mapState.density.await()
-            val epsilon = with(density) {
-                clusteringThreshold.toPx()
-            }
-            val padding = with(density) {
-                100.dp.toPx()
-            }.toInt()
-            markers.throttle(100).collectLatest {
-                referentialSnapshotFlow.throttle(500).collectLatest {
-                    val scale = it.scale
-                    val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
+            // The density might change at runtime (on desktop when switching screen)
+            mapState.densityState.collectLatest { density ->
+                if (density == null) return@collectLatest
 
-                    /* Get the list of rendered clusterer managed (by this clusterer) markers */
-                    val markersOnMap =
-                        markerRenderState.getClusteredMarkers().filter { markerData ->
-                            (markerData.renderingStrategy is RenderingStrategy.Clustering) &&
-                                    markerData.renderingStrategy.clustererId == id
+                val epsilon = with(density) {
+                    clusteringThreshold.toPx()
+                }
+                val padding = with(density) {
+                    100.dp.toPx()
+                }.toInt()
+
+                markers.throttle(100).collectLatest {
+                    referentialSnapshotFlow.throttle(500).collectLatest {
+                        val scale = it.scale
+                        val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
+
+                        /* Get the list of rendered clusterer managed (by this clusterer) markers */
+                        val markersOnMap =
+                            markerRenderState.getClusteredMarkers().filter { markerData ->
+                                (markerData.renderingStrategy is RenderingStrategy.Clustering) &&
+                                        markerData.renderingStrategy.clustererId == id
+                            }
+                        withContext(Dispatchers.Default) {
+                            clusterize(scale, visibleArea, markersOnMap, epsilon)
                         }
-                    withContext(Dispatchers.Default) {
-                        clusterize(scale, visibleArea, markersOnMap, epsilon)
                     }
                 }
             }

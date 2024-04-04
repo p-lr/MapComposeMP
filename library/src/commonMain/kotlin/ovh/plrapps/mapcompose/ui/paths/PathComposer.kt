@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ovh.plrapps.mapcompose.ui.paths.model.Cap
@@ -77,9 +79,10 @@ internal fun PathCanvas(
         drawablePathState.width.toPx()
     }
 
-    val dashPathEffect = remember(drawablePathState.pattern, widthPx, zoomPRState.scale) {
+    val density = LocalDensity.current
+    val dashPathEffect = remember(drawablePathState.pattern, widthPx, zoomPRState.scale, density) {
         drawablePathState.pattern?.let {
-            makePathEffect(it, strokeWidthPx = widthPx, scale = zoomPRState.scale)
+            makePathEffect(it, strokeWidthPx = widthPx, scale = zoomPRState.scale, density)
         }
     }
 
@@ -236,32 +239,37 @@ internal fun generatePath(pathData: PathData, offset: Int, count: Int, simplify:
     return p
 }
 
-internal fun makePathEffect(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float): PathEffect? {
-    val data = makeIntervals(pattern, strokeWidthPx, scale) ?: return null
+internal fun makePathEffect(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float, density: Density): PathEffect? {
+    val data = makeIntervals(pattern, strokeWidthPx, scale, density) ?: return null
     return dashPathEffect(data.intervals, data.phase)
 }
 
 internal fun concatGap(pattern: List<PatternItem>): List<PatternItem> {
     return buildList {
-        var gap = 0f
+        var gap = 0.dp
         for (item in pattern) {
             if (item is PatternItem.Gap) {
-                gap += item.lengthPx
+                gap += item.length
             } else {
-                if (gap > 0f) {
+                if (gap.value > 0f) {
                     add(PatternItem.Gap(gap))
                 }
-                gap = 0f
+                gap = 0.dp
                 add(item)
             }
         }
-        if (gap > 0f) {
+        if (gap.value > 0f) {
             add(PatternItem.Gap(gap))
         }
     }
 }
 
-internal fun makeIntervals(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float): DashPathEffectData? {
+internal fun makeIntervals(
+    pattern: List<PatternItem>,
+    strokeWidthPx: Float,
+    scale: Float,
+    density: Density
+): DashPathEffectData? {
     if (pattern.isEmpty()) return null
 
     // First, concat gaps
@@ -270,7 +278,7 @@ internal fun makeIntervals(pattern: List<PatternItem>, strokeWidthPx: Float, sca
     var phase = 0f
     val firstItem = concat.firstOrNull() ?: return null
     val trimmed = if (firstItem is PatternItem.Gap) {
-        phase = firstItem.lengthPx
+        phase = with(density) { firstItem.length.toPx() }
         /* If first item is a gap, remember it as phase and move it to then end of the pattern and
          * re-concat since the original last item may also be a gap. */
         concatGap(concat.subList(1, concat.size) + firstItem)
@@ -283,7 +291,7 @@ internal fun makeIntervals(pattern: List<PatternItem>, strokeWidthPx: Float, sca
 
     fun MutableList<Float>.addOffInterval(prev: PatternItem) {
         if (prev is PatternItem.Gap) {
-            add((strokeWidthPx + prev.lengthPx) / scale)
+            add((strokeWidthPx + with(density) { prev.length.toPx() }) / scale)
         } else {
             add(strokeWidthPx / scale)
         }
@@ -294,7 +302,7 @@ internal fun makeIntervals(pattern: List<PatternItem>, strokeWidthPx: Float, sca
         // At this stage, trimmed starts either with a Dot or a Dash
         for (item in trimmed) {
             val toAdd = when (item) {
-                is PatternItem.Dash -> item.lengthPx / scale
+                is PatternItem.Dash -> with(density) { item.length.toPx() } / scale
                 PatternItem.Dot -> 1f
                 is PatternItem.Gap -> null
             }

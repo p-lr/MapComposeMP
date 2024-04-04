@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -17,7 +18,6 @@ import ovh.plrapps.mapcompose.ui.paths.PathData
 import ovh.plrapps.mapcompose.ui.paths.model.Cap
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem
 import ovh.plrapps.mapcompose.utils.Point
-import ovh.plrapps.mapcompose.utils.dpToPx
 import ovh.plrapps.mapcompose.utils.getDistance
 import ovh.plrapps.mapcompose.utils.getDistanceFromBox
 import ovh.plrapps.mapcompose.utils.getNearestPoint
@@ -105,15 +105,14 @@ internal class PathState(
     /**
      * [x], [y] are the relative coordinates of the tap.
      */
-    fun onHit(x: Double, y: Double, scale: Float, hitType: HitType): Boolean {
+    fun onHit(x: Double, y: Double, scale: Float, hitType: HitType, density: Density): Boolean {
         if (!hasClickable.value) return false
 
         /* Compute pixel coordinates, at scale 1 because path coordinates (see below) are at scale 1 */
         val xPx = (x * fullWidth).toFloat()
         val yPx = (y * fullHeight).toFloat()
 
-        // TODO: find a way to use reliable density
-        val radius = dpToPx(12f)
+        val radius = with(density) { 12.dp.toPx() }
         val threshold = radius / scale
 
         val traversalClickIds = mutableListOf<String>()

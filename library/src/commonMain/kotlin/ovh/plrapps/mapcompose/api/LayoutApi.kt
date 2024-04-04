@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -117,7 +119,7 @@ fun MapState.setVisibleAreaPadding(
     bottom: Dp = 0.dp
 ) {
     scope.launch {
-        val density = density.await()
+        val density = densityState.filterNotNull().first()
         setVisibleAreaPadding(
             left = with(density) { left.toPx() }.roundToInt(),
             right = with(density) { right.toPx() }.roundToInt(),
