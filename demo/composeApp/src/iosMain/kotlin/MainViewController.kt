@@ -18,7 +18,7 @@ fun iOSApp() {
             Scaffold(
                 topBar = {
                     if (navigator.lastItem != HomeScreen) {
-                        TopAppBar() {
+                        TopAppBar {
                             Button(onClick = { navigator.pop() }) {
                                 Text("Back")
                             }

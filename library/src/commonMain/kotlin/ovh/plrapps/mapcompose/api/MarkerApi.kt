@@ -12,6 +12,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.Flow
 import ovh.plrapps.mapcompose.ui.state.MapState
@@ -30,7 +31,7 @@ import ovh.plrapps.mapcompose.utils.withRetry
  * the width of the marker multiplied by the x value of the offset, and the height of the marker
  * multiplied by the y value of the offset.
  * @param absoluteOffset The x-axis and y-axis positions of a marker will be respectively offset by
- * the x and y values of the offset.
+ * the x and y Dp values of the offset.
  * @param zIndex A marker with larger zIndex will be drawn on top of all markers with smaller zIndex.
  * When markers have the same zIndex, the original order in which the parent placed the marker is used.
  * @param clickable Controls whether the marker is clickable. Default is true. If a click listener
@@ -53,7 +54,7 @@ fun MapState.addMarker(
     x: Double,
     y: Double,
     relativeOffset: Offset = Offset(-0.5f, -1f),
-    absoluteOffset: Offset = Offset.Zero,
+    absoluteOffset: DpOffset = DpOffset.Zero,
     zIndex: Float = 0f,
     clickable: Boolean = true,
     clipShape: Shape? = null,
@@ -92,7 +93,7 @@ fun MapState.addMarker(
     x: Double,
     y: Double,
     relativeOffset: Offset = Offset(-0.5f, -1f),
-    absoluteOffset: Offset = Offset.Zero,
+    absoluteOffset: DpOffset = DpOffset.Zero,
     zIndex: Float = 0f,
     clickable: Boolean = true,
     clipShape: Shape? = null,
@@ -505,7 +506,7 @@ suspend fun MapState.centerOnMarker(
  * the width of the marker multiplied by the x value of the offset, and the height of the marker
  * multiplied by the y value of the offset.
  * @param absoluteOffset The x-axis and y-axis positions of a callout will be respectively offset by
- * the x and y values of the offset.
+ * the x and y Dp values of the offset.
  * @param zIndex A callout with larger zIndex will be drawn on top of all callouts with smaller zIndex.
  * When callouts have the same zIndex, the original order in which the parent placed the callout is used.
  * @param autoDismiss Whether the callout should be dismissed on touch down. Default is true. If set
@@ -521,7 +522,7 @@ fun MapState.addCallout(
     x: Double,
     y: Double,
     relativeOffset: Offset = Offset(-0.5f, -1f),
-    absoluteOffset: Offset = Offset.Zero,
+    absoluteOffset: DpOffset = DpOffset.Zero,
     zIndex: Float = 0f,
     autoDismiss: Boolean = true,
     clickable: Boolean = false,
@@ -589,6 +590,6 @@ data class MarkerInfo(
     val id: String, val x: Double,
     val y: Double,
     val relativeOffset: Offset,
-    val absoluteOffset: Offset,
+    val absoluteOffset: DpOffset,
     val zIndex: Float
 )

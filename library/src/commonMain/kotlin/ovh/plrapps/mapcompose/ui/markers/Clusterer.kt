@@ -3,6 +3,7 @@ package ovh.plrapps.mapcompose.ui.markers
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -388,7 +389,7 @@ internal class Clusterer(
         return MarkerData(
             id, x, y,
             relativeOffset = Offset(-0.5f, -0.5f),
-            absoluteOffset = Offset.Zero,
+            absoluteOffset = DpOffset.Zero,
             zIndex = markersData.maxOfOrNull { it.zIndex } ?: 0f,
             isConstrainedInBounds = true,
             clickableAreaScale = Offset(1f, 1f),

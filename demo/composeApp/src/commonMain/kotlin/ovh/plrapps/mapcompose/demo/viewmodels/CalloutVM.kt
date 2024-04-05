@@ -6,8 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import mapcompose_mp.demo.composeapp.generated.resources.Res
@@ -25,7 +25,7 @@ import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.demo.ui.widgets.Callout
 import ovh.plrapps.mapcompose.ui.state.MapState
 
-class CalloutVM(): ScreenModel {
+class CalloutVM: ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     /* Define the markers data (id and position) */
@@ -62,7 +62,7 @@ class CalloutVM(): ScreenModel {
             var shouldAnimate by mutableStateOf(true)
             addCallout(
                 id, x, y,
-                absoluteOffset = Offset(0f, -130f),
+                absoluteOffset = DpOffset(0.dp, (-50).dp),
                 autoDismiss = id != TAP_TO_DISMISS_ID,
                 clickable = id == TAP_TO_DISMISS_ID
             ) {

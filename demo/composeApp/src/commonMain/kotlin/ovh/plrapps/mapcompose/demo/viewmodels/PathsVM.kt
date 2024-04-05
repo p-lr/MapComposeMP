@@ -3,8 +3,8 @@ package ovh.plrapps.mapcompose.demo.viewmodels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
@@ -45,7 +45,7 @@ class PathsVM() : ScreenModel {
             var shouldAnimate by mutableStateOf(true)
             addCallout(
                 id, x, y,
-                absoluteOffset = Offset(0f, -20f),
+                absoluteOffset = DpOffset(0.dp, (-10).dp),
             ) {
                 Callout(x, y, title = "Click on $id", shouldAnimate) {
                     shouldAnimate = false
@@ -60,7 +60,7 @@ class PathsVM() : ScreenModel {
             var shouldAnimate by mutableStateOf(true)
             addCallout(
                 id, x, y,
-                absoluteOffset = Offset(0f, -20f),
+                absoluteOffset = DpOffset(0.dp, (-10).dp),
             ) {
                 Callout(x, y, title = "Long-press on $id", shouldAnimate) {
                     shouldAnimate = false
