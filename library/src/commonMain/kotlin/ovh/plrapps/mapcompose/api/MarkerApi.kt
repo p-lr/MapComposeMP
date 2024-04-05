@@ -10,7 +10,6 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -37,9 +36,6 @@ import ovh.plrapps.mapcompose.utils.withRetry
  * @param clickable Controls whether the marker is clickable. Default is true. If a click listener
  * is registered using [onMarkerClick], that listener will be invoked for that marker if [clickable]
  * is true.
- * @param clipShape Was originally introduced to clip the ripple effect when the library had a click
- * listener for each marker. However the library doesn't work like that anymore.
- * As of 2.4.1, this parameter is made no-op, and will be removed in a future major version.
  * @param isConstrainedInBounds By default, a marker cannot be positioned or moved outside of the
  * map bounds.
  * @param clickableAreaScale The clickable area, which defaults to the bounds of the
@@ -57,7 +53,6 @@ fun MapState.addMarker(
     absoluteOffset: DpOffset = DpOffset.Zero,
     zIndex: Float = 0f,
     clickable: Boolean = true,
-    clipShape: Shape? = null,
     isConstrainedInBounds: Boolean = true,
     clickableAreaScale: Offset = Offset(1f, 1f),
     clickableAreaCenterOffset: Offset = Offset(0f, 0f),
@@ -96,7 +91,6 @@ fun MapState.addMarker(
     absoluteOffset: DpOffset = DpOffset.Zero,
     zIndex: Float = 0f,
     clickable: Boolean = true,
-    clipShape: Shape? = null,
     isConstrainedInBounds: Boolean = true,
     clickableAreaScale: Offset = Offset(1f, 1f),
     clickableAreaCenterOffset: Offset = Offset(0f, 0f),
