@@ -32,6 +32,10 @@ internal class BitmapPool(coroutineContext: CoroutineContext) {
         }
     }
 
+    suspend fun getSize(): Int {
+        return mutex.withLock { pool.size }
+    }
+
     suspend fun get(): ImageBitmap? {
         mutex.withLock {
             if (pool.isEmpty()) {
