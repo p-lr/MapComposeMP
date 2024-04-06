@@ -31,6 +31,7 @@ fun desktopApp() {
     }
 }
 
+// To run the desktop demo run this command in terminal: ./gradlew :demo:composeApp:run
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "MapComposeKMP") {
         desktopApp()
