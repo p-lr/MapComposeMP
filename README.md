@@ -6,6 +6,7 @@
 MapCompose-mp is a fast, memory efficient compose multiplatform library to display tiled maps with minimal effort.
 It shows the visible part of a tiled map with support of markers and paths, and various gestures
 (flinging, dragging, scaling, and rotating).
+Target platforms are iOS, desktop (Windows, MacOs, Linux), and Android.
 It's a multiplatform port of [MapCompose](https://github.com/p-lr/MapCompose).
 
 An example of setting up on desktop:
@@ -152,7 +153,7 @@ removing, setting alpha - all dynamically.
 
 ### Markers
 
-To add a marker, use the [addMarker](https://github.com/p-lr/MapCompose/blob/982caf29ab5e86b58c56812735f60bfe405638ea/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/MarkerApi.kt#L30)
+To add a marker, use the [addMarker](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/MarkerApi.kt#L48)
 API, like so:
 
 ```kotlin
@@ -181,15 +182,15 @@ relative offsets (left position is offset by half the width, and top is offset b
 If necessary, an absolute offset expressed in pixels can be applied, in addition to the
 relative offset.
 
-Markers can be moved, removed, and be draggable. See the following APIs: [moveMarker](https://github.com/p-lr/MapCompose/blob/2fbf0967290ffe01d63a6c65a3022568ef48b9dd/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/MarkerApi.kt#L72),
-[removeMarker](https://github.com/p-lr/MapCompose/blob/2fbf0967290ffe01d63a6c65a3022568ef48b9dd/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/MarkerApi.kt#L61),
-[enableMarkerDrag](https://github.com/p-lr/MapCompose/blob/2fbf0967290ffe01d63a6c65a3022568ef48b9dd/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/MarkerApi.kt#L89).
+Markers can be moved, removed, and be draggable. See the following APIs: [moveMarker](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/MarkerApi.kt#L289),
+[removeMarker](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/MarkerApi.kt#L271),
+[enableMarkerDrag](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/MarkerApi.kt#L302).
 
 ### Callouts
 
 Callouts are typically message popups which are, like markers, attached to a specific position.
 However, they automatically dismiss on touch down. This default behavior can be changed.
-To add a callout, use [addCallout](https://github.com/p-lr/MapCompose/blob/2fbf0967290ffe01d63a6c65a3022568ef48b9dd/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/MarkerApi.kt#L220).
+To add a callout, use [addCallout](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/MarkerApi.kt#L514).
 
 <p align="center">
 <img src="doc/readme-files/callout.png">
@@ -222,13 +223,13 @@ the map.
 
 When animating the scale, we generally do so while maintaining the center of the screen at
 a specific position. Likewise, when animating the scroll position, we can do so with or without
-animating the scale altogether, using [scrollTo](https://github.com/p-lr/MapCompose/blob/08c0f68f654c1ce27a295f3fb6c25e9cf4274de9/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/LayoutApi.kt#L188)
-and [snapScrollTo](https://github.com/p-lr/MapCompose/blob/08c0f68f654c1ce27a295f3fb6c25e9cf4274de9/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/LayoutApi.kt#L161).
+animating the scale altogether, using [scrollTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L299)
+and [snapScrollTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L269).
 
 *rotation animation*
 
 For animating the rotation while keeping the current scale and scroll, use the
-[rotateTo](https://github.com/p-lr/MapCompose/blob/08c0f68f654c1ce27a295f3fb6c25e9cf4274de9/mapcompose/src/main/java/ovh/plrapps/mapcompose/api/LayoutApi.kt#L149) API.
+[rotateTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L226) API.
 
 Both `scrollTo` and `rotateTo` are suspending functions. Therefore, you know exactly when
 an animation finishes, and you can easily chain animations inside a coroutine.
@@ -243,10 +244,11 @@ viewModelScope.launch {
 
 For a detailed example, see the "AnimationDemo".
 
-## Difference with Android native MapCompose
+## Differences with Android native MapCompose
 
 The api is mostly the same as the native library. There's one noticeable difference:
 `TileStreamProvider` returns `RawSource` instead of `InputStream`.
+
 Some apis expect `dp` values instead of pixels.
 
 Some optimizations are temporarily disabled, such as:
@@ -257,6 +259,7 @@ Some optimizations are temporarily disabled, such as:
 
 Special thanks to Roger (@rkreienbuehl) who made the first proof-of-concept, starting from 
 MapCompose code base.
+
 Marcin (@Nohus) has contributed and fixed some issues. He also thoroughly tested the layers
 feature – which made `MapCompose` better.
 
