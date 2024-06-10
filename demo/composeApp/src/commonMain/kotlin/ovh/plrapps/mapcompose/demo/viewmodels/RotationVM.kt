@@ -2,6 +2,9 @@ package ovh.plrapps.mapcompose.demo.viewmodels
 
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.enableRotation
@@ -17,7 +20,12 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 class RotationVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ).apply {
         addLayer(tileStreamProvider)
         enableRotation()
         setScrollOffsetRatio(0.3f, 0.3f)

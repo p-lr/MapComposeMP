@@ -35,6 +35,9 @@ import ovh.plrapps.mapcompose.utils.toRad
  * @param workerCount The thread count used to fetch tiles. Defaults to the number of cores minus
  * one, which works well for tiles in the file system or in a local database. However, that number
  * should be increased to 16 or more for remote tiles (HTTP requests).
+ * @param scope Coroutine scope to render markers and tiles. Should contain Main dispatcher on
+ * mobile.
+ * @see [ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM] for example how to set up on mobile.
  * @param initialValuesBuilder A builder for [InitialValues] which are applied during [MapState]
  * initialization. Note that the provided lambda should not start any coroutines.
  */
@@ -44,10 +47,10 @@ class MapState(
     fullHeight: Int,
     tileSize: Int = 256,
     workerCount: Int = getProcessorCount() - 1,
+    val scope: CoroutineScope,
     initialValuesBuilder: InitialValues.() -> Unit = {}
 ) : ZoomPanRotateStateListener {
     private val initialValues = InitialValues().apply(initialValuesBuilder)
-    internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     internal val zoomPanRotateState = ZoomPanRotateState(
         fullWidth = fullWidth,
         fullHeight = fullHeight,

@@ -1,6 +1,9 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
 import cafe.adriel.voyager.core.model.ScreenModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
@@ -17,7 +20,13 @@ class OsmVM : ScreenModel {
     private val maxLevel = 16
     private val minLevel = 12
     private val mapSize = mapSizeAtLevel(maxLevel, tileSize = 256)
-    val state = MapState(levelCount = maxLevel + 1, mapSize, mapSize, workerCount = 16) {
+    val state = MapState(
+        levelCount = maxLevel + 1,
+        fullWidth = mapSize,
+        fullHeight = mapSize,
+        workerCount = 16,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ) {
         minimumScaleMode(Forced((1 / 2.0.pow(maxLevel - minLevel)).toFloat()))
         scroll(0.5064745545387268, 0.3440358340740204)  // Paris
     }.apply {

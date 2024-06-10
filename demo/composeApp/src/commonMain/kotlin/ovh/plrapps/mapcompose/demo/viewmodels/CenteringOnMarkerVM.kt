@@ -7,6 +7,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import mapcompose_mp.demo.composeapp.generated.resources.Res
 import mapcompose_mp.demo.composeapp.generated.resources.map_marker
@@ -23,7 +26,12 @@ class CenteringOnMarkerVM(): ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     @OptIn(ExperimentalResourceApi::class)
-    val state = MapState(4, 4096, 4096) {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ) {
         rotation(45f)
     }.apply {
         addLayer(tileStreamProvider)
