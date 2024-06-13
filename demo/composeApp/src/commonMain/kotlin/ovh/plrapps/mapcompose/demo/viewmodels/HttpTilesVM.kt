@@ -1,6 +1,9 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
 import cafe.adriel.voyager.core.model.ScreenModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.shouldLoopScale
@@ -17,7 +20,8 @@ class HttpTilesVM : ScreenModel {
         levelCount = 4,
         fullWidth = 4096,
         fullHeight = 4096,
-        workerCount = 16  // Notice how we increase the worker count when performing HTTP requests
+        workerCount = 16 , // Notice how we increase the worker count when performing HTTP requests
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     ).apply {
         addLayer(tileStreamProvider)
         scale = 0f
