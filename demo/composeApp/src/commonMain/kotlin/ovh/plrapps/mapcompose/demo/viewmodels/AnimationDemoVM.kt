@@ -6,7 +6,10 @@ import androidx.compose.animation.core.TweenSpec
 import androidx.compose.ui.geometry.Offset
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
@@ -28,7 +31,12 @@ class AnimationDemoVM : ScreenModel {
     private var job: Job? = null
     private val spec = TweenSpec<Float>(2000, easing = FastOutSlowInEasing)
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ).apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()

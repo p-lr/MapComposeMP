@@ -10,6 +10,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import mapcompose_mp.demo.composeapp.generated.resources.Res
 import mapcompose_mp.demo.composeapp.generated.resources.map_marker
 import org.jetbrains.compose.resources.ExperimentalResourceApi
@@ -37,7 +40,12 @@ class CalloutVM: ScreenModel {
     )
 
     @OptIn(ExperimentalResourceApi::class)
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ).apply {
         addLayer(tileStreamProvider)
 
         /* Add all markers */
