@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.*
 import ovh.plrapps.mapcompose.core.*
+import ovh.plrapps.mapcompose.utils.IODispatcher
 import kotlin.math.pow
 
 /**
@@ -29,7 +30,7 @@ internal class TileCanvasState(
 ) {
 
     /* This view-model uses a background thread for its computations */
-    private val singleThreadDispatcher = newSingleThreadContext("TileCanvasThread")
+    private val singleThreadDispatcher = IODispatcher.limitedParallelism(1, "TileCanvasThread")
     @OptIn(ExperimentalCoroutinesApi::class)
     private val scope = CoroutineScope(
         parentScope.coroutineContext + singleThreadDispatcher
