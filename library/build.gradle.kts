@@ -36,6 +36,12 @@ kotlin {
             isStatic = true
         }
     }
+
+    wasmJs {
+        browser()
+        nodejs()
+        d8()
+    }
     
     sourceSets {
         val desktopMain by getting

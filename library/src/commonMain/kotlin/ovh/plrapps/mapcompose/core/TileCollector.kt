@@ -12,6 +12,7 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.selects.select
 import kotlinx.io.Source
 import kotlinx.io.buffered
+import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.utils.toImage
 import kotlin.math.pow
 import kotlin.concurrent.Volatile
@@ -187,7 +188,7 @@ internal class TileCollector(
         }
     }
 
-    private val workerDispatcher = Dispatchers.IO.limitedParallelism(workerCount)
+    private val workerDispatcher = IODispatcher.limitedParallelism(workerCount)
 }
 
 internal data class BitmapConfiguration(val highFidelityColors: Boolean, val bytesPerPixel: Int)
