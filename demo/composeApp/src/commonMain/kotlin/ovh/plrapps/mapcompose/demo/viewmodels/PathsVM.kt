@@ -8,6 +8,9 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import mapcompose_mp.demo.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.ExperimentalResourceApi
@@ -33,7 +36,12 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 class PathsVM() : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ).apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()

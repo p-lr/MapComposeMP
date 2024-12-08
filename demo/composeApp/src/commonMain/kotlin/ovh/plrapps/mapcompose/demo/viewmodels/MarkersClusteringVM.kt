@@ -12,6 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import mapcompose_mp.demo.composeapp.generated.resources.Res
 import mapcompose_mp.demo.composeapp.generated.resources.map_marker
 import org.jetbrains.compose.resources.ExperimentalResourceApi
@@ -32,7 +35,12 @@ import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
 class MarkersClusteringVM() : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096) {
+    val state = MapState(
+        levelCount = 4,
+        fullWidth = 4096,
+        fullHeight = 4096,
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    ) {
         scale(0.2f)
         maxScale(8f)
         scroll(0.5, 0.5)
