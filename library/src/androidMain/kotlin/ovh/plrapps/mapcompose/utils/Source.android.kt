@@ -14,7 +14,13 @@ actual fun Source.toImage(existing: ImageBitmap?, highFidelityColors: Boolean): 
     options.inScaled = false
     options.inMutable = true
     options.inPreferredConfig = if (highFidelityColors) Bitmap.Config.ARGB_8888 else Bitmap.Config.RGB_565
-    options.inBitmap = existing?.asAndroidBitmap()
 
-    return BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
+    /* Make a first attempt to reuse an existing Bitmap */
+    return runCatching {
+        options.inBitmap = existing?.asAndroidBitmap()
+        BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
+    }.getOrElse {
+        options.inBitmap = null
+        BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
+    }
 }
