@@ -6,7 +6,7 @@
 MapCompose-mp is a fast, memory efficient compose multiplatform library to display tiled maps with minimal effort.
 It shows the visible part of a tiled map with support of markers and paths, and various gestures
 (flinging, dragging, scaling, and rotating).
-Target platforms are iOS, desktop (Windows, MacOs, Linux), and Android.
+Target platforms are iOS, desktop (Windows, MacOs, Linux), Android, and WebAssembly.
 It's a multiplatform port of [MapCompose](https://github.com/p-lr/MapCompose).
 
 An example of setting up on desktop:
@@ -69,7 +69,7 @@ Add this to your commonMain dependencies:
 ```kotlin
 sourceSets {
   commonMain.dependencies {
-      implementation("ovh.plrapps:mapcompose-mp:0.9.3")
+      implementation("ovh.plrapps:mapcompose-mp:0.9.4")
   }
 }
 ```
