@@ -3,7 +3,9 @@ package ovh.plrapps.mapcompose.ui.view
 import android.graphics.Paint
 import android.graphics.Rect
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -37,6 +39,7 @@ internal actual fun TileCanvas(
 
     Canvas(
         modifier = modifier
+            .background(MaterialTheme.colors.background)
             .fillMaxSize()
     ) {
         withTransform({
