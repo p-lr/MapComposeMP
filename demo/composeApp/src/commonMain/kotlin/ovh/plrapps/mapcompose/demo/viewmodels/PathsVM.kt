@@ -9,7 +9,6 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
-import mapcompose_mp.demo.composeapp.generated.resources.Res
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.api.addCallout
 import ovh.plrapps.mapcompose.api.addLayer
@@ -26,6 +25,7 @@ import ovh.plrapps.mapcompose.ui.paths.model.PatternItem
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem.Dash
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem.Gap
 import ovh.plrapps.mapcompose.ui.state.MapState
+import ovh.plrapps.mapcomposemp.demo.Res
 
 /**
  * In this sample, we add "tracks" to the map. The tracks are rendered as paths using MapCompose.

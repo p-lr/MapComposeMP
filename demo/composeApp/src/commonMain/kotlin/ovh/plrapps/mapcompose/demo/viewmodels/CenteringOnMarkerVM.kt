@@ -8,9 +8,6 @@ import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.screenModelScope
 import kotlinx.coroutines.launch
-import mapcompose_mp.demo.composeapp.generated.resources.Res
-import mapcompose_mp.demo.composeapp.generated.resources.map_marker
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
@@ -18,11 +15,12 @@ import ovh.plrapps.mapcompose.api.centerOnMarker
 import ovh.plrapps.mapcompose.api.enableRotation
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
+import ovh.plrapps.mapcomposemp.demo.Res
+import ovh.plrapps.mapcomposemp.demo.map_marker
 
 class CenteringOnMarkerVM(): ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    @OptIn(ExperimentalResourceApi::class)
     val state = MapState(4, 4096, 4096) {
         rotation(45f)
     }.apply {

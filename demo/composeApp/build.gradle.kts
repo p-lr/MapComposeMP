@@ -112,4 +112,10 @@ compose.desktop {
     }
 }
 
+compose.resources {
+    publicResClass = false
+    packageOfResClass = "ovh.plrapps.mapcomposemp.demo"
+    generateResClass = auto
+}
+
 task("testClasses")

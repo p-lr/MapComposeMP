@@ -11,11 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.screen.Screen
-import mapcompose_mp.demo.composeapp.generated.resources.Res
-import mapcompose_mp.demo.composeapp.generated.resources.app_name
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.stringResource
 import ovh.plrapps.mapcompose.demo.ui.MainDestinations
+import ovh.plrapps.mapcomposemp.demo.Res
+import ovh.plrapps.mapcomposemp.demo.app_name
 
 expect object HomeScreen : Screen
 

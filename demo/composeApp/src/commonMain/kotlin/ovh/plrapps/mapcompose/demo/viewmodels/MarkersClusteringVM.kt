@@ -12,8 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
-import mapcompose_mp.demo.composeapp.generated.resources.Res
-import mapcompose_mp.demo.composeapp.generated.resources.map_marker
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.ExperimentalClusteringApi
@@ -23,6 +21,8 @@ import ovh.plrapps.mapcompose.api.addMarker
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
+import ovh.plrapps.mapcomposemp.demo.Res
+import ovh.plrapps.mapcomposemp.demo.map_marker
 
 
 /**
