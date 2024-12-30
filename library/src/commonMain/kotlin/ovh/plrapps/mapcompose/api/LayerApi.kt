@@ -127,6 +127,7 @@ fun MapState.popLayer() {
 
 /**
  * Pop the top [numberOfLayers] layers from the stack.
+ * @param numberOfLayers The number of layers to pop.
  */
 fun MapState.popMultipleLayers(numberOfLayers: Int) {
     val layers = tileCanvasState.layerFlow.value.toMutableList()
