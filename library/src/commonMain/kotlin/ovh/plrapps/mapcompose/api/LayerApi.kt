@@ -115,28 +115,22 @@ fun MapState.moveLayerDown(layerId: String) {
 }
 
 /**
- * Pop the top layer from the stack.
+ * Remove the top layer from the stack.
  */
-fun MapState.popLayer() {
+fun MapState.removeLastLayer() {
     val layers = tileCanvasState.layerFlow.value.toMutableList()
-    if (layers.isNotEmpty()) {
-        layers.removeAt(layers.lastIndex)
-        setLayers(layers)
-    }
+    val remainingLayers = layers.subList(0, layers.size - 1)
+    setLayers(remainingLayers)
 }
 
 /**
- * Pop the top [numberOfLayers] layers from the stack.
- * @param numberOfLayers The number of layers to pop.
+ * Remove the top [n] layers from the stack.
+ * @param n The number of layers to remove.
  */
-fun MapState.popMultipleLayers(numberOfLayers: Int) {
+fun MapState.removeLastLayers(n: Int) {
     val layers = tileCanvasState.layerFlow.value.toMutableList()
-    if (layers.size >= numberOfLayers) {
-        repeat(numberOfLayers) {
-            layers.removeAt(layers.lastIndex)
-        }
-        setLayers(layers)
-    }
+    val remainingLayers = layers.subList(0, (layers.size - n).coerceAtLeast(0))
+    setLayers(remainingLayers)
 }
 
 /**
