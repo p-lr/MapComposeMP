@@ -16,6 +16,7 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 *.log
+yarn.lock
 publishErrors.txt
 publish-mavenCentral.sh
 compile_and_install_demo_release.sh
