@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
@@ -23,14 +24,19 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import ovh.plrapps.mapcompose.ui.layout.grid
 import ovh.plrapps.mapcompose.ui.paths.model.Cap
 import ovh.plrapps.mapcompose.ui.paths.model.PatternItem
 import ovh.plrapps.mapcompose.ui.state.DrawablePathState
 import ovh.plrapps.mapcompose.ui.state.PathState
 import ovh.plrapps.mapcompose.ui.state.ZoomPanRotateState
+import ovh.plrapps.mapcompose.utils.Point
+import kotlin.math.abs
+import kotlin.math.ceil
 
 @Composable
 internal fun PathComposer(
@@ -54,26 +60,75 @@ internal fun PathCanvas(
     val offsetAndCount = drawablePathState.offsetAndCount
     val pathData = drawablePathState.pathData
 
-    val path by produceState(
-        initialValue = drawablePathState.lastRenderedPath,
+    /* Scroll values may not be represented accurately using floats (a float has 7 significant
+     * decimal digits, so any number above ~10M isn't represented accurately).
+     * Since the translate function of the Canvas works with floats, we perform a change of
+     * referential so that we only need to translate the canvas by an amount which can be
+     * precisely represented as a float.
+     * For paths, we also need to be mindful not to change the referential too often. */
+    val origin by produceState(
+        initialValue = IntOffset.Zero,
+        key1 = zoomPRState.scale,
+        key2 = zoomPRState.scrollX,
+        key3 = zoomPRState.scrollY
+    ) {
+        val scale = zoomPRState.scale
+
+        val formerX0 = value.x
+        val formerY0 = value.y
+        val x0 = ((ceil(zoomPRState.scrollX / grid) * grid) / scale).toInt()
+        val y0 = ((ceil(zoomPRState.scrollY / grid) * grid) / scale).toInt()
+
+        val shouldUpdate = (abs(x0 - formerX0) * scale > grid) ||
+                (abs(y0 - formerY0) * scale > grid)
+
+        if (shouldUpdate) {
+            value = IntOffset(x0, y0)
+        }
+    }
+
+    /* When epsilon changes, a new path is generated. */
+    val epsilon by remember {
+        derivedStateOf {
+            val scale = zoomPRState.scale
+            val simplify = drawablePathState.simplify
+            if (simplify == 0f) {
+                0.0
+            } else {
+                simplify / scale
+            }
+        }
+    }
+
+    val pathWithOrigin by produceState<PathWithOrigin?>(
+        /* Only affects the very first value.
+         * During the computation of a new value, the state holds the last computed value. */
+        initialValue = null,
         keys = arrayOf(
             pathData,
             offsetAndCount,
-            zoomPRState.scale,
+            epsilon,
+            origin,
             drawablePathState.simplify
         )
     ) {
+        val x0 = origin.x
+        val y0 = origin.y
+        val ep = epsilon
         value = withContext(Dispatchers.Default) {
             generatePath(
                 pathData = pathData,
                 offset = offsetAndCount.x,
                 count = offsetAndCount.y,
-                simplify = drawablePathState.simplify,
-                scale = zoomPRState.scale,
+                epsilon = ep,
+                x0 = x0,
+                y0 = y0,
+                onNewDecimatedPath = { drawablePathState.currentDecimatedPath.value = it }
             )
         }
-        drawablePathState.lastRenderedPath = value
     }
+
+    val path = pathWithOrigin ?: return
 
     val widthPx = with(LocalDensity.current) {
         drawablePathState.width.toPx()
@@ -82,7 +137,7 @@ internal fun PathCanvas(
     val density = LocalDensity.current
     val dashPathEffect = remember(drawablePathState.pattern, widthPx, zoomPRState.scale, density) {
         drawablePathState.pattern?.let {
-            makePathEffect(it, strokeWidthPx = widthPx, scale = zoomPRState.scale, density)
+            makePathEffect(it, strokeWidthPx = widthPx, scale = zoomPRState.scale.toFloat(), density)
         }
     }
 
@@ -103,7 +158,7 @@ internal fun PathCanvas(
                 Cap.Square -> StrokeCap.Companion.Square
             }
             pathEffect = dashPathEffect
-            strokeWidth = widthPx / zoomPRState.scale
+            strokeWidth = (widthPx / zoomPRState.scale).toFloat()
         }
     }
 
@@ -123,23 +178,26 @@ internal fun PathCanvas(
     ) {
         withTransform({
             /* Geometric transformations seem to be applied in reversed order of declaration */
-            translate(left = -zoomPRState.scrollX, top = -zoomPRState.scrollY)
             rotate(
                 degrees = zoomPRState.rotation,
                 pivot = Offset(
-                    x = zoomPRState.centroidX.toFloat() * zoomPRState.fullWidth * zoomPRState.scale,
-                    y = zoomPRState.centroidY.toFloat() * zoomPRState.fullHeight * zoomPRState.scale
+                    x = (zoomPRState.pivotX).toFloat(),
+                    y = (zoomPRState.pivotY).toFloat()
                 )
             )
-            scale(scale = zoomPRState.scale, Offset.Zero)
+            translate(
+                left = (-zoomPRState.scrollX + path.origin.x * zoomPRState.scale).toFloat(),
+                top = (-zoomPRState.scrollY + path.origin.y * zoomPRState.scale).toFloat()
+            )
+            scale(scale = zoomPRState.scale.toFloat(), Offset.Zero)
         }) {
             with(drawablePathState) {
                 if (visible) {
                     drawIntoCanvas {
                         if (drawablePathState.fillColor != null) {
-                            it.drawPath(path, fillPaint)
+                            it.drawPath(path.path, fillPaint)
                         }
-                        it.drawPath(path, paint)
+                        it.drawPath(path.path, paint)
                     }
                 }
             }
@@ -151,8 +209,8 @@ internal fun PathCanvas(
  * Once an instance of [PathData] is created, [data] shall not have structural modifications for
  * subList to work (see [List.subList] doc). */
 class PathData internal constructor(
-    internal val data: List<Offset>,
-    internal val boundingBox: Pair<Offset, Offset>?     // topLeft, bottomRight
+    internal val data: List<Point>,
+    internal val boundingBox: Pair<Point, Point>     // topLeft, bottomRight
 ) {
     val size: Int
         get() = data.size
@@ -163,33 +221,33 @@ class PathDataBuilder internal constructor(
     private val fullWidth: Int,
     private val fullHeight: Int
 ) {
-    private val points = mutableListOf<Offset>()
-    private var xMin: Float? = null
-    private var xMax: Float? = null
-    private var yMin: Float? = null
-    private var yMax: Float? = null
+    private val points = mutableListOf<Point>()
+    private var xMin: Double? = null
+    private var xMax: Double? = null
+    private var yMin: Double? = null
+    private var yMax: Double? = null
 
     /**
      * Add a point to the path. Values are relative coordinates (in range [0f..1f]).
      */
     fun addPoint(x: Double, y: Double) = apply {
-        points.add(createOffset(x, y))
+        points.add(createPoint(x, y))
     }
 
     /**
      * Add points to the path. Values are relative coordinates (in range [0f..1f]).
      */
     fun addPoints(points: List<Pair<Double, Double>>) = apply {
-        this.points += points.map { (x, y) -> createOffset(x, y) }
+        this.points += points.map { (x, y) -> createPoint(x, y) }
     }
 
-    private fun createOffset(x: Double, y: Double): Offset {
-        return Offset((x * fullWidth).toFloat(), (y * fullHeight).toFloat()).also {
+    private fun createPoint(x: Double, y: Double): Point {
+        return Point(x * fullWidth, y * fullHeight).also {
             updateBoundingBox(it.x, it.y)
         }
     }
 
-    private fun updateBoundingBox(x: Float, y: Float) {
+    private fun updateBoundingBox(x: Double, y: Double) {
         xMin = xMin?.coerceAtMost(x) ?: x
         xMax = xMax?.coerceAtLeast(x) ?: x
         yMin = yMin?.coerceAtMost(y) ?: y
@@ -206,8 +264,8 @@ class PathDataBuilder internal constructor(
         val _yMax = yMax
 
         val bb = if (_xMin != null && _xMax != null && _yMin != null && _yMax != null) {
-            Pair(Offset(_xMin, _yMin), Offset(_xMax, _yMax))
-        } else null
+            Pair(Point(_xMin, _yMin), Point(_xMax, _yMax))
+        } else return null
 
         /**
          * Make a defensive copy (see PathData doc). We don't want structural modifications to
@@ -216,30 +274,44 @@ class PathDataBuilder internal constructor(
     }
 }
 
-internal fun generatePath(pathData: PathData, offset: Int, count: Int, simplify: Float, scale: Float): Path {
+private fun generatePath(
+    pathData: PathData,
+    offset: Int,
+    count: Int,
+    epsilon: Double,
+    x0: Int,
+    y0: Int,
+    onNewDecimatedPath: (decimatedPath: List<Point>) -> Unit
+): PathWithOrigin {
     val p = Path()
-    val epsilon = simplify / scale
     val subList = pathData.data.subList(offset, offset + count)
     val toRender = if (epsilon > 0f) {
         runCatching {
-            val out = mutableListOf<Offset>()
+            val out = mutableListOf<Point>()
             ramerDouglasPeucker(subList, epsilon, out)
+            onNewDecimatedPath(out)
             out
         }.getOrElse {
             subList
         }
     } else subList
+
     for ((i, point) in toRender.withIndex()) {
         if (i == 0) {
-            p.moveTo(point.x, point.y)
+            p.moveTo((point.x - x0).toFloat(), (point.y - y0).toFloat())
         } else {
-            p.lineTo(point.x, point.y)
+            p.lineTo((point.x - x0).toFloat(), (point.y - y0).toFloat())
         }
     }
-    return p
+    return PathWithOrigin(p, IntOffset(x0, y0))
 }
 
-internal fun makePathEffect(pattern: List<PatternItem>, strokeWidthPx: Float, scale: Float, density: Density): PathEffect? {
+internal fun makePathEffect(
+    pattern: List<PatternItem>,
+    strokeWidthPx: Float,
+    scale: Float,
+    density: Density
+): PathEffect? {
     val data = makeIntervals(pattern, strokeWidthPx, scale, density) ?: return null
     return dashPathEffect(data.intervals, data.phase)
 }
@@ -324,5 +396,7 @@ internal fun makeIntervals(
 
     return DashPathEffectData(intervals, phase)
 }
+
+private data class PathWithOrigin(val path: Path, val origin: IntOffset)
 
 internal class DashPathEffectData(val intervals: FloatArray, val phase: Float)

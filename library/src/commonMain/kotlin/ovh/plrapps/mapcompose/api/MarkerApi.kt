@@ -413,8 +413,8 @@ suspend fun MapState.centerOnMarker(
         markerState.getMarker(id)?.also {
             awaitLayout()
             val paddingOffset = visibleAreaPadding.getOffsetForScroll(rotation)
-            val destScrollX = (it.x * fullWidth * scale - layoutSize.width / 2 - paddingOffset.x).toFloat()
-            val destScrollY = (it.y * fullHeight * scale - layoutSize.height / 2 - paddingOffset.y).toFloat()
+            val destScrollX = it.x * fullWidth * scale - layoutSize.width / 2 - paddingOffset.x
+            val destScrollY = it.y * fullHeight * scale - layoutSize.height / 2 - paddingOffset.y
 
             withRetry(maxAnimationsRetries, animationsRetriesInterval) {
                 smoothScrollTo(destScrollX, destScrollY, animationSpec)
@@ -432,7 +432,7 @@ suspend fun MapState.centerOnMarker(
  */
 suspend fun MapState.centerOnMarker(
     id: String,
-    destScale: Float,
+    destScale: Double,
     animationSpec: AnimationSpec<Float> = SpringSpec(stiffness = Spring.StiffnessLow)
 ) {
     with(zoomPanRotateState) {
@@ -440,8 +440,8 @@ suspend fun MapState.centerOnMarker(
             awaitLayout()
             val destScaleCst = constrainScale(destScale)
             val paddingOffset = visibleAreaPadding.getOffsetForScroll(rotation)
-            val destScrollX = (it.x * fullWidth * destScaleCst - layoutSize.width / 2 - paddingOffset.x).toFloat()
-            val destScrollY = (it.y * fullHeight * destScaleCst - layoutSize.height / 2 - paddingOffset.y).toFloat()
+            val destScrollX = it.x * fullWidth * destScaleCst - layoutSize.width / 2 - paddingOffset.x
+            val destScrollY = it.y * fullHeight * destScaleCst - layoutSize.height / 2 - paddingOffset.y
 
             withRetry(maxAnimationsRetries, animationsRetriesInterval) {
                 smoothScrollScaleRotate(
@@ -465,7 +465,7 @@ suspend fun MapState.centerOnMarker(
  */
 suspend fun MapState.centerOnMarker(
     id: String,
-    destScale: Float,
+    destScale: Double,
     destAngle: AngleDegree,
     animationSpec: AnimationSpec<Float> = SpringSpec(stiffness = Spring.StiffnessLow)
 ) {
@@ -474,8 +474,8 @@ suspend fun MapState.centerOnMarker(
             awaitLayout()
             val destScaleCst = constrainScale(destScale)
             val paddingOffset = visibleAreaPadding.getOffsetForScroll(rotation)
-            val destScrollX = (it.x * fullWidth * destScaleCst - layoutSize.width / 2 - paddingOffset.x).toFloat()
-            val destScrollY = (it.y * fullHeight * destScaleCst - layoutSize.height / 2 - paddingOffset.y).toFloat()
+            val destScrollX = it.x * fullWidth * destScaleCst - layoutSize.width / 2 - paddingOffset.x
+            val destScrollY = it.y * fullHeight * destScaleCst - layoutSize.height / 2 - paddingOffset.y
 
             withRetry(maxAnimationsRetries, animationsRetriesInterval) {
                 smoothScrollScaleRotate(

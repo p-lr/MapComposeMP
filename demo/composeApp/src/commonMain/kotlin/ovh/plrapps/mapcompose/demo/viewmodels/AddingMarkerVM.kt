@@ -19,7 +19,7 @@ class AddingMarkerVM : ScreenModel {
     private var markerCount = 0
 
     val state = MapState(4, 4096, 4096) {
-        scale(0f) // zoom-out to minimum scale
+        scale(0.0) // zoom-out to minimum scale
     }.apply {
         addLayer(tileStreamProvider)
         onMarkerMove { id, x, y, _, _ ->

@@ -29,7 +29,7 @@ class LayersVM() : ScreenModel {
         shouldLoopScale = true
         enableRotation()
         screenModelScope.launch {
-            scrollTo(0.5, 0.5, 1f)
+            scrollTo(0.5, 0.5, 1.0)
         }
 
         addLayer(tileStreamProvider)

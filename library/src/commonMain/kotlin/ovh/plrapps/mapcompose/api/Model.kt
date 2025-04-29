@@ -5,6 +5,7 @@ import ovh.plrapps.mapcompose.ui.state.markers.model.Custom as CustomInternal
 import ovh.plrapps.mapcompose.ui.state.markers.model.Default as DefaultInternal
 import ovh.plrapps.mapcompose.ui.state.markers.model.None as NoneInternal
 
+data class Scroll(val x: Double, val y: Double)
 
 sealed interface ClusterClickBehavior
 

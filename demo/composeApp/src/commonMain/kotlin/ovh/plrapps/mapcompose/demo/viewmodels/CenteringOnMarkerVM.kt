@@ -18,7 +18,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.map_marker
 
-class CenteringOnMarkerVM(): ScreenModel {
+class CenteringOnMarkerVM: ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096) {
@@ -38,7 +38,7 @@ class CenteringOnMarkerVM(): ScreenModel {
 
     fun onCenter() {
         screenModelScope.launch {
-            state.centerOnMarker("parking", destScale = 1f, destAngle = 0f)
+            state.centerOnMarker("parking", destScale = 1.0, destAngle = 0f)
         }
     }
 }

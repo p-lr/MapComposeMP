@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.ExperimentalClusteringApi
 import ovh.plrapps.mapcompose.api.addClusterer
@@ -28,13 +27,13 @@ import ovh.plrapps.mapcomposemp.demo.map_marker
 /**
  * Shows how to define and use a marker clusterer.
  */
-@OptIn(ExperimentalClusteringApi::class, ExperimentalResourceApi::class)
-class MarkersClusteringVM() : ScreenModel {
+@OptIn(ExperimentalClusteringApi::class)
+class MarkersClusteringVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096) {
-        scale(0.2f)
-        maxScale(8f)
+        scale(0.2)
+        maxScale(8.0)
         scroll(0.5, 0.5)
     }.apply {
         addLayer(tileStreamProvider)

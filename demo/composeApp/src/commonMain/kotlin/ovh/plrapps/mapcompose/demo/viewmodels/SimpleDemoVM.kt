@@ -11,7 +11,7 @@ class SimpleDemoVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096) {
-        scale(1.2f)
+        scale(1.2)
     }.apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true

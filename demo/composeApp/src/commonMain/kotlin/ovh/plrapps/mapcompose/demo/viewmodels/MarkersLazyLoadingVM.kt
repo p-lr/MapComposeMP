@@ -6,7 +6,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import cafe.adriel.voyager.core.model.ScreenModel
-import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.ExperimentalClusteringApi
 import ovh.plrapps.mapcompose.api.addLayer
@@ -24,15 +23,15 @@ import kotlin.random.Random
 /**
  * Shows how to define and use a marker lazy-loader.
  */
-@OptIn(ExperimentalClusteringApi::class, ExperimentalResourceApi::class)
-class MarkersLazyLoadingVM() : ScreenModel {
+@OptIn(ExperimentalClusteringApi::class)
+class MarkersLazyLoadingVM : ScreenModel {
     private val tileStreamProvider =
         ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096) {
-        minimumScaleMode(Forced(1f))
-        scale(1f)
-        maxScale(4f)
+        minimumScaleMode(Forced(1.0))
+        scale(1.0)
+        maxScale(4.0)
         scroll(0.5, 0.5)
     }.apply {
         addLayer(tileStreamProvider)

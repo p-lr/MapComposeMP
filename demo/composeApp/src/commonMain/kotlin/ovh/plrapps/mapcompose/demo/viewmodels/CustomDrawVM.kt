@@ -34,7 +34,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
  * [p2x], and [p2y] states. In turn, when those state change, the line joining the two markers updates.
  * The line is added as a custom view inside [MapUI] composable.
  */
-class CustomDrawVM(): ScreenModel {
+class CustomDrawVM: ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     var p1x by mutableStateOf(0.6)
@@ -47,7 +47,7 @@ class CustomDrawVM(): ScreenModel {
         shouldLoopScale = true
         enableRotation()
         screenModelScope.launch {
-            scrollTo(0.5, 0.5, 1.1f)
+            scrollTo(0.5, 0.5, 1.1)
         }
     }
 

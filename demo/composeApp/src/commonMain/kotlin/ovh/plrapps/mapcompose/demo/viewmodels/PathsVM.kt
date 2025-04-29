@@ -30,7 +30,7 @@ import ovh.plrapps.mapcomposemp.demo.Res
 /**
  * In this sample, we add "tracks" to the map. The tracks are rendered as paths using MapCompose.
  */
-class PathsVM() : ScreenModel {
+class PathsVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 4096, 4096).apply {
