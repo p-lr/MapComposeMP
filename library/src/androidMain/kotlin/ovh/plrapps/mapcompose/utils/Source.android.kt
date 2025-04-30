@@ -20,7 +20,9 @@ actual fun Source.toImage(existing: ImageBitmap?, highFidelityColors: Boolean): 
         options.inBitmap = existing?.asAndroidBitmap()
         BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
     }.getOrElse {
-        options.inBitmap = null
-        BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
+        runCatching {
+            options.inBitmap = null
+            BitmapFactory.decodeStream(this.asInputStream(), null, options)?.asImageBitmap()
+        }.getOrNull()
     }
 }

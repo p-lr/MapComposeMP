@@ -2,7 +2,7 @@ package ovh.plrapps.mapcompose.demo.viewmodels
 
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.demo.utils.getKtorClient
-import ovh.plrapps.mapcompose.demo.utils.getStream
+import ovh.plrapps.mapcompose.demo.utils.readBuffer
 
 actual fun makeHttpTileStreamProvider(): TileStreamProvider {
     // TODO: use a blocking http client. MapCompose already switches context when calling the provided TileStreamProvider,
@@ -10,7 +10,7 @@ actual fun makeHttpTileStreamProvider(): TileStreamProvider {
     val httpClient = getKtorClient()
     return TileStreamProvider { row, col, zoomLvl ->
         try {
-            getStream(
+            readBuffer(
                 httpClient,
                 path = "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg"
             )
@@ -27,7 +27,7 @@ actual fun makeOsmTileStreamProvider(): TileStreamProvider {
     val httpClient = getKtorClient()
     return TileStreamProvider { row, col, zoomLvl ->
         try {
-            getStream(httpClient, "https://tile.openstreetmap.org/$zoomLvl/$col/$row.png")
+            readBuffer(httpClient, "https://tile.openstreetmap.org/$zoomLvl/$col/$row.png")
         } catch (e: Exception) {
             e.printStackTrace()
             null
