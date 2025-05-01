@@ -12,7 +12,7 @@ actual fun makeHttpTileStreamProvider(): TileStreamProvider {
         try {
             readBuffer(
                 httpClient,
-                path = "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg"
+                path = "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg"
             )
         } catch (e: Exception) {
             e.printStackTrace()

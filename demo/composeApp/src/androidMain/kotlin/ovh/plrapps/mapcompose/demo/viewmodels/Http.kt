@@ -12,7 +12,7 @@ actual fun makeHttpTileStreamProvider(): TileStreamProvider {
     return TileStreamProvider { row, col, zoomLvl ->
         try {
             val url =
-                URL("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc/$zoomLvl/$row/$col.jpg")
+                URL("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg")
             val connection = url.openConnection() as HttpURLConnection
             connection.doInput = true
             connection.connect()
