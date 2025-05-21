@@ -22,7 +22,7 @@ class MapLayerRenderer(
         canvasSize: Int
     ) {
         if (!isZoomInRange(styleLayer, zoom)) {
-            println("  missed by zoom")
+            // println("  missed by zoom")
             return
         }
 
@@ -52,17 +52,24 @@ class MapLayerRenderer(
             }
 
             is CircleLayer,
-            is FillLayer, is LineLayer, is SymbolLayer -> {
+            is FillLayer,
+            is LineLayer,
+            is SymbolLayer,
+            is FillExtrusionLayer,
+            is HeatmapLayer,
+            is RasterLayer,
+            is SkyLayer,
+            is HillshadeLayer -> {
                 if (tile == null || tile.layers.isEmpty()) return
                 val tileLayer = tile.layers.find { it.name == styleLayer.sourceLayer }
                 if (tileLayer == null) {
-                    println("source-layer '\\${styleLayer.sourceLayer}' not found")
+                    println("source-layer '${styleLayer.sourceLayer}' not found")
                     return
                 }
                 val extent = tileLayer.extent ?: 4096
                 val painter = painters
                     .getOrPut(styleLayer) {
-                        when(styleLayer) {
+                        when (styleLayer) {
                             is BackgroundLayer -> throw IllegalStateException("BackgroundLayer cant be here")
                             is CircleLayer -> CircleLayerPainter()
                             is FillExtrusionLayer -> FillExtrusionPainter()
@@ -138,6 +145,7 @@ class MapLayerRenderer(
                             zoom = zoom,
                             featureProperties = featureProperties
                         )
+
                         is HeatmapLayer -> (painter as HeatmapLayerPainter).paint(
                             canvas = canvas,
                             collisionDetector = collisionDetector,
@@ -148,6 +156,7 @@ class MapLayerRenderer(
                             zoom = zoom,
                             featureProperties = featureProperties
                         )
+
                         is HillshadeLayer -> (painter as HillshadeLayerPainter).paint(
                             canvas = canvas,
                             collisionDetector = collisionDetector,
@@ -158,6 +167,7 @@ class MapLayerRenderer(
                             zoom = zoom,
                             featureProperties = featureProperties
                         )
+
                         is RasterLayer -> (painter as RasterLayerPainter).paint(
                             canvas = canvas,
                             collisionDetector = collisionDetector,
@@ -168,6 +178,7 @@ class MapLayerRenderer(
                             zoom = zoom,
                             featureProperties = featureProperties
                         )
+
                         is SkyLayer -> (painter as SkyLayerPainter).paint(
                             canvas = canvas,
                             collisionDetector = collisionDetector,
@@ -181,7 +192,6 @@ class MapLayerRenderer(
                     }
                 }
             }
-            else -> throw IllegalArgumentException("Unsupported layer type: ${styleLayer.type}")
         }
     }
 

@@ -101,9 +101,9 @@ class MapboxRasterizer(
 
     suspend fun getTile(x: Int, y: Int, zoom: Double, size: Int): ImageBitmap {
         val pbfList = fetch(z = zoom.toInt(), x = x, y = y).getOrElse { e ->
+            println("ERROR: ${e.message}")
             return emptyBitmap(size)
         }
-        println("size TILE: $size")
         return render(pbfList = pbfList, zoom = zoom, tileSize = size)
     }
 

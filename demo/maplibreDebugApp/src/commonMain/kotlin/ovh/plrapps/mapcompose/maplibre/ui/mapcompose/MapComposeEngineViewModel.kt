@@ -1,0 +1,113 @@
+package ovh.plrapps.mapcompose.maplibre.ui.mapcompose
+
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
+import kotlinx.io.Buffer
+import kotlinx.io.RawSource
+import mapcompose_mp.demo.maplibredebugapp.generated.resources.Res
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+import ovh.plrapps.mapcompose.api.addLayer
+import ovh.plrapps.mapcompose.api.scale
+import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.maplibre.MapboxRasterizer
+import ovh.plrapps.mapcompose.maplibre.data.getMapLibreConfiguration
+import ovh.plrapps.mapcompose.ui.layout.Forced
+import ovh.plrapps.mapcompose.ui.state.MapState
+import kotlin.math.pow
+import org.jetbrains.skia.Image as SkiaImage
+import org.jetbrains.skia.EncodedImageFormat
+import ovh.plrapps.mapcompose.maplibre.io
+
+class MapComposeEngineViewModel(
+    val density: Density,
+    val fontFamilyResolver: FontFamily.Resolver,
+    val textMeasurer: TextMeasurer,
+    val initialViewPort: Dp,
+) : ViewModel() {
+    val zoom = MutableStateFlow(0.0)
+    private val cache = mutableMapOf<String, ImageBitmap>()
+    private var tileRasterizer: MapboxRasterizer? = null
+    private var viewPortSizePx: Float = with(density) { initialViewPort.toPx() }
+    private val maxLevel = 16
+    private val minLevel = 0
+    private val tilePx = with(density) { 256.dp.toPx() }.toInt()
+    private val mapSize = mapSizeAtLevel(maxLevel, tileSize = tilePx)
+
+    private val tileStreamProvider = object : TileStreamProvider {
+        override suspend fun getTileStream(
+            row: Int,
+            col: Int,
+            zoomLvl: Int
+        ): RawSource? {
+            zoom.value = zoomLvl.toDouble()
+            if (tileRasterizer == null) tileRasterizer = getRasterizer()
+            val rasterizer = tileRasterizer ?: return null
+
+            val key = "X$col|Y$row|Z$zoomLvl|$tilePx"
+
+            return withContext(io) {
+                val imageBitmap = cache.getOrPut(key = key) {
+                    rasterizer.getTile(x = col, y = row, zoom = zoomLvl.toDouble(), size = tilePx)
+                }
+
+                val skiaBmp = imageBitmap.asSkiaBitmap()
+
+                val bytes = SkiaImage
+                    .makeFromBitmap(skiaBmp)
+                    .encodeToData(EncodedImageFormat.PNG)
+                    ?.bytes
+                    ?: return@withContext null
+
+                return@withContext Buffer().apply {
+                    write(bytes)
+                }
+            }
+        }
+    }
+
+    val state = MapState(
+        levelCount = maxLevel + 1,
+        fullWidth = mapSize,
+        fullHeight = mapSize,
+        tileSize = tilePx,
+        workerCount = 1
+    ) {
+        minimumScaleMode(Forced(1 / 2.0.pow(maxLevel - minLevel)))
+        scroll(0.5064745545387268, 0.3440358340740204)  // Paris
+    }.apply {
+        addLayer(tileStreamProvider)
+        scale = 0.0  // to zoom out initially
+    }
+
+    /**
+     * wmts level are 0 based.
+     * At level 0, the map corresponds to just one tile.
+     */
+    private fun mapSizeAtLevel(wmtsLevel: Int, tileSize: Int): Int {
+        return tileSize * 2.0.pow(wmtsLevel).toInt()
+    }
+
+    @OptIn(ExperimentalResourceApi::class)
+    private suspend fun getRasterizer(): MapboxRasterizer {
+        val style = Res.readBytes("files/style_street_v2.json").decodeToString()
+        val configuration = getMapLibreConfiguration(style).getOrThrow()
+        return MapboxRasterizer(
+            configuration = configuration,
+            density = density,
+            fontFamilyResolver = fontFamilyResolver,
+            textMeasurer = textMeasurer
+        )
+    }
+
+    fun updateTileSizeForScreen(minScreen: Dp) {
+        viewPortSizePx = with(density) { minScreen.toPx() }
+    }
+}
