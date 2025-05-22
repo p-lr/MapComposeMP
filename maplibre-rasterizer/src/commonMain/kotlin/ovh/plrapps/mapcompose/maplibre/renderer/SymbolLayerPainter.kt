@@ -68,7 +68,8 @@ class SymbolLayerPainter(
                 points.firstOrNull()?.let { (it.x.toFloat() to it.y.toFloat()) to 0f }
             }
             symbolPlacement == "line" && feature.type == Tile.GeomType.LINESTRING -> {
-                val points = geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
+                val lines = geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
+                val points = lines.firstOrNull { it.size >= 2 } ?: emptyList()
                 if (points.size >= 2) {
                     // 1. Find the point at the midpoint of the line length
                     var totalLength = 0f

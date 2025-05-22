@@ -33,7 +33,7 @@ abstract class BaseLayerPainter<T : Layer> {
                 } else null
             }
             Tile.GeomType.LINESTRING -> geometryDecoders.createLineStringPath(
-                geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
+                geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent).flatten()
             )
             Tile.GeomType.POINT -> null // TODO: Implement point rendering
             else -> null
