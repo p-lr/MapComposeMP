@@ -42,7 +42,7 @@ fun MapLibreDebug() {
                         density = density,
                         fontFamilyResolver = fontFamilyResolver,
                         textMeasurer = textMeasurer,
-                        initialViewPort = minScreen
+                        initialViewPort = minScreen,
                     )
                 }
             }

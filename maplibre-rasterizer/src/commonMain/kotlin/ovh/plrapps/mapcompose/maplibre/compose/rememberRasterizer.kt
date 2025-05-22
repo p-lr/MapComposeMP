@@ -31,7 +31,8 @@ fun rememberRasterizer(styleSource: suspend () -> String): MapboxRasterizer? {
                 configuration = it,
                 density = density,
                 fontFamilyResolver = fontFamilyResolver,
-                textMeasurer = textMeasurer
+                textMeasurer = textMeasurer,
+                tileCache = null
             )
         }
     }
