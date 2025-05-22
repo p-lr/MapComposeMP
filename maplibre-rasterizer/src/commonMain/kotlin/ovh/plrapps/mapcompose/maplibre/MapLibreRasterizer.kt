@@ -17,13 +17,16 @@ import ovh.plrapps.mapcompose.maplibre.spec.Tile
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
+import ovh.plrapps.mapcompose.maplibre.data.TileCache
 import pbandk.decodeFromByteArray
 
 class MapboxRasterizer(
     val configuration: MapLibreConfiguration,
     val density: Density,
     val fontFamilyResolver: FontFamily.Resolver,
-    val textMeasurer: TextMeasurer
+    val textMeasurer: TextMeasurer,
+    val tileCache: TileCache?
 ) {
     private val renderer = MapLayerRenderer(
         textMeasurer = textMeasurer
@@ -72,27 +75,32 @@ class MapboxRasterizer(
         return imageBitmap
     }
 
+    private suspend fun fetchTile(url: Url): Result<ByteArray> {
+        println("fetch the tile $url")
+        val response = httpClient.get(url)
+        println("fetch result for $url | ${response.status}")
+        if (response.status != HttpStatusCode.OK) {
+            return Result.failure(LoadTileException("fetch error"))
+        }
+        return Result.success(response.bodyAsBytes())
+    }
+
     // return sourceName: String and tile: ByteArray
     suspend fun fetch(z: Int, x: Int, y: Int): Result<Map<String, ByteArray>> {
         val buffer = mutableMapOf<String, ByteArray>()
-        var isLoaded = false
+        var isLoaded = mutableListOf<Boolean>()
         configuration.tileSources.forEach { (sourceName, ts) ->
-            val url = ts.getTileUrl(z = z, x = x, y = y)
+            val key = "${sourceName}_x${x}_y${y}_z${z}.pbf"
             try {
-                println("fetch the tile $url")
-                val response = httpClient.get(url)
-                println("fetch result for $url | ${response.status}")
-                if (response.status != HttpStatusCode.OK) {
-                    return Result.failure(LoadTileException("fetch error"))
-                }
-                val pbf = response.bodyAsBytes()
+                val pbf = tileCache?.get(key) ?: fetchTile(ts.getTileUrl(z = z, x = x, y = y)).getOrThrow()
+                tileCache?.put(key, pbf)
                 buffer[sourceName] = pbf
-                isLoaded = true
+                isLoaded.add(true)
             } catch (e: Exception) {
                 return Result.failure(LoadTileException("fetch error: ${e.message}"))
             }
         }
-        return if(isLoaded) {
+        return if (isLoaded.isNotEmpty() && isLoaded.all { it }) {
             Result.success(buffer)
         } else {
             Result.failure(LoadTileException("buffer is empty"))
@@ -125,4 +133,4 @@ class MapboxRasterizer(
     }
 }
 
-class LoadTileException(msg: String): Exception(msg)
+class LoadTileException(msg: String) : Exception(msg)
