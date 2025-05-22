@@ -78,7 +78,7 @@ class GeometryDecoders {
         geometry: List<Int>,
         extent: Int,
         canvasSize: Int
-    ): List<Pair<Float, Float>> {
+    ): List<List<Pair<Float, Float>>> {
         val lines = mutableListOf<MutableList<Pair<Float, Float>>>()
         var x = 0
         var y = 0
@@ -127,7 +127,7 @@ class GeometryDecoders {
         if (currentLine != null && currentLine.isNotEmpty()) {
             lines.add(currentLine)
         }
-        return lines.flatten()
+        return lines
     }
     
     fun createLineStringPath(points: List<Pair<Float, Float>>): Path {

@@ -266,8 +266,24 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
     private fun createPath(feature: Tile.Feature, canvasSize: Int, extent: Int, offset: Float): Path? {
         return when (feature.type) {
             Tile.GeomType.LINESTRING -> {
-                val points = geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
-                if (points.isNotEmpty()) createPathFromPoints(points, offset) else null
+                val lines = geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
+                if (lines.isNotEmpty()) {
+                    val path = Path()
+                    for (line in lines) {
+                        if (line.isNotEmpty()) {
+                            var isFirst = true
+                            for (point in line) {
+                                if (isFirst) {
+                                    path.moveTo(point.first, point.second)
+                                    isFirst = false
+                                } else {
+                                    path.lineTo(point.first, point.second)
+                                }
+                            }
+                        }
+                    }
+                    path
+                } else null
             }
             else -> super.createPath(feature, canvasSize, extent)
         }
