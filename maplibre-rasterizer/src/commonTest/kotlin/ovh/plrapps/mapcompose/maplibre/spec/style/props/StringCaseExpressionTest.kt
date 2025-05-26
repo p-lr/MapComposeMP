@@ -54,7 +54,7 @@ class StringCaseExpressionTest {
 
     @Test
     fun `test serialization and deserialization of downcase expression`() {
-        val original = ExpressionOrValue.Expression(Expr.Downcase(Expr.Constant("Hello World")))
+        val original = ExpressionOrValue.Expression(Expr.Downcase(Expr.Constant("Hello World")), source="""["downcase","Hello World"]""")
         val serializer = ExpressionOrValueSerializer(String.serializer())
         val jsonString = json.encodeToString(serializer, original)
         val deserialized = json.decodeFromString(serializer, jsonString)
@@ -63,7 +63,7 @@ class StringCaseExpressionTest {
 
     @Test
     fun `test serialization and deserialization of upcase expression`() {
-        val original = ExpressionOrValue.Expression(Expr.Upcase(Expr.Constant("Hello World")))
+        val original = ExpressionOrValue.Expression(Expr.Upcase(Expr.Constant("Hello World")), source = """["upcase","Hello World"]""")
         val serializer = ExpressionOrValueSerializer(String.serializer())
         val jsonString = json.encodeToString(serializer, original)
         val deserialized = json.decodeFromString(serializer, jsonString)

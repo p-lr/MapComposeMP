@@ -63,7 +63,7 @@ class TestParseStyleBright {
         assertTrue(openmaptiles.attribution!!.contains("MapTiler"))
         assertTrue(openmaptiles.attribution!!.contains("OpenStreetMap"))
 
-        assertEquals("https://openmaptiles.github.io/osm-bright-gl-style/sprite", style.sprite)
+        assertEquals("https://openmaptiles.github.io/osm-bright-gl-style/sprite", style.sprites.firstOrNull()?.url)
         assertEquals("https://api.maptiler.com/fonts/{fontstack}/{range}.pbf?key={key}", style.glyphs)
 
         

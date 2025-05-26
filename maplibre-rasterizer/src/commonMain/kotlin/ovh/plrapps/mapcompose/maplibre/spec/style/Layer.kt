@@ -24,6 +24,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.json.JsonElement
+import ovh.plrapps.mapcompose.maplibre.spec.style.props.ExpressionOrValue
 
 @JsonClassDiscriminator("type")
 @Serializable
@@ -33,7 +34,7 @@ sealed class Layer {
     abstract val source: String?
     @SerialName("source-layer")
     abstract val sourceLayer: String?
-    abstract val filter: List<JsonElement>?
+    abstract val filter: Filter?
     abstract val minzoom: Double?
     abstract val maxzoom: Double?
     abstract val layout: LayoutInterface?
@@ -48,7 +49,7 @@ data class LineLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: LineLayout? = null,
@@ -63,7 +64,7 @@ data class FillLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: FillLayout? = null,
@@ -78,7 +79,7 @@ data class SymbolLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: SymbolLayout? = null,
@@ -93,7 +94,7 @@ data class CircleLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: CircleLayout? = null,
@@ -108,7 +109,7 @@ data class BackgroundLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: BackgroundLayout? = null,
@@ -123,7 +124,7 @@ data class RasterLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: RasterLayout? = null,
@@ -138,7 +139,7 @@ data class HillshadeLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: HillshadeLayout? = null,
@@ -153,7 +154,7 @@ data class HeatmapLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: HeatmapLayout? = null,
@@ -168,7 +169,7 @@ data class FillExtrusionLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val layout: FillExtrusionLayout? = null,
     override val paint: FillExtrusionPaint? = null,
     override val minzoom: Double? = null,
@@ -183,7 +184,7 @@ data class SkyLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: List<JsonElement>? = null,
+    override val filter: Filter? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: SkyLayout? = null,
