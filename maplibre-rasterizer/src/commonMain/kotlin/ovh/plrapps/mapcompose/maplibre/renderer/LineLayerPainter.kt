@@ -1,66 +1,54 @@
 package ovh.plrapps.mapcompose.maplibre.renderer
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.maplibre.renderer.collision.CollisionDetector
 import ovh.plrapps.mapcompose.maplibre.spec.Tile
 import ovh.plrapps.mapcompose.maplibre.spec.style.LineLayer
 import ovh.plrapps.mapcompose.maplibre.spec.style.line.LineLayout
 import ovh.plrapps.mapcompose.maplibre.spec.style.line.LinePaint
-import ovh.plrapps.mapcompose.maplibre.spec.style.props.ExpressionOrValue
 import ovh.plrapps.mapcompose.maplibre.spec.style.props.Expr
-import kotlinx.serialization.json.*
-import kotlin.math.pow
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.sin
-import org.jetbrains.skia.Path as SkiaPath
-import org.jetbrains.skia.PathMeasure
-import org.jetbrains.skia.Point
-import kotlin.math.PI
 
 class LineLayerPainter : BaseLayerPainter<LineLayer>() {
     override fun paint(
         canvas: DrawScope,
-        collisionDetector: CollisionDetector,
         feature: Tile.Feature,
         style: LineLayer,
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double
     ) {
         if (feature.type != Tile.GeomType.LINESTRING && feature.type != Tile.GeomType.POLYGON) return
 
         val paint = style.paint ?: LinePaint()
         val layout = style.layout
 
-        val lineColor = paint.lineColor?.process(featureProperties = featureProperties, zoom = zoom) ?: Color.Black
-        val lineOpacity = paint.lineOpacity?.process(featureProperties, zoom)?.toFloat() ?: 1f
-        val lineWidth = paint.lineWidth?.process(featureProperties, zoom)?.toFloat() ?: 1f
-        val lineGapWidth = paint.lineGapWidth?.process(featureProperties, zoom)?.toFloat() ?: 0f
-        val lineBlur = paint.lineBlur?.process(featureProperties, zoom)?.toFloat() ?: 0f
-        val lineOffset = paint.lineOffset?.process(featureProperties, zoom)?.toFloat() ?: 0f
-        val lineTranslate = paint.lineTranslate?.process(featureProperties, zoom)?.map { it.toFloat() } ?: listOf(0f, 0f)
-        val lineTranslateAnchor = paint.lineTranslateAnchor?.process(featureProperties, zoom) ?: "map"
-        val lineCap = getLineCap(layout, zoom, featureProperties)
-        val lineJoin = getLineJoin(layout, zoom, featureProperties)
-        val lineMiterLimit = layout?.lineMiterLimit?.process(featureProperties, zoom)?.toFloat() ?: 2f
-        val lineRoundLimit = layout?.lineRoundLimit?.process(featureProperties, zoom) ?: 1.0
-        val dashArray = getLineDashArray(paint, zoom, featureProperties)
+        val lineColor =
+            paint.lineColor?.process(featureProperties = featureProperties, zoom = actualZoom) ?: Color.Black
+        val lineOpacity = paint.lineOpacity?.process(featureProperties, actualZoom)?.toFloat() ?: 1f
+        val lineWidth = paint.lineWidth?.process(featureProperties, actualZoom)?.toFloat()?.let { it*canvas.density } ?: 1f
+        val lineGapWidth = paint.lineGapWidth?.process(featureProperties, actualZoom)?.toFloat() ?: 0f
+        val lineBlur = paint.lineBlur?.process(featureProperties, actualZoom)?.toFloat() ?: 0f
+        val lineOffset = paint.lineOffset?.process(featureProperties, actualZoom)?.toFloat() ?: 0f
+        val lineTranslate =
+            paint.lineTranslate?.process(featureProperties, actualZoom)?.map { it.toFloat() } ?: listOf(0f, 0f)
+        val lineTranslateAnchor = paint.lineTranslateAnchor?.process(featureProperties, actualZoom) ?: "map"
+        val lineCap = getLineCap(layout, actualZoom, featureProperties)
+        val lineJoin = getLineJoin(layout, actualZoom, featureProperties)
+        val lineMiterLimit = layout?.lineMiterLimit?.process(featureProperties, actualZoom)?.toFloat() ?: 2f
+        val lineRoundLimit = layout?.lineRoundLimit?.process(featureProperties, actualZoom) ?: 1.0
+        val dashArray = getLineDashArray(paint, actualZoom, featureProperties)
 
         // TODO rewrite
         val lineWidthPx = lineWidth
         val lineGapWidthPx = lineGapWidth
         val lineBlurPx = lineBlur
         val lineOffsetPx = lineOffset
-        val dashArrayPx = dashArray?.map { it.toFloat()*canvas.density }?.toFloatArray()
+        val dashArrayPx = dashArray?.map { it.toFloat() * canvas.density }?.toFloatArray()
 
         if (feature.type == Tile.GeomType.POLYGON) {
             val polygons = geometryDecoders.decodePolygons(feature.geometry, canvasSize = canvasSize, extent = extent)
@@ -166,9 +154,8 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
             "viewport" -> translate
             else -> translate // "map"
         }
-        
+
         canvas.translate(dx, dy) {
-            // If there is blur, draw several times with different transparency
             if (blur > 0) {
                 val blurSteps = 5
                 val blurStep = blur / blurSteps
@@ -178,7 +165,7 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
                     val currentBlur = blurStep * (i + 1)
                     val currentOpacity = opacityStep * (i + 1)
                     val currentWidth = width + currentBlur * 2
-                    
+
                     canvas.drawPath(
                         path = path,
                         color = color.copy(alpha = currentOpacity),
@@ -285,6 +272,7 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
                     path
                 } else null
             }
+
             else -> super.createPath(feature, canvasSize, extent)
         }
     }
@@ -296,8 +284,8 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
         )
     }
 
-    private fun getLineCap(layout: LineLayout?, zoom: Double, featureProperties: Map<String, Any?>?): StrokeCap {
-        return when (layout?.lineCap?.process(featureProperties = featureProperties, zoom = zoom) ?: "butt") {
+    private fun getLineCap(layout: LineLayout?, actualZoom: Double, featureProperties: Map<String, Any?>?): StrokeCap {
+        return when (layout?.lineCap?.process(featureProperties = featureProperties, zoom = actualZoom) ?: "butt") {
             "butt" -> StrokeCap.Butt
             "round" -> StrokeCap.Round
             "square" -> StrokeCap.Square
@@ -305,8 +293,12 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
         }
     }
 
-    private fun getLineJoin(layout: LineLayout?, zoom: Double, featureProperties: Map<String, Any?>?): StrokeJoin {
-        return when (layout?.lineJoin?.process(featureProperties = featureProperties, zoom = zoom) ?: "miter") {
+    private fun getLineJoin(
+        layout: LineLayout?,
+        actualZoom: Double,
+        featureProperties: Map<String, Any?>?
+    ): StrokeJoin {
+        return when (layout?.lineJoin?.process(featureProperties = featureProperties, zoom = actualZoom) ?: "miter") {
             "bevel" -> StrokeJoin.Bevel
             "round" -> StrokeJoin.Round
             "miter" -> StrokeJoin.Miter
@@ -314,7 +306,11 @@ class LineLayerPainter : BaseLayerPainter<LineLayer>() {
         }
     }
 
-    private fun getLineDashArray(paint: LinePaint, zoom: Double, featureProperties: Map<String, Any?>?): DoubleArray? {
-        return paint.lineDasharray?.process(featureProperties = featureProperties, zoom = zoom)?.toDoubleArray()
+    private fun getLineDashArray(
+        paint: LinePaint,
+        actualZoom: Double,
+        featureProperties: Map<String, Any?>?
+    ): DoubleArray? {
+        return paint.lineDasharray?.process(featureProperties = featureProperties, zoom = actualZoom)?.toDoubleArray()
     }
 } 

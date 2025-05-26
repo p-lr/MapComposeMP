@@ -8,7 +8,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import mapcompose_mp.demo.maplibredebugapp.generated.resources.Res
@@ -20,13 +21,14 @@ import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.maplibre.MapboxRasterizer
 import ovh.plrapps.mapcompose.maplibre.cache.FileTileCache
 import ovh.plrapps.mapcompose.maplibre.data.getMapLibreConfiguration
-import ovh.plrapps.mapcompose.maplibre.io
+import ovh.plrapps.mapcompose.maplibre.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.ui.layout.Fit
 import ovh.plrapps.mapcompose.ui.state.MapState
-import kotlin.math.pow
+import ovh.plrapps.mapcompose.ui.state.VisibleState
+import kotlin.math.*
 import org.jetbrains.skia.Image as SkiaImage
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+
+private fun Double.toRadians() = this * PI / 180.0
 
 class MapComposeEngineViewModel(
     val density: Density,
@@ -38,9 +40,9 @@ class MapComposeEngineViewModel(
     val zoom = MutableStateFlow(0.0)
     private var tileRasterizer: MapboxRasterizer? = null
     private var viewPortSizePx: Float = with(density) { initialViewPort.toPx() }
-    private val maxLevel = 16
+    private val maxLevel = 20
     private val minLevel = 0
-    private val tilePx = with(density) { 256.dp.toPx() }.toInt()
+    private val tilePx = with(density) { 512.dp.toPx() }.toInt()
     private val mapSize = mapSizeAtLevel(maxLevel, tileSize = tilePx)
 
     private val iniRaster = Mutex()
@@ -49,9 +51,11 @@ class MapComposeEngineViewModel(
         override suspend fun getTileStream(
             row: Int,
             col: Int,
-            zoomLvl: Int
+            zoomLvl: Int,
+            visibleState: VisibleState,
         ): RawSource? {
             zoom.value = zoomLvl.toDouble()
+            val viewport = visibleState.viewport
             iniRaster.withLock {
                 if (tileRasterizer == null) {
                     tileRasterizer = getRasterizer()
@@ -59,19 +63,33 @@ class MapComposeEngineViewModel(
             }
             val rasterizer = tileRasterizer ?: return null
 
+            val imageBitmap = rasterizer.getTile(
+                x = col,
+                y = row,
+                zoom = zoomLvl.toDouble(),
+                tileSize = tilePx,
+                viewport = MVTViewport(
+                    width = (viewport.right - viewport.left).toFloat(),
+                    height = (viewport.bottom - viewport.top).toFloat(),
+                    bearing = viewport.angleRad,
+                    pitch = 0f,
+                    zoom = zoomLvl.toFloat(),
+                    center = ((viewport.right + viewport.left) / 2).toFloat(),
+                    cameraToCenterDistance = ((viewport.bottom - viewport.top) / 2).toFloat(),
+                    tileMatrix = visibleState.visibleTiles.tileMatrix
+                ),
+            )
+            val skiaBmp = imageBitmap.asSkiaBitmap()
 
-                val imageBitmap = rasterizer.getTile(x = col, y = row, zoom = zoomLvl.toDouble(), size = tilePx)
-                val skiaBmp = imageBitmap.asSkiaBitmap()
+            val bytes = SkiaImage
+                .makeFromBitmap(skiaBmp)
+                .encodeToData(EncodedImageFormat.PNG)
+                ?.bytes
+                ?: return null
 
-                val bytes = SkiaImage
-                    .makeFromBitmap(skiaBmp)
-                    .encodeToData(EncodedImageFormat.PNG)
-                    ?.bytes
-                    ?: return null
-
-                return Buffer().apply {
-                    write(bytes)
-                }
+            return Buffer().apply {
+                write(bytes)
+            }
 
         }
     }
@@ -83,14 +101,18 @@ class MapComposeEngineViewModel(
         tileSize = tilePx,
         workerCount = 1
     ) {
-        //minimumScaleMode(Forced(1 / 2.0.pow(maxLevel - minLevel)))
-        // z/y/x
-        // 15.33/60.00125/29.76867 - Kotlin isl.
         minimumScaleMode(Fit)
-        scroll(0.5064745545387268, 0.3440358340740204)  // Paris
+        // 15.33/60.00125/29.76867 - Kotlin isl.
+        val lat = 59.990776071439
+        val lon = 29.768192029815395
+
+        val x = (lon + 180.0) / 360.0
+        val latRad = lat.toRadians()
+        val y = (1.0 - ln(tan(latRad) + 1.0 / cos(latRad)) / PI) / 2.0
+        scroll(x, y)
     }.apply {
         addLayer(tileStreamProvider)
-        scale = 0.0  // to zoom out initially
+        scale = 1.0 / 2.0.pow(maxLevel - 14.33)
     }
 
     /**
@@ -104,7 +126,8 @@ class MapComposeEngineViewModel(
     @OptIn(ExperimentalResourceApi::class)
     private suspend fun getRasterizer(): MapboxRasterizer {
         val style = Res.readBytes("files/style_street_v2.json").decodeToString()
-        val configuration = getMapLibreConfiguration(style).getOrThrow()
+        val configuration =
+            getMapLibreConfiguration(style = style, pixelRatio = density.density.roundToInt()).getOrThrow()
         return MapboxRasterizer(
             configuration = configuration,
             density = density,

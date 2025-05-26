@@ -11,6 +11,7 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.maplibre.MapboxRasterizer
 import ovh.plrapps.mapcompose.maplibre.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.maplibre.data.getMapLibreConfiguration
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
@@ -18,10 +19,9 @@ fun rememberRasterizer(styleSource: suspend () -> String): MapboxRasterizer? {
     val density = LocalDensity.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
     val textMeasurer = rememberTextMeasurer()
-
     val configuration by produceState<MapLibreConfiguration?>(null) {
         value = styleSource().let {
-            getMapLibreConfiguration(it).getOrThrow()
+            getMapLibreConfiguration(it, pixelRatio = density.density.roundToInt()).getOrThrow()
         }
     }
 

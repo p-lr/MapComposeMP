@@ -9,13 +9,13 @@ import ovh.plrapps.mapcompose.maplibre.spec.style.BackgroundLayer
 class BackgroundLayerPainter : BaseLayerPainter<BackgroundLayer>() {
     override fun paint(
         canvas: DrawScope,
-        collisionDetector: CollisionDetector,
         feature: Tile.Feature,
         style: BackgroundLayer,
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double
     ) {
         val paint = style.paint ?: return
 

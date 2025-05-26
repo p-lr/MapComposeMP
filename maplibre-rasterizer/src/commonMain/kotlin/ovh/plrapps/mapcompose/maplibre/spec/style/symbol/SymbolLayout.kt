@@ -4,6 +4,21 @@ import ovh.plrapps.mapcompose.maplibre.spec.style.LayoutInterface
 import ovh.plrapps.mapcompose.maplibre.spec.style.props.ExpressionOrValue
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import ovh.plrapps.mapcompose.maplibre.spec.style.symbol.TextAnchor
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+
+object TextAnchorSerializer : KSerializer<TextAnchor> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("TextAnchor", PrimitiveKind.STRING)
+    override fun deserialize(decoder: Decoder): TextAnchor =
+        TextAnchor.fromString(decoder.decodeString())
+    override fun serialize(encoder: Encoder, value: TextAnchor) =
+        encoder.encodeString(value.value)
+}
 
 @Serializable
 data class SymbolLayout(
@@ -85,7 +100,7 @@ data class SymbolLayout(
     val textVariableAnchor: ExpressionOrValue<List<String>>? = null,
 
     @SerialName("text-anchor")
-    val textAnchor: ExpressionOrValue<String>? = null,
+    val textAnchor: ExpressionOrValue<TextAnchor>? = null,
 
     @SerialName("text-max-angle")
     val textMaxAngle: ExpressionOrValue<Double>? = null,

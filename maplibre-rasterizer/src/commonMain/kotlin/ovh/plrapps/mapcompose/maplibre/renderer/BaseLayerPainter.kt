@@ -11,13 +11,13 @@ abstract class BaseLayerPainter<T : Layer> {
 
     abstract fun paint(
         canvas: DrawScope,
-        collisionDetector: CollisionDetector,
         feature: Tile.Feature,
         style: T,
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double
     )
 
     protected fun createPath(

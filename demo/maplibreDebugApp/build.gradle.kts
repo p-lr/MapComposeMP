@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.jetbrainsCompose)
+    alias(libs.plugins.kotlinx.serialization)
 }
 
 kotlin {
@@ -39,6 +40,8 @@ kotlin {
             implementation(project(":library"))
             implementation(project(":maplibre-rasterizer"))
             implementation("io.github.oleksandrbalan:lazytable:1.10.0")
+            implementation(libs.kotlinx.serialization.json)
+
         }
 
         commonTest.dependencies {

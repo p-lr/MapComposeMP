@@ -149,15 +149,15 @@ internal class TileCanvasState(
         }
 
         withContext(scope.coroutineContext) {
-            setVisibleTiles(visibleTiles)
+            setVisibleTiles(visibleTiles, viewport)
         }
     }
 
-    private fun setVisibleTiles(visibleTiles: VisibleTiles) {
+    private fun setVisibleTiles(visibleTiles: VisibleTiles, viewport: Viewport) {
         /* Feed the tile processing machinery */
         val layerIds = _layerFlow.value.map { it.id }
         val opacities = _layerFlow.value.map { it.alpha }
-        val visibleTilesForLayers = VisibleState(visibleTiles, layerIds, opacities)
+        val visibleTilesForLayers = VisibleState(visibleTiles, layerIds, opacities, viewport)
         visibleStateFlow.value = visibleTilesForLayers
 
         renderThrottled()
@@ -201,10 +201,11 @@ internal class TileCanvasState(
                         if (!alreadyProcessed) {
                             visibleTileLocationsChannel.send(
                                 TileSpec(
-                                    visibleTiles.level,
-                                    row,
-                                    col,
-                                    visibleTiles.subSample
+                                    zoom = visibleTiles.level,
+                                    row = row,
+                                    col = col,
+                                    subSample = visibleTiles.subSample,
+                                    visibleState = visibleState
                                 )
                             )
                         }
@@ -420,10 +421,11 @@ internal class TileCanvasState(
     private fun Int.maxAtGreaterLevel(n: Int): Int {
         return (this + 1) * 2.0.pow(n).toInt() - 1
     }
-
-    private data class VisibleState(
-        val visibleTiles: VisibleTiles,
-        val layerIds: List<String>,
-        val opacities: List<Float>
-    )
 }
+
+data class VisibleState(
+    val visibleTiles: VisibleTiles,
+    val layerIds: List<String>,
+    val opacities: List<Float>,
+    val viewport: Viewport
+)

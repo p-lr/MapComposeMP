@@ -10,13 +10,13 @@ import ovh.plrapps.mapcompose.maplibre.spec.style.CircleLayer
 class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
     override fun paint(
         canvas: DrawScope,
-        collisionDetector: CollisionDetector,
         feature: Tile.Feature,
         style: CircleLayer,
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double
     ) {
         if (feature.type != Tile.GeomType.POINT) return
 

@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import ovh.plrapps.mapcompose.ui.state.VisibleState
 
 /**
  * A [Tile] is defined by its coordinates in the "pyramid". A [Tile] is sub-sampled when the
@@ -24,7 +25,7 @@ internal data class Tile(
     var alpha: Float by mutableStateOf(0f)
 }
 
-internal data class TileSpec(val zoom: Int, val row: Int, val col: Int, val subSample: Int = 0)
+internal data class TileSpec(val zoom: Int, val row: Int, val col: Int, val subSample: Int = 0, val visibleState: VisibleState)
 
 internal fun Tile.sameSpecAs(
     zoom: Int,

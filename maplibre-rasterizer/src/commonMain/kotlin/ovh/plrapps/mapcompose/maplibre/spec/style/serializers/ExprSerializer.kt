@@ -807,7 +807,7 @@ class ExprSerializer<T : Any>(
     }
 
     private fun deserializeIn(element: JsonArray, jsonDecoder: JsonDecoder, isNested: Boolean): Expr.In<T> {
-        if (element.size != 3) throw SerializationException("Invalid in expression")
+        if (element.size != 3) throw SerializationException("Invalid in expression $element")
         val value = deserializeExpr(element = element[1], jsonDecoder = jsonDecoder, isNested = true) as Expr<T>
         val array = (element[2] as JsonArray).map { it.jsonPrimitive.content }
         return Expr.In(value, array)
@@ -844,7 +844,7 @@ class ExprSerializer<T : Any>(
         val interpolationType = when (val interpolationElement = element[1]) {
             is JsonPrimitive -> when (interpolationElement.content) {
                 "linear" -> InterpolationType.Linear
-                "exponential" -> InterpolationType.Exponential
+                "exponential" -> InterpolationType.Exponential(1.0) // TODO
                 "cubic" -> InterpolationType.Cubic
                 "step" -> InterpolationType.Step
                 else -> throw SerializationException("Invalid interpolation type")
@@ -852,7 +852,7 @@ class ExprSerializer<T : Any>(
 
             is JsonArray -> when (interpolationElement[0].jsonPrimitive.content) {
                 "linear" -> InterpolationType.Linear
-                "exponential" -> InterpolationType.Exponential
+                "exponential" -> InterpolationType.Exponential(interpolationElement[1].jsonPrimitive.double)
                 "cubic" -> InterpolationType.Cubic
                 "step" -> InterpolationType.Step
                 else -> throw SerializationException("Invalid interpolation type")
@@ -1149,9 +1149,6 @@ class ExprSerializer<T : Any>(
         jsonDecoder: JsonDecoder,
         isNested: Boolean = false
     ): Expr.Constant<T> {
-        if (element.toString().contains("hsl(")) {
-            println("deserializeConstant with error $isNested")
-        }
         return when (element) {
             is JsonPrimitive -> {
                 if (isNested) {
@@ -1226,7 +1223,6 @@ class ExprSerializer<T : Any>(
     }
 
     fun deserializeExpr(element: JsonElement, jsonDecoder: JsonDecoder, isNested: Boolean): Expr<*> {
-        println("deserializeExpr $element")
         return when (element) {
             is JsonPrimitive -> deserializeConstant(element = element, jsonDecoder = jsonDecoder, isNested = isNested)
             is JsonObject -> {

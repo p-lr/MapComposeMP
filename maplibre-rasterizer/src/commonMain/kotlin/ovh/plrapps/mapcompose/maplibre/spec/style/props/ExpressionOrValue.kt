@@ -14,8 +14,10 @@ import kotlin.math.*
 
 @Serializable(with = ExpressionOrValueSerializer::class)
 sealed class ExpressionOrValue<T> {
-    data class Value<T>(val value: T) : ExpressionOrValue<T>()
-    data class Expression<T>(val expr: Expr<T>) : ExpressionOrValue<T>()
+    open val source: String = ""
+
+    data class Value<T>(val value: T, override var source: String = "") : ExpressionOrValue<T>()
+    data class Expression<T>(val expr: Expr<T>, override var source: String = "") : ExpressionOrValue<T>()
 
     fun process(
         featureProperties: Map<String, Any?>? = null,
@@ -643,7 +645,19 @@ sealed class Expr<out T> {
                     if (index < 0 || index == sortedStops.lastIndex) return null
                     val (lowerStop, lowerExpr) = sortedStops[index]
                     val (upperStop, upperExpr) = sortedStops[index + 1]
-                    val t = (inputValue - lowerStop) / (upperStop - lowerStop)
+                    val t = when (interpolation) {
+                        is InterpolationType.Linear -> (inputValue - lowerStop) / (upperStop - lowerStop)
+                        is InterpolationType.Exponential -> {
+                            val base = interpolation.base
+                            if (base == 1.0) {
+                                (inputValue - lowerStop) / (upperStop - lowerStop)
+                            } else {
+                                (base.pow((inputValue - lowerStop) / (upperStop - lowerStop)) - 1) / (base - 1)
+                            }
+                        }
+
+                        else -> (inputValue - lowerStop) / (upperStop - lowerStop) // fallback
+                    }
                     val lowerValue = lowerExpr.evaluate(featureProperties, zoom) ?: return null
                     val upperValue = upperExpr.evaluate(featureProperties, zoom) ?: return null
                     interpolate(t, lowerValue, upperValue)
@@ -768,19 +782,16 @@ sealed class Expr<out T> {
     // TODO need test
     fun <T> interpolate(t: Double, a: T, b: T): T? {
         return when {
-            a is Double && b is Double -> (a + (b - a) * t) as T
-            a is Float && b is Float -> (a + (b - a) * t.toFloat()) as T
-            a is Int && b is Int -> (a + ((b - a) * t)).toInt() as T
+            a is Double && b is Double -> (a * (1 - t) + b * t) as T
+            a is Float && b is Float -> (a * (1 - t.toFloat()) + b * t.toFloat()) as T
+            a is Int && b is Int -> (a * (1 - t) + b * t).toInt() as T
             a is Number && b is Number -> {
-                // (Long, Short)
                 val at = a.toDouble()
                 val bt = b.toDouble()
-                val value = at + (bt - at) * t
-                if (abs(value - at) <= abs(value - bt)) a else b
+                (at * (1 - t) + bt * t) as T
             }
             a is Color && b is Color -> lerp(start = a, stop = b, fraction = t.toFloat()) as T
             a is String && b is String -> if (t <= 0.5) a else b
-            // you can also place other types here
             else -> if (t < 0.5) a else b
         }
     }
@@ -792,7 +803,7 @@ sealed class InterpolationType {
     object Linear : InterpolationType()
 
     @Serializable
-    object Exponential : InterpolationType()
+    data class Exponential(val base: Double) : InterpolationType()
 
     @Serializable
     object Cubic : InterpolationType()

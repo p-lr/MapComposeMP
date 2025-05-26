@@ -10,6 +10,7 @@ import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
+import ovh.plrapps.mapcompose.maplibre.spec.style.symbol.TextAnchorSerializer
 
 @Serializer(forClass = ExpressionOrValue::class)
 class ExpressionOrValueSerializer<T : Any>(
@@ -20,6 +21,7 @@ class ExpressionOrValueSerializer<T : Any>(
 
     override val descriptor: SerialDescriptor = buildClassSerialDescriptor("ExpressionOrValue")
 
+    @OptIn(ExperimentalSerializationApi::class)
     override fun serialize(encoder: Encoder, value: ExpressionOrValue<T>) {
         val jsonEncoder =
             encoder as? JsonEncoder ?: throw SerializationException("This serializer can only be used with Json")
@@ -52,25 +54,28 @@ class ExpressionOrValueSerializer<T : Any>(
         val jsonDecoder =
             decoder as? JsonDecoder ?: throw SerializationException("This serializer can only be used with Json")
         val element = jsonDecoder.decodeJsonElement()
-        println("deserialize( ` $element `")
         val isExpression = ExpressionOrValue.isExpression(element)
         return if (isExpression) {
             ExpressionOrValue.Expression(
                 jsonDecoder.json.decodeFromJsonElement(
                     deserializer = exprSerializer,
                     element = if (element is JsonObject) normalizeLegacyExpression(element) else element
-                )
+                ),
+                source = element.toString()
             )
         } else {
             when (valueSerializer) {
                 is ColorSerializer -> {
                     val color = ColorParser.parseColorStringOrNull(element.jsonPrimitive.content)
                         ?: throw SerializationException("Invalid color format ${element.jsonPrimitive.content}")
-                    ExpressionOrValue.Value(color as T)
+                    ExpressionOrValue.Value(color as T, source = element.toString())
                 }
 
                 else -> {
-                    ExpressionOrValue.Value(jsonDecoder.json.decodeFromJsonElement(valueSerializer, element))
+                    ExpressionOrValue.Value(
+                        jsonDecoder.json.decodeFromJsonElement(valueSerializer, element),
+                        source = element.toString()
+                    )
                 }
             }
         }

@@ -5,8 +5,9 @@ import ovh.plrapps.mapcompose.maplibre.spec.tilejson.TileJson
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.Url
+import ovh.plrapps.mapcompose.maplibre.spec.style.sprites
 
-suspend fun getMapLibreConfiguration(styleUrl: Url): Result<MapLibreConfiguration> {
+suspend fun getMapLibreConfiguration(styleUrl: Url, pixelRatio: Int = 1): Result<MapLibreConfiguration> {
     try {
         val rawStyle = httpClient.get(styleUrl).bodyAsText()
         val style = json.decodeFromString(MapLibreStyle.serializer(), rawStyle)
@@ -20,10 +21,14 @@ suspend fun getMapLibreConfiguration(styleUrl: Url): Result<MapLibreConfiguratio
             }
         }
 
+        val spriteManager = style.sprites.firstOrNull()?.url?.let { sprite ->
+            SpriteManager.load(spriteUrl = sprite, pixelRatio = pixelRatio).getOrElse { e -> return Result.failure(e) }
+        }
 
         return Result.success(MapLibreConfiguration(
             style = style,
-            tileSources = tileSources
+            tileSources = tileSources,
+            spriteManager = spriteManager
         ))
 
     } catch (e: Exception) {
@@ -31,7 +36,7 @@ suspend fun getMapLibreConfiguration(styleUrl: Url): Result<MapLibreConfiguratio
     }
 }
 
-suspend fun getMapLibreConfiguration(style: String): Result<MapLibreConfiguration> {
+suspend fun getMapLibreConfiguration(style: String, pixelRatio: Int = 1): Result<MapLibreConfiguration> {
     try {
         val style = json.decodeFromString(MapLibreStyle.serializer(), style)
         val tileSources = mutableMapOf<String, MapLibreTileSource>()
@@ -54,9 +59,14 @@ suspend fun getMapLibreConfiguration(style: String): Result<MapLibreConfiguratio
             }
         }
 
+        val spriteManager = style.sprites.firstOrNull()?.url?.let { sprite ->
+            SpriteManager.load(spriteUrl = sprite, pixelRatio = pixelRatio).getOrElse { e -> return Result.failure(e) }
+        }
+
         return Result.success(MapLibreConfiguration(
             style = style,
-            tileSources = tileSources
+            tileSources = tileSources,
+            spriteManager = spriteManager
         ))
 
     } catch (e: Exception) {

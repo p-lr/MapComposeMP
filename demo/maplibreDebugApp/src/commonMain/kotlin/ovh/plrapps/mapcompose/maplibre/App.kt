@@ -9,7 +9,6 @@ import ovh.plrapps.mapcompose.maplibre.ui.mapcompose.MapLibreDebug
 @Composable
 internal fun App() {
     AppTheme {
-        // DummyDebug()
-        MapLibreDebug()
+         MapLibreDebug()
     }
 }

@@ -15,22 +15,26 @@ import kotlinx.serialization.json.JsonPrimitive
 class FillLayerPainter : BaseLayerPainter<FillLayer>() {
     override fun paint(
         canvas: DrawScope,
-        collisionDetector: CollisionDetector,
         feature: Tile.Feature,
         style: FillLayer,
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double
     ) {
         if (feature.type != Tile.GeomType.POLYGON) return
 
         val paint = style.paint ?: return
         val path = createPath(feature, canvasSize, extent) ?: return
 
-        val fillColor = paint.fillColor?.process(featureProperties, zoom) ?: Color.Black
-        val fillOpacity = paint.fillOpacity?.process(featureProperties, zoom)?.toFloat() ?: 1f
-        val fillOutlineColor = paint.fillOutlineColor?.process(featureProperties, zoom) ?: Color.Black
+        // FIXME: It's broken previous layers
+        if (paint.fillPattern != null) {
+            return
+        }
+        val fillColor = paint.fillColor?.process(featureProperties, actualZoom) ?: Color.Transparent
+        val fillOpacity = paint.fillOpacity?.process(featureProperties, actualZoom)?.toFloat() ?: 1f
+        val fillOutlineColor = paint.fillOutlineColor?.process(featureProperties, actualZoom) ?: Color.Transparent
 
         canvas.drawPath(
             path = path,
@@ -57,11 +61,13 @@ class FillLayerPainter : BaseLayerPainter<FillLayer>() {
                 val value = translate.content.toFloatOrNull() ?: 0f
                 Offset(value, value)
             }
+
             is JsonObject -> {
                 val x = translate["x"]?.toString()?.toFloatOrNull() ?: 0f
                 val y = translate["y"]?.toString()?.toFloatOrNull() ?: 0f
                 Offset(x, y)
             }
+
             else -> Offset.Zero
         }
 
