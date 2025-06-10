@@ -8,8 +8,6 @@ data class MVTViewport(
     val bearing: Float,
     val pitch: Float,
     val zoom: Float,
-    val center: Float,
-    val cameraToCenterDistance: Float,
     val tileMatrix: Map<Int, IntRange>
 )
 

@@ -4,6 +4,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -199,13 +200,22 @@ internal class TileCanvasState(
                          * Doing this now results in less object allocations than filtering the flow
                          * afterwards */
                         if (!alreadyProcessed) {
+                            val viewport = visibleState.viewport
                             visibleTileLocationsChannel.send(
                                 TileSpec(
                                     zoom = visibleTiles.level,
                                     row = row,
                                     col = col,
                                     subSample = visibleTiles.subSample,
-                                    visibleState = visibleState
+                                    viewportInfo = ViewportInfo(
+                                        matrix = visibleState.visibleTiles.tileMatrix,
+                                        size = IntSize(
+                                            width = (viewport.right - viewport.left),
+                                            height = (viewport.bottom - viewport.top),
+                                        ),
+                                        angleRad = visibleState.viewport.angleRad,
+                                        pitch = 0f
+                                    )
                                 )
                             )
                         }
@@ -421,11 +431,11 @@ internal class TileCanvasState(
     private fun Int.maxAtGreaterLevel(n: Int): Int {
         return (this + 1) * 2.0.pow(n).toInt() - 1
     }
-}
 
-data class VisibleState(
-    val visibleTiles: VisibleTiles,
-    val layerIds: List<String>,
-    val opacities: List<Float>,
-    val viewport: Viewport
-)
+    private data class VisibleState(
+        val visibleTiles: VisibleTiles,
+        val layerIds: List<String>,
+        val opacities: List<Float>,
+        val viewport: Viewport
+    )
+}

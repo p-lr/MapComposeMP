@@ -180,7 +180,7 @@ internal class VisibleTilesResolver(
  * is lower than the scale of the minimum level, [subSample] is greater than 0. Otherwise, [subSample]
  * equals 0.
  */
-data class VisibleTiles(
+internal data class VisibleTiles(
     val level: Int,
     val tileMatrix: TileMatrix,
     val count: Int,

@@ -110,7 +110,7 @@ internal class TileCollector(
                         row = spec.row,
                         col = spec.col,
                         zoomLvl = spec.zoom,
-                        visibleState = spec.visibleState
+                        viewportInfo = spec.viewportInfo
                     )
                     BitmapForLayer(source?.buffered(), layer)
                 }
