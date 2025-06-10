@@ -18,13 +18,13 @@ import org.jetbrains.skia.EncodedImageFormat
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.core.ViewportInfo
 import ovh.plrapps.mapcompose.maplibre.MapboxRasterizer
 import ovh.plrapps.mapcompose.maplibre.cache.FileTileCache
 import ovh.plrapps.mapcompose.maplibre.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.maplibre.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.ui.layout.Fit
 import ovh.plrapps.mapcompose.ui.state.MapState
-import ovh.plrapps.mapcompose.ui.state.VisibleState
 import kotlin.math.*
 import org.jetbrains.skia.Image as SkiaImage
 
@@ -52,10 +52,9 @@ class MapComposeEngineViewModel(
             row: Int,
             col: Int,
             zoomLvl: Int,
-            visibleState: VisibleState,
+            viewportInfo: ViewportInfo,
         ): RawSource? {
             zoom.value = zoomLvl.toDouble()
-            val viewport = visibleState.viewport
             iniRaster.withLock {
                 if (tileRasterizer == null) {
                     tileRasterizer = getRasterizer()
@@ -69,14 +68,12 @@ class MapComposeEngineViewModel(
                 zoom = zoomLvl.toDouble(),
                 tileSize = tilePx,
                 viewport = MVTViewport(
-                    width = (viewport.right - viewport.left).toFloat(),
-                    height = (viewport.bottom - viewport.top).toFloat(),
-                    bearing = viewport.angleRad,
-                    pitch = 0f,
+                    width = (viewportInfo.size.width).toFloat(),
+                    height = (viewportInfo.size.height).toFloat(),
+                    bearing = viewportInfo.angleRad,
+                    pitch = viewportInfo.pitch,
                     zoom = zoomLvl.toFloat(),
-                    center = ((viewport.right + viewport.left) / 2).toFloat(),
-                    cameraToCenterDistance = ((viewport.bottom - viewport.top) / 2).toFloat(),
-                    tileMatrix = visibleState.visibleTiles.tileMatrix
+                    tileMatrix = viewportInfo.matrix
                 ),
             )
             val skiaBmp = imageBitmap.asSkiaBitmap()

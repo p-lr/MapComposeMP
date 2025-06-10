@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.core
 
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,7 +25,7 @@ import kotlin.test.assertTrue
 class TileCollectorTest {
 
     private val tileSize = 256
-
+    private val vpInfoStub = ViewportInfo(matrix = emptyMap(), size = IntSize.Zero, angleRad = 0f, pitch = 0f)
     private val tileOnePixel = byteArrayOf(
         0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
         0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x03, 0x00, 0x00, 0x00,
@@ -45,7 +46,7 @@ class TileCollectorTest {
 
         val pool = BitmapPool(Dispatchers.Default.limitedParallelism(1))
 
-        val tileStreamProvider = TileStreamProvider { _, _, _ ->
+        val tileStreamProvider = TileStreamProvider { _, _, _, _ ->
             makeTile()
         }
 
@@ -82,18 +83,18 @@ class TileCollectorTest {
 
         launch {
             val locations1 = listOf(
-                TileSpec(0, 0, 0),
-                TileSpec(0, 1, 1),
-                TileSpec(0, 2, 1)
+                TileSpec(0, 0, 0, viewportInfo = vpInfoStub),
+                TileSpec(0, 1, 1, viewportInfo = vpInfoStub),
+                TileSpec(0, 2, 1, viewportInfo = vpInfoStub)
             )
             for (spec in locations1) {
                 visibleTileLocationsChannel.send(spec)
             }
 
             val locations2 = listOf(
-                TileSpec(1, 0, 0),
-                TileSpec(1, 1, 1),
-                TileSpec(1, 2, 1)
+                TileSpec(1, 0, 0, viewportInfo = vpInfoStub),
+                TileSpec(1, 1, 1, viewportInfo = vpInfoStub),
+                TileSpec(1, 2, 1, viewportInfo = vpInfoStub)
             )
             /* Bitmaps inside the pool should be used */
             for (spec in locations2) {
