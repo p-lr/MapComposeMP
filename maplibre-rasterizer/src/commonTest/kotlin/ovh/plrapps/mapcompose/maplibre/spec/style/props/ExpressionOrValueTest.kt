@@ -9,6 +9,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.assertFalse
 import kotlinx.serialization.builtins.serializer
+import ovh.plrapps.mapcompose.maplibre.data.json
 
 class ExpressionOrValueTest {
     @Test
@@ -81,7 +82,8 @@ class ExpressionOrValueTest {
 
     @Test
     fun `Expression with Raw should return null`() {
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(Expr.Raw(kotlinx.serialization.json.JsonNull))
+        val expr: ExpressionOrValue<String> =
+            ExpressionOrValue.Expression(Expr.Raw(kotlinx.serialization.json.JsonNull))
         assertNull(expr.process())
     }
 
@@ -98,15 +100,15 @@ class ExpressionOrValueTest {
             left = Expr.Constant("value1"),
             right = Expr.Constant("value2")
         )
-        
+
         val result = expr.evaluate(emptyMap(), 0.0)
         assertTrue(result == true)
-        
+
         val expr2 = Expr.NotEquals(
             left = Expr.Constant("same"),
             right = Expr.Constant("same")
         )
-        
+
         val result2 = expr2.evaluate(emptyMap(), 0.0)
         assertTrue(result2 == false)
     }
@@ -172,15 +174,15 @@ class ExpressionOrValueTest {
             left = Expr.Constant("value1"),
             right = Expr.Constant("value2")
         )
-        
+
         val result = expr.evaluate(emptyMap(), 0.0)
         assertTrue(result == false)
-        
+
         val expr2 = Expr.Equals(
             left = Expr.Constant("same"),
             right = Expr.Constant("same")
         )
-        
+
         val result2 = expr2.evaluate(emptyMap(), 0.0)
         assertTrue(result2 == true)
     }
@@ -340,6 +342,27 @@ class ExpressionOrValueTest {
     }
 
     @Test
+    fun `isExpression work 001`() {
+        val input =
+            ("""[ "match", [ "get", "class" ], [ "college", "childcare", "dancing_school", "driving_school", "kindergarten", "school", "university" ], [ "get", "class" ], [ "case", [ "has", "class" ], "", "dot" ] ]""")
+        val expr = json.decodeFromString<ExpressionOrValue<String>>(input)
+        val feature = mapOf<String, Any>(
+            "class" to "school",
+            "name" to "Детский сад № 14",
+            "name:latin" to "Detskij sad № 14",
+            "name:nonlatin" to "Детский сад № 14",
+            "name_de" to "Детский сад № 14",
+            "name_en" to "Детский сад № 14",
+            "name_int" to "Detskij sad № 14",
+            "rank" to 11,
+            "subclass" to "kindergarten",
+            "\$type" to "Point"
+        )
+        val result = expr.process(feature, 15.0)
+        assertEquals("school", result)
+    }
+
+    @Test
     fun `test case expression with equals condition`() {
         val jsonStr = """
         [
@@ -359,38 +382,38 @@ class ExpressionOrValueTest {
 
         val json = Json { ignoreUnknownKeys = true }
         val exprOrValue = json.decodeFromString(ExpressionOrValueSerializer(Double.serializer()), jsonStr)
-        
+
         assertTrue(exprOrValue is ExpressionOrValue.Expression<Double>)
         val expr = (exprOrValue as ExpressionOrValue.Expression<Double>).expr
-        
+
         assertTrue(expr is Expr.Case<Double>)
         val caseExpr = expr as Expr.Case<Double>
-        
+
         assertEquals(1, caseExpr.conditions.size)
-        
+
         val (condition, result) = caseExpr.conditions[0]
         assertTrue(condition is Expr.Equals<*, *>)
         val equalsExpr = condition
-        
+
         assertTrue(equalsExpr.left is Expr.Get<*>)
         val getExpr = equalsExpr.left
         assertEquals("brunnel", (getExpr.property as Expr.Constant).value)
-        
+
         assertTrue(equalsExpr.right is Expr.Constant<*>)
         val constantExpr = equalsExpr.right
         assertEquals("tunnel", constantExpr.value)
-        
+
         assertTrue(result is Expr.Constant<Double>)
         val resultExpr = result
         assertEquals(0.7, resultExpr.value)
-        
+
         assertTrue(caseExpr.default is Expr.Constant<Double>)
         val defaultExpr = caseExpr.default
         assertEquals(1.0, defaultExpr.value)
-        
+
         val tunnelProps = mapOf("brunnel" to "tunnel")
         val nonTunnelProps = mapOf("brunnel" to "bridge")
-        
+
         assertEquals(0.7, exprOrValue.process(featureProperties = tunnelProps))
         assertEquals(1.0, exprOrValue.process(featureProperties = nonTunnelProps))
     }

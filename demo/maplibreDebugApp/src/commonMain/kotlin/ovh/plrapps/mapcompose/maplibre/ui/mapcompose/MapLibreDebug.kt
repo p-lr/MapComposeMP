@@ -1,15 +1,17 @@
 package ovh.plrapps.mapcompose.maplibre.ui.mapcompose
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Button
+import androidx.compose.material.Checkbox
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.TextStyle
@@ -30,7 +32,7 @@ fun MapLibreDebug() {
     val textMeasurer = rememberTextMeasurer()
     val scope = rememberCoroutineScope()
 
-    BoxWithConstraints(Modifier.fillMaxSize().border(2.dp, Color.Green)) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val minScreen = minOf(maxWidth, maxHeight)
 
         val vModel = viewModel(
@@ -49,12 +51,46 @@ fun MapLibreDebug() {
         )
 
         val zoom by vModel.zoom.collectAsState()
+        val symbols by vModel.symbols.collectAsState()
+        val symbolsBitmap by vModel.symbolsBitmap.collectAsState()
+        val collisionLayerIsVisible by vModel.collisionLayerIsVisible.collectAsState()
 
         LaunchedEffect(minScreen) {
             vModel.updateTileSizeForScreen(minScreen)
         }
 
         MapUI(modifier = Modifier.fillMaxSize(), state = vModel.state)
+
+        if (collisionLayerIsVisible) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // Draw a semi-transparent background for the viewport
+                drawRect(
+                    color = Color(0x40a7f895),
+                    size = size,
+                )
+                
+                // Display debug bitmap with symbols if it exists
+                symbolsBitmap?.let { bitmap ->
+                    // Center the bitmap in the canvas
+                    val offsetX = (size.width - bitmap.width) / 2f
+                    val offsetY = (size.height - bitmap.height) / 2f
+                    
+                    drawImage(
+                        image = bitmap,
+                        topLeft = androidx.compose.ui.geometry.Offset(offsetX, offsetY)
+                    )
+                    
+                    // Draw a frame around the bitmap for clarity
+                    drawRect(
+                        color = Color.Cyan,
+                        topLeft = androidx.compose.ui.geometry.Offset(offsetX, offsetY),
+                        size = androidx.compose.ui.geometry.Size(bitmap.width.toFloat(), bitmap.height.toFloat()),
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                }
+            }
+        }
+
 
         Row(
             Modifier
@@ -65,6 +101,13 @@ fun MapLibreDebug() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = collisionLayerIsVisible, onCheckedChange = { vModel.setCollisionLayerIsVisible(it) })
+                Text(
+                    text = "Collision layer",
+                    style = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                )
+            }
             Button(
                 onClick = {
                     scope.launch { zoomIn(vModel.state) }
@@ -81,7 +124,11 @@ fun MapLibreDebug() {
                 Text("zoom -")
             }
             Text(
-                text = "${(zoom * 100.0).toInt() / 100.0}",
+                text = "Z: ${(zoom * 100.0).toInt() / 100.0}",
+                style = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            )
+            Text(
+                text = "S: ${symbols.size}",
                 style = TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             )
         }

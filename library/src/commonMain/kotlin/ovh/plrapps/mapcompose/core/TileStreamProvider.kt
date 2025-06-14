@@ -20,5 +20,5 @@ import kotlinx.io.RawSource
  * unrecoverable failures.
  */
 fun interface TileStreamProvider {
-    suspend fun getTileStream(row: Int, col: Int, zoomLvl: Int, viewportInfo: ViewportInfo): RawSource?
+    suspend fun getTileStream(row: Int, col: Int, zoomLvl: Int): RawSource?
 }
