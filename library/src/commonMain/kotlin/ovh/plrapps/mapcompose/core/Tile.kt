@@ -24,7 +24,7 @@ internal data class Tile(
     var alpha: Float by mutableStateOf(0f)
 }
 
-internal data class TileSpec(val zoom: Int, val row: Int, val col: Int, val subSample: Int = 0, val viewportInfo: ViewportInfo)
+internal data class TileSpec(val zoom: Int, val row: Int, val col: Int, val subSample: Int = 0)
 
 internal fun Tile.sameSpecAs(
     zoom: Int,

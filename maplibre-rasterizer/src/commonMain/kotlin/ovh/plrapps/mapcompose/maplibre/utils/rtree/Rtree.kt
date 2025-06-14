@@ -245,6 +245,14 @@ class Rtree<T>(
     fun size(): Int = size
 
     fun depth(): Int = depth
+    
+    fun clear() {
+        root = RTreeNode.Leaf()
+        size = 0
+        depth = 0
+        tempResults.clear()
+        searchStack.clear()
+    }
 
     private fun calcBounds(node: RTreeNode<T>): AABB {
         return when (node) {

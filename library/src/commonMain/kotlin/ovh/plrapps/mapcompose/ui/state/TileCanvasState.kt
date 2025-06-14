@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.*
 import ovh.plrapps.mapcompose.core.*
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import kotlin.math.pow
+import kotlin.math.log2
 
 /**
  * This class contains all the logic related to [Tile] management.
@@ -27,7 +28,9 @@ import kotlin.math.pow
 internal class TileCanvasState(
     parentScope: CoroutineScope, tileSize: Int,
     private val visibleTilesResolver: VisibleTilesResolver,
-    workerCount: Int, highFidelityColors: Boolean
+    workerCount: Int, highFidelityColors: Boolean,
+    private val viewportInfoFlow: MutableStateFlow<ViewportInfo?>,
+    private val levelCount: Int
 ) {
 
     /* This view-model uses a background thread for its computations */
@@ -143,22 +146,23 @@ internal class TileCanvasState(
         scope.cancel()
     }
 
-    suspend fun setViewport(viewport: Viewport) {
+    suspend fun setViewport(viewport: Viewport, scale: Double) {
         /* Thread-confine the tileResolver to the main thread */
         val visibleTiles = withContext(Dispatchers.Main) {
             visibleTilesResolver.getVisibleTiles(viewport)
         }
 
         withContext(scope.coroutineContext) {
-            setVisibleTiles(visibleTiles, viewport)
+            setVisibleTiles(visibleTiles, viewport, scale)
         }
     }
 
-    private fun setVisibleTiles(visibleTiles: VisibleTiles, viewport: Viewport) {
+    private fun setVisibleTiles(visibleTiles: VisibleTiles, viewport: Viewport, scale: Double) {
         /* Feed the tile processing machinery */
         val layerIds = _layerFlow.value.map { it.id }
         val opacities = _layerFlow.value.map { it.alpha }
-        val visibleTilesForLayers = VisibleState(visibleTiles, layerIds, opacities, viewport)
+        val zoom = visibleTiles.level
+        val visibleTilesForLayers = VisibleState(visibleTiles, layerIds, opacities, viewport, zoom.toDouble())
         visibleStateFlow.value = visibleTilesForLayers
 
         renderThrottled()
@@ -179,8 +183,10 @@ internal class TileCanvasState(
      */
     private suspend fun collectNewTiles() {
         visibleStateFlow.collectLatest { visibleState ->
+            viewportInfoFlow.value = collectInfo(visibleState)
             val visibleTiles = visibleState?.visibleTiles
-            if (visibleTiles != null) {
+            val  viewportInfo = collectInfo(visibleState)
+            if (visibleTiles != null && viewportInfo != null) {
                 for (e in visibleTiles.tileMatrix) {
                     val row = e.key
                     val colRange = e.value
@@ -200,22 +206,12 @@ internal class TileCanvasState(
                          * Doing this now results in less object allocations than filtering the flow
                          * afterwards */
                         if (!alreadyProcessed) {
-                            val viewport = visibleState.viewport
                             visibleTileLocationsChannel.send(
                                 TileSpec(
                                     zoom = visibleTiles.level,
                                     row = row,
                                     col = col,
                                     subSample = visibleTiles.subSample,
-                                    viewportInfo = ViewportInfo(
-                                        matrix = visibleState.visibleTiles.tileMatrix,
-                                        size = IntSize(
-                                            width = (viewport.right - viewport.left),
-                                            height = (viewport.bottom - viewport.top),
-                                        ),
-                                        angleRad = visibleState.viewport.angleRad,
-                                        pitch = 0f
-                                    )
                                 )
                             )
                         }
@@ -223,6 +219,21 @@ internal class TileCanvasState(
                 }
             }
         }
+    }
+
+    private fun collectInfo(visibleState: VisibleState?): ViewportInfo? {
+        val viewport: Viewport = visibleState?.viewport ?: return null
+
+        return ViewportInfo(
+            matrix = visibleState.visibleTiles.tileMatrix,
+            size = IntSize(
+                width = (viewport.right - viewport.left),
+                height = (viewport.bottom - viewport.top),
+            ),
+            angleRad = visibleState.viewport.angleRad,
+            pitch = 0f,
+            zoom = visibleState.zoom
+        )
     }
 
     /**
@@ -436,6 +447,7 @@ internal class TileCanvasState(
         val visibleTiles: VisibleTiles,
         val layerIds: List<String>,
         val opacities: List<Float>,
-        val viewport: Viewport
+        val viewport: Viewport,
+        val zoom: Double
     )
 }

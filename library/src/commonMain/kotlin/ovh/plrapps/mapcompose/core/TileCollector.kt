@@ -106,12 +106,7 @@ internal class TileCollector(
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
             val bitmapForLayers = layers.mapIndexed { index, layer ->
                 async {
-                    val source = layer.tileStreamProvider.getTileStream(
-                        row = spec.row,
-                        col = spec.col,
-                        zoomLvl = spec.zoom,
-                        viewportInfo = spec.viewportInfo
-                    )
+                    val source = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
                     BitmapForLayer(source?.buffered(), layer)
                 }
             }.awaitAll()

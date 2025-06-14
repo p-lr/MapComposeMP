@@ -8,14 +8,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.rememberTextMeasurer
 import org.jetbrains.compose.resources.ExperimentalResourceApi
-import ovh.plrapps.mapcompose.maplibre.MapboxRasterizer
+import ovh.plrapps.mapcompose.maplibre.MapLibreRasterizer
 import ovh.plrapps.mapcompose.maplibre.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.maplibre.data.getMapLibreConfiguration
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
-fun rememberRasterizer(styleSource: suspend () -> String): MapboxRasterizer? {
+fun rememberRasterizer(styleSource: suspend () -> String): MapLibreRasterizer? {
     val density = LocalDensity.current
     val fontFamilyResolver = LocalFontFamilyResolver.current
     val textMeasurer = rememberTextMeasurer()
@@ -27,7 +27,7 @@ fun rememberRasterizer(styleSource: suspend () -> String): MapboxRasterizer? {
 
     return remember(configuration) {
         configuration?.let {
-            MapboxRasterizer(
+            MapLibreRasterizer(
                 configuration = it,
                 density = density,
                 fontFamilyResolver = fontFamilyResolver,
