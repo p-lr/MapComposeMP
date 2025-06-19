@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import ovh.plrapps.mapcompose.core.GestureConfiguration
 import ovh.plrapps.mapcompose.core.Viewport
 import ovh.plrapps.mapcompose.core.ViewportInfo
@@ -72,16 +73,17 @@ class MapState(
         ) {
             zoomPanRotateState.scale
         }
-    val viewportInfoFlow = MutableStateFlow<ViewportInfo?>(null)
+    private val mViewportInfoFlow = MutableStateFlow<ViewportInfo?>(null)
+    val viewportInfoFlow: StateFlow<ViewportInfo?>
+        get() = mViewportInfoFlow
 
     internal val tileCanvasState = TileCanvasState(
-        parentScope = scope,
-        tileSize = tileSize,
-        visibleTilesResolver = visibleTilesResolver,
-        workerCount = workerCount,
-        highFidelityColors = initialValues.highFidelityColors,
-        viewportInfoFlow = viewportInfoFlow,
-        levelCount = levelCount
+        scope,
+        tileSize,
+        visibleTilesResolver,
+        workerCount,
+        initialValues.highFidelityColors,
+        viewportInfoFlow = mViewportInfoFlow,
     )
 
     private val throttledTask = scope.throttle(wait = 18) {
@@ -89,7 +91,7 @@ class MapState(
     }
     private val viewport = Viewport()
     internal var preloadingPadding: Int = initialValues.preloadingPadding
-    val tileSize by mutableIntStateOf(tileSize)
+    internal val tileSize by mutableIntStateOf(tileSize)
     internal var stateChangeListener: (MapState.() -> Unit)? = null
     internal var touchDownCb: (() -> Unit)? = null
     internal var tapCb: LayoutTapCb? = null
@@ -167,7 +169,7 @@ class MapState(
 
     private suspend fun renderVisibleTiles() {
         val viewport = updateViewport()
-        tileCanvasState.setViewport(viewport, zoomPanRotateState.scale)
+        tileCanvasState.setViewport(viewport)
     }
 
     private fun updateViewport(): Viewport {

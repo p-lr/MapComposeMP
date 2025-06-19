@@ -115,7 +115,7 @@ class MapComposeEngineViewModel(
     }.apply {
         viewportInfoFlow
             .mapLatest { viewportInfo ->
-                zoom.value = viewportInfo?.zoom ?: 0.0
+                zoom.value = viewportInfo?.zoom?.toDouble() ?: 0.0
             }
             .launchIn(scope = viewModelScope)
 
@@ -131,8 +131,8 @@ class MapComposeEngineViewModel(
                 getRasterizer().let { rasterizer ->
                     val nextSymbols = getRasterizer().produceSymbols(
                         viewport = viewportInfo.toMVTViewport(),
-                        tileSize = tileSize,
-                        z = zoomLvl
+                        tileSize = tilePx,
+                        z = zoomLvl.toDouble()
                     ).getOrElse { e ->
                         println("[ERROR] produceSymbols(): ${e.message}")
                         return@map

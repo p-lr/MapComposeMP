@@ -10,12 +10,12 @@ import ovh.plrapps.mapcompose.utils.AngleRad
  * @property size The pixel size (width and height) of the viewport.
  * @property angleRad The rotation angle of the viewport, in radians.
  * @property pitch The pitch (tilt) of the viewport, in degrees (0 = looking straight down).
- * @property zoom The current zoom level as a Double, providing continuous zoom information.
+ * @property zoom The current zoom level, providing continuous zoom information.
  */
 data class ViewportInfo(
     val matrix: TileMatrix,
     val size: IntSize,
     val angleRad: AngleRad,
     val pitch: Float,
-    val zoom: Double,
+    val zoom: Int,
 )
