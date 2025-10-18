@@ -8,8 +8,7 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
-    `maven-publish`
-    signing
+    alias(libs.plugins.vanniktechPublish)
 }
 
 kotlin {
@@ -106,79 +105,39 @@ android {
 
 task("testClasses")
 
-val GROUP: String by project
-val VERSION_NAME: String by project
-val ARTIFACT_ID: String by project
-
-group = GROUP
-version = VERSION_NAME
-
-publishing {
-    repositories {
-        val releaseRepositoryUrl = System.getenv("releaseRepositoryUrl")
-        val snapshotRepositoryUrl = System.getenv("snapshotRepositoryUrl")
-        if (!releaseRepositoryUrl.isNullOrBlank() && !snapshotRepositoryUrl.isNullOrBlank()) {
-            maven {
-                url = if (version.toString().endsWith("SNAPSHOT")) {
-                    uri(snapshotRepositoryUrl)
-                } else {
-                    uri(releaseRepositoryUrl)
-                }
-
-                credentials(PasswordCredentials::class) {
-                    username = System.getenv("NEXUS_USERNAME")
-                    password = System.getenv("NEXUS_PASSWORD")
-                }
-            }
-        }
-    }
-
-    publications.withType<MavenPublication> {
-        if (name == "kotlinMultiplatform") {
-            artifactId = ARTIFACT_ID
-        } else if (name == "androidRelease") {
-            afterEvaluate { artifactId = "$ARTIFACT_ID-android" }
-        } else {
-            artifactId = "$ARTIFACT_ID-$name"
-        }
-
-        artifact(tasks.register("${name}JavadocJar", Jar::class) {
-            archiveClassifier.set("javadoc")
-            archiveAppendix.set(this@withType.name)
-        })
-
-        pom {
-            name = "MapComposeMP"
-            description =
-                "A Compose Multiplatform library to display tiled maps, with support for markers, paths, and rotation"
-            url = "https://github.com/p-lr/MapComposeMP"
-            inceptionYear = "2024"
-
-            licenses {
-                license {
-                    name = "The Apache Software License, Version 2.0"
-                    url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
-                }
-            }
-            developers {
-                developer {
-                    id = "p-lr"
-                    name = "Pierre Laurence"
-                    email = "https://github.com/p-lr/"
-                }
-            }
-            scm {
-                connection = "scm:git@github.com:p-lr/MapComposeMP.git"
-                developerConnection = "scm:git@github.com:p-lr/MapComposeMP.git"
-                url = "https://github.com/p-lr/MapComposeMP"
-            }
-        }
-    }
-}
 ext["signing.keyId"] = System.getenv("signingKeyId")
 ext["signing.password"] = System.getenv("signingPwd")
 ext["signing.secretKeyRingFile"] = System.getenv("signingKeyFile")
 
-signing {
-    sign(publishing.publications)
+mavenPublishing {
+    publishToMavenCentral(false)
+    signAllPublications()
+    coordinates("ovh.plrapps", "mapcompose-mp")
+    pom {
+        name = "MapComposeMP"
+        description = "A Compose Multiplatform library to display tiled maps, with support for markers, paths, and rotation"
+        url = "https://github.com/p-lr/MapComposeMP"
+
+        licenses {
+            license {
+                name = "The Apache Software License, Version 2.0"
+                url = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+                distribution = "http://www.apache.org/licenses/LICENSE-2.0.txt"
+            }
+        }
+
+        developers {
+            developer {
+                id = "p-lr"
+                name = "Pierre Laurence"
+                url = "https://github.com/p-lr/"
+            }
+        }
+        scm {
+            connection = "scm:git@github.com:p-lr/MapComposeMP.git"
+            developerConnection = "scm:git@github.com:p-lr/MapComposeMP.git"
+            url = "https://github.com/p-lr/MapComposeMP"
+        }
+    }
 }
+
