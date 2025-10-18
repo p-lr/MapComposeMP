@@ -115,14 +115,20 @@ version = VERSION_NAME
 
 publishing {
     repositories {
-        maven {
-            val releasesRepoUrl = uri(System.getenv("releaseRepositoryUrl") ?: "")
-            val snapshotsRepoUrl = uri(System.getenv("snapshotRepositoryUrl") ?: "")
-            url = if (version.toString().endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl
+        val releaseRepositoryUrl = System.getenv("releaseRepositoryUrl")
+        val snapshotRepositoryUrl = System.getenv("snapshotRepositoryUrl")
+        if (!releaseRepositoryUrl.isNullOrBlank() && !snapshotRepositoryUrl.isNullOrBlank()) {
+            maven {
+                url = if (version.toString().endsWith("SNAPSHOT")) {
+                    uri(snapshotRepositoryUrl)
+                } else {
+                    uri(releaseRepositoryUrl)
+                }
 
-            credentials(PasswordCredentials::class) {
-                username = System.getenv("NEXUS_USERNAME")
-                password = System.getenv("NEXUS_PASSWORD")
+                credentials(PasswordCredentials::class) {
+                    username = System.getenv("NEXUS_USERNAME")
+                    password = System.getenv("NEXUS_PASSWORD")
+                }
             }
         }
     }
