@@ -13,10 +13,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.Surface
-import androidx.compose.material.Switch
-import androidx.compose.material.Text
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,6 +46,7 @@ fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
     var bottomObstructionEnabled by remember { mutableStateOf(false) }
 
     Column(
+        modifier = Modifier.statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -54,24 +56,28 @@ fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
         ) {
             Row(
                 modifier = Modifier.clickable { leftObstructionEnabled = !leftObstructionEnabled },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(leftObstructionEnabled, onCheckedChange = null)
                 Text("Left", modifier = Modifier.padding(start = 4.dp))
             }
             Row(
                 modifier = Modifier.clickable { rightObstructionEnabled = !rightObstructionEnabled },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(rightObstructionEnabled, onCheckedChange = null)
                 Text("Right", modifier = Modifier.padding(start = 4.dp))
             }
             Row(
                 modifier = Modifier.clickable { topObstructionEnabled = !topObstructionEnabled },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(topObstructionEnabled, onCheckedChange = null)
                 Text("Top", modifier = Modifier.padding(start = 4.dp))
             }
             Row(
                 modifier = Modifier.clickable { bottomObstructionEnabled = !bottomObstructionEnabled },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(bottomObstructionEnabled, onCheckedChange = null)
                 Text("Bottom", modifier = Modifier.padding(start = 4.dp))

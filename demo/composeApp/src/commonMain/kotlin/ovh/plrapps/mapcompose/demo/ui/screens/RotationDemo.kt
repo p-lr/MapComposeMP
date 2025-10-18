@@ -1,10 +1,11 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Button
-import androidx.compose.material.Slider
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.api.rotation
@@ -18,12 +19,14 @@ expect object RotationDemo : Screen
 fun RotationCommonUi(screenModel: RotationVM) {
     val sliderValue = screenModel.state.rotation / 360f
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
             Modifier.weight(2f),
             state = screenModel.state
         )
-        Row {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Button(onClick = { screenModel.onRotate() }, Modifier.padding(8.dp)) {
                 Text(text = "Rotate 90°")
             }

@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -20,7 +20,7 @@ import ovh.plrapps.mapcomposemp.demo.app_name
 expect object HomeScreen : Screen
 
 @Composable
-@OptIn(ExperimentalResourceApi::class)
+@OptIn(ExperimentalResourceApi::class, ExperimentalMaterial3Api::class)
 fun HomeScreenCommonUi(onNavigate: (screen: Screen) -> Unit) {
     val demoListState = rememberLazyListState()
 
@@ -28,7 +28,10 @@ fun HomeScreenCommonUi(onNavigate: (screen: Screen) -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(Res.string.app_name)) },
-                backgroundColor = MaterialTheme.colors.primarySurface,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                )
             )
         }
     ) { padding ->

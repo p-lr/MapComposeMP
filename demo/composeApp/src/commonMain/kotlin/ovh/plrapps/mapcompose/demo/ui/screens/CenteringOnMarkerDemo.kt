@@ -2,9 +2,10 @@ package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Button
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -18,7 +19,7 @@ expect object CenteringOnMarkerDemo : Screen
 fun CenteringOnMarkerCommonUi(screenModel: CenteringOnMarkerVM) {
     val onCenter: () -> Unit = screenModel::onCenter
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
             Modifier.weight(2f),
             state = screenModel.state

@@ -1,8 +1,8 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.Slider
-import androidx.compose.material.Text
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,7 +23,9 @@ fun LayersCommonUi(screenModel: LayersVM) {
         mutableFloatStateOf(0.5f)
     }
 
-    Column {
+    Column(
+        Modifier.navigationBarsPadding()
+    ) {
         BoxWithConstraints {
             MapUI(Modifier.size(maxWidth, maxHeight - 100.dp), state = screenModel.state)
         }
@@ -48,13 +50,14 @@ fun LayersCommonUi(screenModel: LayersVM) {
 
 @Composable
 private fun LayerSlider(name: String, value: Float, onValueChange: (Float) -> Unit) {
-    Row(Modifier.height(50.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = name, Modifier.padding(horizontal = 16.dp))
-            Slider(
-                value = value,
-                onValueChange = onValueChange
-            )
-        }
+    Row(
+        Modifier.height(50.dp).padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = name, Modifier.padding(end = 16.dp))
+        Slider(
+            value = value,
+            onValueChange = onValueChange
+        )
     }
 }
