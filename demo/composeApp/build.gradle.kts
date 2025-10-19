@@ -56,7 +56,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.androidx.activity.compose)
-            implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+            implementation(libs.androidx.viewmodel.compose)
             implementation(libs.androidx.navigation)
             implementation(libs.ktor.client.android)
         }
@@ -88,10 +88,6 @@ kotlin {
 android {
     namespace = "ovh.plrapps.mapcomposemp.demo"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")
-    sourceSets["main"].res.srcDirs("src/androidMain/res")
-    sourceSets["main"].resources.srcDirs("src/commonMain/resources")
 
     defaultConfig {
         applicationId = "ovh.plrapps.mapcomposemp.demo"
