@@ -12,6 +12,22 @@ plugins {
 }
 
 kotlin {
+    targets.configureEach {
+        compilations.configureEach {
+            compileTaskProvider.get().compilerOptions {
+                freeCompilerArgs.addAll(
+                    "-Xjvm-default=all-compatibility",
+                    "-Xexpect-actual-classes",
+                    "-Xopt-in=kotlinx.coroutines.FlowPreview",
+                    "-Xopt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+                    "-Xopt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
+                    "-Xannotation-default-target=param-property",
+                    "-Xcontext-parameters",
+                )
+            }
+        }
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)

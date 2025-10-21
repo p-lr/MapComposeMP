@@ -11,31 +11,35 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
-val compilerArgs = listOf(
-    "-Xjvm-default=all-compatibility",
-    "-Xopt-in=androidx.compose.material.ExperimentalMaterialApi",
-    "-Xopt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-    "-Xopt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-    "-Xopt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-    "-Xopt-in=kotlinx.coroutines.FlowPreview",
-    "-Xopt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-    "-Xopt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
-    "-Xannotation-default-target=param-property",
-    "-Xcontext-parameters",
-)
-
 kotlin {
+    targets.configureEach {
+        compilations.configureEach {
+            compileTaskProvider.get().compilerOptions {
+                freeCompilerArgs.addAll(
+                    "-Xjvm-default=all-compatibility",
+                    "-Xopt-in=androidx.compose.material.ExperimentalMaterialApi",
+                    "-Xopt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                    "-Xopt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+                    "-Xopt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+                    "-Xopt-in=kotlinx.coroutines.FlowPreview",
+                    "-Xopt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+                    "-Xopt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
+                    "-Xannotation-default-target=param-property",
+                    "-Xcontext-parameters"
+                )
+            }
+        }
+    }
+
     androidTarget {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
-            freeCompilerArgs.addAll(compilerArgs)
         }
     }
     
     jvm("desktop") {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
-            freeCompilerArgs.addAll(compilerArgs)
         }
     }
 

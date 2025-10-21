@@ -4,18 +4,27 @@ package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.io.Source
 import kotlinx.io.buffered
 import ovh.plrapps.mapcompose.utils.IODispatcher
-import ovh.plrapps.mapcompose.utils.toImage
-import kotlin.math.pow
+import ovh.plrapps.mapcompose.utils.decodeFirstLayer
+import ovh.plrapps.mapcompose.utils.decodeOverlay
+import ovh.plrapps.mapcompose.utils.processFinalImage
 import kotlin.concurrent.Volatile
+import kotlin.math.pow
 
 
 /**
@@ -47,7 +56,7 @@ import kotlin.concurrent.Volatile
  */
 internal class TileCollector(
     private val workerCount: Int,
-    private val bitmapConfiguration: BitmapConfiguration,
+    private val optimizeForLowEndDevices: Boolean,
     private val tileSize: Int
 ) {
     @Volatile
@@ -66,8 +75,7 @@ internal class TileCollector(
     suspend fun collectTiles(
         tileSpecs: ReceiveChannel<TileSpec>,
         tilesOutput: SendChannel<Tile>,
-        layers: List<Layer>,
-        tilePool: BitmapPool
+        layers: List<Layer>
     ) = coroutineScope {
         val tilesToDownload = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
         val tilesDownloadedFromWorker = Channel<TileSpec>(capacity = 1)
@@ -77,8 +85,7 @@ internal class TileCollector(
                 tilesToDownload,
                 tilesDownloadedFromWorker,
                 tilesOutput,
-                layers,
-                tilePool
+                layers
             )
         }
         tileCollectorKernel(tileSpecs, tilesToDownload, tilesDownloadedFromWorker)
@@ -89,7 +96,6 @@ internal class TileCollector(
         tilesDownloaded: SendChannel<TileSpec>,
         tilesOutput: SendChannel<Tile>,
         layers: List<Layer>,
-        tilePool: BitmapPool
     ) = launch(workerDispatcher) {
 
         val layerIds = layers.map { it.id }
@@ -101,8 +107,6 @@ internal class TileCollector(
                 continue
             }
 
-            // TODO: bring back support for subsampling and bitmap pooling
-            // See https://github.com/JetBrains/skiko/issues/853
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
             val bitmapForLayers = layers.mapIndexed { index, layer ->
                 async {
@@ -111,7 +115,11 @@ internal class TileCollector(
                 }
             }.awaitAll()
 
-            val resultBitmap = bitmapForLayers.firstOrNull()?.source ?: run {
+            val firstLayerImage = bitmapForLayers.firstOrNull()?.source?.decodeFirstLayer(
+                hasLayers = layers.size > 1,
+                optimizeForLowEndDevices = optimizeForLowEndDevices,
+                subSamplingRatio = subSamplingRatio
+            ) ?: run {
                 tilesDownloaded.send(spec)
                 /* When the decoding failed or if there's nothing to decode, then send back the Tile
                  * just as in normal processing, so that the actor which submits tiles specs to the
@@ -130,20 +138,28 @@ internal class TileCollector(
                 null
             } ?: continue // If the decoding of the first layer failed, skip the rest
 
-            val image = resultBitmap.toImage(
-                tilePool.get(),
-                bitmapConfiguration.highFidelityColors
-            ) ?: continue
-            val canvas = Canvas(image)
+            val resultImage = if (layers.size > 1) {
+                val canvas = Canvas(firstLayerImage)
 
-            for (result in bitmapForLayers.drop(1)) {
-                paint.alpha = result.layer.alpha
-                if (result.source == null) continue
-                canvas.drawImage(
-                    image = result.source.toImage(null, bitmapConfiguration.highFidelityColors) ?: continue,
-                    Offset.Zero, paint
-                )
-            }
+                var previousLayer: ImageBitmap? = null
+                for (result in bitmapForLayers.drop(1)) {
+                    paint.alpha = result.layer.alpha
+                    if (result.source == null) continue
+                    previousLayer = result.source.decodeOverlay(
+                        previousLayer = previousLayer,
+                        tileSize = tileSize,
+                        optimizeForLowEndDevices = optimizeForLowEndDevices,
+                        subSamplingRatio = subSamplingRatio
+                    ) ?: continue
+                    canvas.drawImage(
+                        image = previousLayer,
+                        topLeftOffset = Offset.Zero,
+                        paint = paint
+                    )
+                }
+
+                processFinalImage(firstLayerImage, previousLayer)
+            } else firstLayerImage
 
             val tile = Tile(
                 spec.zoom,
@@ -153,7 +169,7 @@ internal class TileCollector(
                 layerIds,
                 layers.map { it.alpha }
             ).apply {
-                this.bitmap = image
+                this.bitmap = resultImage
             }
             tilesOutput.send(tile)
             tilesDownloaded.send(spec)

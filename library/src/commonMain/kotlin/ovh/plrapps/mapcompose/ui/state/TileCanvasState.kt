@@ -31,7 +31,6 @@ internal class TileCanvasState(
 
     /* This view-model uses a background thread for its computations */
     private val singleThreadDispatcher = IODispatcher.limitedParallelism(1, "TileCanvasThread")
-    @OptIn(ExperimentalCoroutinesApi::class)
     private val scope = CoroutineScope(
         parentScope.coroutineContext + singleThreadDispatcher
     )
@@ -40,8 +39,6 @@ internal class TileCanvasState(
     private val _layerFlow = MutableStateFlow<List<Layer>>(listOf())
     internal val layerFlow = _layerFlow.asStateFlow()
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val pool = BitmapPool(Dispatchers.Default.limitedParallelism(1))
     private val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
     private val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
     private val visibleStateFlow = MutableStateFlow<VisibleState?>(null)
@@ -50,11 +47,7 @@ internal class TileCanvasState(
             field = value.coerceIn(0.01f, 1f)
         }
     internal var colorFilterProvider: ColorFilterProvider? by mutableStateOf(null)
-
-    private val bitmapConfig = BitmapConfiguration(
-        highFidelityColors,
-        bytesPerPixel = if (highFidelityColors) 4 else 2
-    )
+    private val recycleChannel = Channel<Tile>(Channel.UNLIMITED)
 
     private val lastVisible: VisibleTiles?
         get() = visibleStateFlow.value?.visibleTiles
@@ -100,14 +93,17 @@ internal class TileCanvasState(
         }
 
         /* Launch the TileCollector */
-        tileCollector = TileCollector(workerCount.coerceAtLeast(1), bitmapConfig, tileSize)
+        tileCollector = TileCollector(
+            workerCount = workerCount.coerceAtLeast(1),
+            optimizeForLowEndDevices = !highFidelityColors,
+            tileSize = tileSize
+        )
         scope.launch {
             _layerFlow.collectLatest { layers ->
                 tileCollector.collectTiles(
                     tileSpecs = visibleTileLocationsChannel,
                     tilesOutput = tilesOutput,
-                    layers = layers,
-                    tilePool = pool
+                    layers = layers
                 )
             }
         }
@@ -115,6 +111,18 @@ internal class TileCanvasState(
         /* Launch a coroutine to consume the produced tiles */
         scope.launch {
             consumeTiles(tilesOutput)
+        }
+
+        /* This is very important to null a tile's bitmap on the main thread because this ensures
+         * that on the next composition the bitmap won't be accessed.
+         * In the future, if the Compose framework does multi-threaded rendering, another technique
+         * will have to be used. Or, consider not using Bitmap.recycle() at all since it seems
+         * not necessary for hardware bitmaps. */
+        scope.launch(Dispatchers.Main) {
+            for (t in recycleChannel) {
+                t.performRecycle()
+                t.bitmap = null
+            }
         }
     }
 
@@ -410,7 +418,7 @@ internal class TileCanvasState(
      */
     private fun Tile.recycle() {
         alpha = 0f
-        pool.put(bitmap ?: return)
+        sendToRecycle(recycleChannel)
     }
 
     private fun Int.minAtGreaterLevel(n: Int): Int {
@@ -427,3 +435,6 @@ internal class TileCanvasState(
         val opacities: List<Float>
     )
 }
+
+internal expect fun Tile.sendToRecycle(recycleChannel: Channel<Tile>)
+internal expect fun Tile.performRecycle()
