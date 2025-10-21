@@ -15,8 +15,8 @@ class HttpTilesVM : ScreenModel {
 
     val state = MapState(
         levelCount = 4,
-        fullWidth = 4096,
-        fullHeight = 4096,
+        fullWidth = 8192,
+        fullHeight = 8192,
         workerCount = 16  // Notice how we increase the worker count when performing HTTP requests
     ).apply {
         addLayer(tileStreamProvider)

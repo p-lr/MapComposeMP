@@ -21,7 +21,7 @@ import ovh.plrapps.mapcomposemp.demo.map_marker
 class CenteringOnMarkerVM: ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096) {
+    val state = MapState(4, 8192, 8192) {
         rotation(45f)
     }.apply {
         addLayer(tileStreamProvider)

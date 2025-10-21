@@ -17,7 +17,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 class RotationVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         addLayer(tileStreamProvider)
         enableRotation()
         setScrollOffsetRatio(0.3f, 0.3f)

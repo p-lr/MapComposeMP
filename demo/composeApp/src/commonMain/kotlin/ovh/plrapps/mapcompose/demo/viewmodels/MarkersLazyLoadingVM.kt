@@ -16,6 +16,7 @@ import ovh.plrapps.mapcompose.api.shouldLoopScale
 import ovh.plrapps.mapcompose.ui.layout.Forced
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
+import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.map_marker
 import kotlin.random.Random
@@ -25,10 +26,9 @@ import kotlin.random.Random
  */
 @OptIn(ExperimentalClusteringApi::class)
 class MarkersLazyLoadingVM : ScreenModel {
-    private val tileStreamProvider =
-        ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider()
+    private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096) {
+    val state = MapState(4, 8192, 8192) {
         minimumScaleMode(Forced(1.0))
         scale(1.0)
         maxScale(4.0)

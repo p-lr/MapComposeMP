@@ -31,7 +31,7 @@ import ovh.plrapps.mapcomposemp.demo.map_marker
 class MarkersClusteringVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096) {
+    val state = MapState(4, 8192, 8192) {
         scale(0.2)
         maxScale(8.0)
         scroll(0.5, 0.5)

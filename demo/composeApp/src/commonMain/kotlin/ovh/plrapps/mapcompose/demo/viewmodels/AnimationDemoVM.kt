@@ -28,7 +28,7 @@ class AnimationDemoVM : ScreenModel {
     private var job: Job? = null
     private val spec = TweenSpec<Float>(2000, easing = FastOutSlowInEasing)
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()

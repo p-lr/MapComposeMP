@@ -37,7 +37,7 @@ class CalloutVM: ScreenModel {
     )
 
     @OptIn(ExperimentalResourceApi::class)
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         addLayer(tileStreamProvider)
 
         /* Add all markers */

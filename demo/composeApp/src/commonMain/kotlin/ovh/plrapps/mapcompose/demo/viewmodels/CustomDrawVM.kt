@@ -42,7 +42,7 @@ class CustomDrawVM: ScreenModel {
     var p2x by mutableStateOf(0.4)
     var p2y by mutableStateOf(0.4)
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()

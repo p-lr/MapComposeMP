@@ -15,52 +15,48 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 
 class LayersVM() : ScreenModel {
-    private val tileStreamProvider =
-        makeTileStreamProvider("mont_blanc")
-    private val satelliteProvider =
-        makeTileStreamProvider("mont_blanc_satellite")
-    private val ignV2Provider =
-        makeTileStreamProvider("mont_blanc_ignv2")
+    private val tileStreamProvider = makeTileStreamProvider(imageExt = ".jpg")
+    private val slopesLayerProvider = makeTileStreamProvider("ign-slopes-", imageExt = ".png")
+    private val roadLayerProvider = makeTileStreamProvider("ign-road-", imageExt = ".png")
 
-    private var satelliteId: String? = null
-    private var ignV2Id: String? = null
+    private var slopesId: String? = null
+    private var roadId: String? = null
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         shouldLoopScale = true
         enableRotation()
         screenModelScope.launch {
-            scrollTo(0.5, 0.5, 1.0)
+            scrollTo(0.4, 0.4, 1.0)
         }
 
         addLayer(tileStreamProvider)
-        satelliteId = addLayer(satelliteProvider)
-        ignV2Id = addLayer(ignV2Provider, 0.5f)
+        slopesId = addLayer(slopesLayerProvider, initialOpacity = 0.6f)
+        roadId = addLayer(roadLayerProvider, initialOpacity = 1f)
     }
 
-    @OptIn(ExperimentalResourceApi::class)
-    private fun makeTileStreamProvider(folder: String) =
-        TileStreamProvider { row, col, zoomLvl ->
-            try {
-                val buffer = Buffer()
-                Res.readBytes("files/tiles/$folder/$zoomLvl/$row/$col.jpg").let {
-                    buffer.write(it)
-                    buffer
-                }
-            } catch (e: Exception) {
-                null
-            }
-        }
-
-    fun setSatelliteOpacity(opacity: Float) {
-        satelliteId?.also { id ->
+    fun setSlopesOpacity(opacity: Float) {
+        slopesId?.also { id ->
             state.setLayerOpacity(id, opacity)
         }
-
     }
 
-    fun setIgnV2Opacity(opacity: Float) {
-        ignV2Id?.also { id ->
+    fun setRoadOpacity(opacity: Float) {
+        roadId?.also { id ->
             state.setLayerOpacity(id, opacity)
         }
     }
 }
+
+@OptIn(ExperimentalResourceApi::class)
+private fun makeTileStreamProvider(layer: String = "", imageExt: String) =
+    TileStreamProvider { row, col, zoomLvl ->
+        try {
+            val buffer = Buffer()
+            Res.readBytes("files/tiles/mont_blanc_layered/$zoomLvl/$row/$layer$col$imageExt").let {
+                buffer.write(it)
+                buffer
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }

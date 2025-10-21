@@ -93,6 +93,10 @@ android {
     namespace = "ovh.plrapps.mapcomposemp.demo"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
+    sourceSets["main"].apply {
+        assets.srcDirs("src/commonMain/composeResources")
+    }
+
     defaultConfig {
         applicationId = "ovh.plrapps.mapcomposemp.demo"
         minSdk = libs.versions.android.minSdk.get().toInt()

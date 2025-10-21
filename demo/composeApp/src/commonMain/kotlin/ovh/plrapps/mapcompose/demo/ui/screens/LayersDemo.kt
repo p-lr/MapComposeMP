@@ -34,7 +34,7 @@ fun LayersCommonUi(screenModel: LayersVM) {
             value = satelliteSliderValue,
             onValueChange = {
                 satelliteSliderValue = it
-                screenModel.setSatelliteOpacity(it)
+                screenModel.setSlopesOpacity(it)
             }
         )
         LayerSlider(
@@ -42,7 +42,7 @@ fun LayersCommonUi(screenModel: LayersVM) {
             value = ignV2SliderValue,
             onValueChange = {
                 ignV2SliderValue = it
-                screenModel.setIgnV2Opacity(it)
+                screenModel.setRoadOpacity(it)
             }
         )
     }

@@ -33,7 +33,7 @@ import ovh.plrapps.mapcomposemp.demo.Res
 class PathsVM : ScreenModel {
     private val tileStreamProvider = makeTileStreamProvider()
 
-    val state = MapState(4, 4096, 4096).apply {
+    val state = MapState(4, 8192, 8192).apply {
         addLayer(tileStreamProvider)
         shouldLoopScale = true
         enableRotation()
