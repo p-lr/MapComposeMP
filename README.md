@@ -1,6 +1,13 @@
 [![Maven Central](https://img.shields.io/maven-central/v/ovh.plrapps/mapcompose-mp)](https://central.sonatype.com/artifact/ovh.plrapps/mapcompose-mp)
 [![GitHub License](https://img.shields.io/badge/license-Apache%20License%202.0-blue.svg?style=flat)](http://www.apache.org/licenses/LICENSE-2.0)
 
+🎉 News:
+Road to `v1.0.0`:
+- [x] Support for hardware bitmaps on android
+- [x] Improve rendering of layers
+- [ ] Support infinite scroll (tile looping)
+- [ ] Backport apis and fixes from the android native library
+
 # MapCompose-mp
 
 MapCompose-mp is a fast, memory efficient compose multiplatform library to display tiled maps with minimal effort.
