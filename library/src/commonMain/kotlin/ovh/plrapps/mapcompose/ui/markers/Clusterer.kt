@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.ui.markers
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
@@ -30,6 +31,7 @@ internal class Clusterer(
     private val markerRenderState: MarkerRenderState,
     markersDataFlow: MutableStateFlow<List<MarkerData>>,
     private val clusterClickBehavior: ClusterClickBehavior,
+    private val scaleThreshold: ClusterScaleThreshold,
     private val clusterFactory: (ids: List<String>) -> (@Composable () -> Unit)
 ) {
     private val scope = CoroutineScope(
@@ -46,7 +48,14 @@ internal class Clusterer(
         }
     }
 
+    internal val exemptionSet = MutableStateFlow<Set<String>>(setOf())
+
     private val referentialSnapshotFlow = mapState.referentialSnapshotFlow()
+    private val markersSnapshotFlow = snapshotFlow {
+        markerRenderState.getClusteredMarkers().map {
+            MarkerDataSnapshot(it.id, it.x, it.y)
+        }
+    }
     private val clusterIdPrefix = "#cluster#-$id"
 
     init {
@@ -62,19 +71,34 @@ internal class Clusterer(
                     100.dp.toPx()
                 }.toInt()
 
-                markers.throttle(100).collectLatest {
-                    referentialSnapshotFlow.throttle(500).collectLatest {
-                        val scale = it.scale
-                        val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
+                // react on base data change
+                markers.throttle(100).collectLatest { markers ->
+                    // react on marker move
+                    markersSnapshotFlow.throttle(300).collectLatest {
+                        // react on scale and scroll change
+                        referentialSnapshotFlow.throttle(500).collectLatest {
+                            val scale = it.scale
+                            val visibleArea = mapState.visibleArea(IntOffset(padding, padding))
 
-                        /* Get the list of rendered clusterer managed (by this clusterer) markers */
-                        val markersOnMap =
-                            markerRenderState.getClusteredMarkers().filter { markerData ->
-                                (markerData.renderingStrategy is RenderingStrategy.Clustering) &&
-                                        markerData.renderingStrategy.clustererId == id
+                            /* Get the list of rendered clusterer managed (by this clusterer) markers */
+                            val markersOnMap =
+                                markerRenderState.getClusteredMarkers().filter { markerData ->
+                                    (markerData.renderingStrategy is RenderingStrategy.Clustering) &&
+                                            markerData.renderingStrategy.clustererId == id
+                                }
+
+                            exemptionSet.collectLatest { exemptionSet ->
+                                withContext(Dispatchers.Default) {
+                                    clusterize(
+                                        scale,
+                                        visibleArea,
+                                        markers,
+                                        markersOnMap,
+                                        exemptionSet,
+                                        epsilon
+                                    )
+                                }
                             }
-                        withContext(Dispatchers.Default) {
-                            clusterize(scale, visibleArea, markersOnMap, epsilon)
                         }
                     }
                 }
@@ -90,10 +114,15 @@ internal class Clusterer(
                 clusterClickBehavior.onClick(
                     ClusterInfo(clusterData.x, clusterData.y, markersData)
                 )
+                if (clusterClickBehavior.withDefaultBehavior) {
+                    defaultClusterClickListener(markersData)
+                }
             }
+
             Default -> {
                 defaultClusterClickListener(markersData)
             }
+
             None -> {
             }
         }
@@ -114,23 +143,32 @@ internal class Clusterer(
     private suspend fun clusterize(
         scale: Double,
         visibleArea: VisibleArea,
+        markers: List<Marker>,
         markersOnMap: List<MarkerData>,
+        exemptionSet: Set<String>,
         epsilon: Float
     ) = coroutineScope {
-        val visibleMarkers = markers.value.filter { marker ->
-            visibleArea.contains(marker.x, marker.y)
+        val visibleMarkers = markers.filter { marker ->
+            visibleArea.contains(marker.x, marker.y) && marker.id !in exemptionSet
+        }
+        val exempted = markers.filter { marker ->
+            marker.id in exemptionSet
         }
 
-        /* Disable clustering if scale is max scale */
-        val result = if (scale < mapState.maxScale) {
-            val densitySearchPass = processMarkers(visibleMarkers, scale, epsilon)
+        /* Disable clustering if scale is greater than the threshold */
+        val maxScale = when (scaleThreshold) {
+            is ClusterScaleThreshold.FixedScale -> scaleThreshold.scale
+            ClusterScaleThreshold.MaxScale -> mapState.maxScale
+        }
+        val result = if (scale < maxScale) {
+            val densitySearchPass = processMarkers(markers, visibleMarkers, scale, epsilon)
             mergeClosest(densitySearchPass, epsilon, scale)
         } else {
             ClusteringResult(markers = visibleMarkers)
         }
 
         withContext(Dispatchers.Main) {
-            render(markersOnMap, result.clusters, result.markers)
+            render(markersOnMap, result.clusters, result.markers + exempted)
         }
     }
 
@@ -184,18 +222,19 @@ internal class Clusterer(
     }
 
     private fun processMarkers(
-        markers: List<Marker>, scale: Double, epsilon: Float
+        markers: List<Marker>, visibleMarkers: List<Marker>, scale: Double, epsilon: Float
     ): ClusteringResult {
         val snapScale = getSnapScale(scale)
         val mesh = Mesh(epsilon, snapScale, mapState.fullSize)
-        markers.forEach { marker ->
+        visibleMarkers.forEach { marker ->
             mesh.add(marker)
         }
 
-        return findNewClustersByDensity(mesh, scale, epsilon)
+        return findNewClustersByDensity(markers, mesh, scale, epsilon)
     }
 
     private fun findNewClustersByDensity(
+        markers: List<Marker>,
         mesh: Mesh,
         scale: Double,
         epsilon: Float,
@@ -216,7 +255,7 @@ internal class Clusterer(
         val clusterList = mutableListOf<Cluster>()
         val markerList = mutableListOf<Marker>()
 
-        val markerAssigned = markers.value.associateTo(mutableMapOf()) {
+        val markerAssigned = markers.associateTo(mutableMapOf()) {
             it.uuid to false
         }
 
@@ -279,6 +318,7 @@ internal class Clusterer(
                             scale
                         )
                     }
+
                     is Marker -> {
                         val fusedCluster = cluster.addMarker(inVicinity)
                         val newClusterList = result.clusters.filter {

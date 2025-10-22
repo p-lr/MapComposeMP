@@ -205,7 +205,7 @@ var MapState.maxScale: Double
 
 /**
  * The scroll offset ratio allows to scroll past the default scroll limits. They are expressed in
- * percentage of the layout dimensions.
+ * percent of the layout dimensions.
  * Setting a scroll offset ratio is useful when rotation is enabled, so that edges of the map are
  * reachable.
  * The recommended value to try it out is 0.5f

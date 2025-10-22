@@ -20,6 +20,7 @@ import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
 import ovh.plrapps.mapcompose.utils.*
 import ovh.plrapps.mapcompose.utils.withRetry
 
+
 /**
  * Add a marker to the given position.
  *
@@ -30,7 +31,7 @@ import ovh.plrapps.mapcompose.utils.withRetry
  * the width of the marker multiplied by the x value of the offset, and the height of the marker
  * multiplied by the y value of the offset.
  * @param absoluteOffset The x-axis and y-axis positions of a marker will be respectively offset by
- * the x and y Dp values of the offset.
+ * the x and y [Dp] values of the offset.
  * @param zIndex A marker with larger zIndex will be drawn on top of all markers with smaller zIndex.
  * When markers have the same zIndex, the original order in which the parent placed the marker is used.
  * @param clickable Controls whether the marker is clickable. Default is true. If a click listener
@@ -38,51 +39,18 @@ import ovh.plrapps.mapcompose.utils.withRetry
  * is true.
  * @param isConstrainedInBounds By default, a marker cannot be positioned or moved outside of the
  * map bounds.
- * @param clickableAreaScale The clickable area, which defaults to the bounds of the
- * provided composable, can be expanded or shrinked. For example, using Offset(1.2f, 1f), the
- * clickable are will be expanded by 20% on the X axis relatively to the center.
- * @param clickableAreaCenterOffset The center of the clickable area will be offset by
- * the width of the marker multiplied by the x value of the offset, and the height of the marker
- * multiplied by the y value of the offset.
- */
-fun MapState.addMarker(
-    id: String,
-    x: Double,
-    y: Double,
-    relativeOffset: Offset = Offset(-0.5f, -1f),
-    absoluteOffset: DpOffset = DpOffset.Zero,
-    zIndex: Float = 0f,
-    clickable: Boolean = true,
-    isConstrainedInBounds: Boolean = true,
-    clickableAreaScale: Offset = Offset(1f, 1f),
-    clickableAreaCenterOffset: Offset = Offset(0f, 0f),
-    c: @Composable () -> Unit
-) {
-    markerState.addMarker(
-        id,
-        x,
-        y,
-        relativeOffset,
-        absoluteOffset,
-        zIndex,
-        clickable,
-        isConstrainedInBounds,
-        clickableAreaScale,
-        clickableAreaCenterOffset,
-        RenderingStrategy.Default,
-        c
-    )
-}
-
-/**
- * @see [addMarker]
+ * @param clickableAreaScale The clickable area, which defaults to the bounds of the provided
+ * composable, can be expanded or shrunk. For example, using Offset(1.2f, 1f), the clickable area
+ * will be expanded by 20% on the X axis relatively to the center.
+ * @param clickableAreaCenterOffset The center of the clickable area will be offset by the width of
+ * the marker multiplied by the x value of the offset, and the height of the marker multiplied by
+ * the y value of the offset.
  * @param renderingStrategy By default, markers are eagerly laid-out, e.g they are laid-out
  * even when not visible. There are two alternative rendering strategies:
  * - [RenderingStrategy.LazyLoading]: removes all non-visible markers, dynamically.
  * - [RenderingStrategy.Clustering]: in addition to lazy loading, clusterize markers when they are
  * close to each other.
  */
-@ExperimentalClusteringApi
 fun MapState.addMarker(
     id: String,
     x: Double,
@@ -124,14 +92,16 @@ fun MapState.addMarker(
  * cluster is formed. Defaults to 50 dp. There's one exception: when the scale reaches max scale,
  * in which case clustering is disabled.
  * @param clusterClickBehavior Defines the behavior when a cluster is clicked.
+ * @param scaleThreshold Defines the scale above which the clusterer is disabled. Defaults to
+ * [ClusterScaleThreshold.MaxScale] which corresponds to [MapState.maxScale].
  * @param clusterFactory Compose code for a cluster. Receives the list of marker ids which are fused
  * to form the cluster.
  */
-@ExperimentalClusteringApi
 fun MapState.addClusterer(
     id: String,
     clusteringThreshold: Dp = 50.dp,
     clusterClickBehavior: ClusterClickBehavior = Default,
+    scaleThreshold: ClusterScaleThreshold = ClusterScaleThreshold.MaxScale,
     clusterFactory: (ids: List<String>) -> (@Composable () -> Unit)
 ) {
     markerState.addClusterer(
@@ -139,8 +109,26 @@ fun MapState.addClusterer(
         id = id,
         clusteringThreshold = clusteringThreshold,
         clusterClickBehavior = clusterClickBehavior.toInternal(),
+        scaleThreshold = scaleThreshold,
         clusterFactory = clusterFactory
     )
+}
+
+/**
+ * Set a list of marker id to not clusterize by the clusterer which has the given [id].
+ * This is useful to call this api right at the beginning of a marker drag. Otherwise, the cluster
+ * might clusterize the marker during the drag gesture which would cause the gesture to be interrupted
+ * and the `onDragEnd` callback (if set) wouldn't be invoked.
+ * When this api is invoked, the relevant clusterer re-processes its managed markers.
+ *
+ * @param id The id of the clusterer
+ * @param markersToExempt The set of marker ids to not clusterize.
+ */
+fun MapState.setClustererExemptList(
+    id: String,
+    markersToExempt: Set<String>
+) {
+    markerState.setClusteredExemptList(id, markersToExempt)
 }
 
 /**
@@ -150,7 +138,6 @@ fun MapState.addClusterer(
  * @param id The id for the lazy loader
  * @param padding Padding added to the visible area, in dp. Defaults to 0.
  */
-@ExperimentalClusteringApi
 fun MapState.addLazyLoader(
     id: String,
     padding: Dp = 0.dp
@@ -162,7 +149,6 @@ fun MapState.addLazyLoader(
  * Remove a clusterer.
  * By default, also removes all markers managed by this clusterer.
  */
-@ExperimentalClusteringApi
 fun MapState.removeClusterer(
     id: String,
     removeManagedMarkers: Boolean = true
@@ -174,7 +160,6 @@ fun MapState.removeClusterer(
  * Remove a lazy loader.
  * By default, also removes all markers managed by this lazy loader.
  */
-@ExperimentalClusteringApi
 fun MapState.removeLazyLoader(
     id: String,
     removeManagedMarkers: Boolean = true
@@ -343,9 +328,9 @@ fun MapState.onMarkerLongPress(cb: (id: String, x: Double, y: Double) -> Unit) {
 }
 
 /**
- * Sometimes, some components need to react to marker position change. However, the [MapState] owns
+ * Sometimes, some components need to observe marker position changes. However, the [MapState] owns
  * the [State] of each marker position. To avoid duplicating state and have the [MapState] as single
- * source of truth, this API creates an "observer" [State] of marker positions.
+ * source of truth, this API creates an observable [State] of marker positions.
  * Note that this api only accounts for regular markers (e.g not managed by a clusterer).
  */
 fun MapState.markerDerivedState(): State<List<MarkerDataSnapshot>> {
@@ -500,7 +485,7 @@ suspend fun MapState.centerOnMarker(
  * the width of the marker multiplied by the x value of the offset, and the height of the marker
  * multiplied by the y value of the offset.
  * @param absoluteOffset The x-axis and y-axis positions of a callout will be respectively offset by
- * the x and y Dp values of the offset.
+ * the x and y [Dp] values of the offset.
  * @param zIndex A callout with larger zIndex will be drawn on top of all callouts with smaller zIndex.
  * When callouts have the same zIndex, the original order in which the parent placed the callout is used.
  * @param autoDismiss Whether the callout should be dismissed on touch down. Default is true. If set
