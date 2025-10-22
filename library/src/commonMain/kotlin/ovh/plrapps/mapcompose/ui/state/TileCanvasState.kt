@@ -123,12 +123,7 @@ internal class TileCanvasState(
     }
 
     fun setLayers(layers: List<Layer>) {
-        /* If there's nothing in common with current layers, the canvas will be cleared */
-        val clear = layers.intersect(_layerFlow.value.toSet()).isEmpty()
         _layerFlow.value = layers
-        if (clear) {
-            evictAll()
-        }
     }
 
     /**
