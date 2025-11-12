@@ -1,7 +1,6 @@
 package ovh.plrapps.mapcompose.core
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -11,7 +10,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import org.jetbrains.skia.Bitmap
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -43,8 +41,6 @@ class TileCollectorTest {
         val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
         val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
 
-        val pool = BitmapPool(Dispatchers.Default.limitedParallelism(1))
-
         val tileStreamProvider = TileStreamProvider { _, _, _ ->
             makeTile()
         }
@@ -55,13 +51,6 @@ class TileCollectorTest {
 
                 // We should have decoded a 1px image
                 assertTrue(tile.bitmap?.width == 1)
-
-                /* Add bitmap to the pool only if they are from level 0 */
-                if (tile.zoom == 0) {
-                    if (bitmap != null) {
-                        pool.put(bitmap)
-                    }
-                }
             }
         }
 
@@ -75,9 +64,9 @@ class TileCollectorTest {
         }
 
         /* Start collecting tiles */
-        val tileCollector = TileCollector(1, BitmapConfiguration(false, 2), tileSize)
+        val tileCollector = TileCollector(1, false, tileSize)
         val tileCollectorJob = launch {
-            tileCollector.collectTiles(visibleTileLocationsChannel, tilesOutput, layers, pool)
+            tileCollector.collectTiles(visibleTileLocationsChannel, tilesOutput, layers)
         }
 
         launch {
@@ -104,10 +93,6 @@ class TileCollectorTest {
             tileConsumeJob.cancel()
 
             advanceUntilIdle()
-
-            // in the end, the pool should be empty since we put 3 bitmap in it, then requested 3
-            // more tiles right after.
-            assertEquals(0, pool.getSize())
         }
         Unit
     }
