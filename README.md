@@ -7,7 +7,7 @@ Road to `v1.0.0`:
 - [x] Support for hardware bitmaps on android
 - [x] Improve rendering of layers
 - [ ] Support infinite scroll (tile looping)
-- [ ] Backport apis and fixes from the android native library
+- [x] Backport apis and fixes from the android native library
 
 # MapCompose-mp
 
