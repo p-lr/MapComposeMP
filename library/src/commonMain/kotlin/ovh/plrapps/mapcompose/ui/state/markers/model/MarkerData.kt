@@ -8,7 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.DpOffset
+import ovh.plrapps.mapcompose.ui.state.markers.DragEndListener
 import ovh.plrapps.mapcompose.ui.state.markers.DragInterceptor
+import ovh.plrapps.mapcompose.ui.state.markers.DragStartListener
 import ovh.plrapps.mapcompose.utils.Point
 import ovh.plrapps.mapcompose.utils.generateId
 
@@ -29,6 +31,8 @@ internal class MarkerData(
     var x: Double by mutableDoubleStateOf(x)
     var y: Double by mutableDoubleStateOf(y)
     var isDraggable by mutableStateOf(false)
+    var dragStartListener: DragStartListener? by mutableStateOf(null)
+    var dragEndListener: DragEndListener? by mutableStateOf(null)
     var dragInterceptor: DragInterceptor? by mutableStateOf(null)
     var isClickable: Boolean by mutableStateOf(clickable)
     var clickableAreaScale by mutableStateOf(clickableAreaScale)

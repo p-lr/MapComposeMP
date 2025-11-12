@@ -38,7 +38,17 @@ internal fun MarkerComposer(
                         .then(
                             if (data.isDraggable) {
                                 Modifier.pointerInput(Unit) {
-                                    detectDragGestures { change, dragAmount ->
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            val listener = data.dragStartListener
+                                            if (listener != null) {
+                                                invokeDragStartListener(data, zoomPRState, it)
+                                            }
+                                        },
+                                        onDragEnd = {
+                                            data.dragEndListener?.onDragEnd(data.id, data.x, data.y)
+                                        }
+                                    ) { change, dragAmount ->
                                         change.consume()
                                         val interceptor = data.dragInterceptor
                                         if (interceptor != null) {
@@ -88,6 +98,32 @@ internal fun MarkerComposer(
             }
         }
     }
+}
+
+private fun invokeDragStartListener(
+    data: MarkerData,
+    zoomPRState: ZoomPanRotateState,
+    position: Offset
+) {
+    /* Compute the pointer offset */
+    val origin = Offset(- data.measuredWidth * data.relativeOffset.x, - data.measuredHeight * data.relativeOffset.y)
+    val pointerOffset = position - origin
+    val angle = -zoomPRState.rotation.toRad()
+    val pointerOffsetRotated = Offset(
+        rotateX(pointerOffset.x.toDouble(), pointerOffset.y.toDouble(), angle).toFloat(),
+        rotateY(pointerOffset.x.toDouble(), pointerOffset.y.toDouble(), angle).toFloat()
+    )
+
+    val px = data.x + pointerOffsetRotated.x.toDouble() / (zoomPRState.fullWidth * zoomPRState.scale)
+    val py = data.y + pointerOffsetRotated.y.toDouble() / (zoomPRState.fullHeight * zoomPRState.scale)
+
+    data.dragStartListener?.onDragStart(
+        id = data.id,
+        x = data.x,
+        y = data.y,
+        px = if (data.isConstrainedInBounds) px.coerceIn(0.0, 1.0) else px,
+        py = if (data.isConstrainedInBounds) py.coerceIn(0.0, 1.0) else py
+    )
 }
 
 private fun invokeDragInterceptor(

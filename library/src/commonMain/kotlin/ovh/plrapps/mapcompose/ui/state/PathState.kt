@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -129,7 +128,7 @@ internal class PathState(
 
         for ((id, pathState) in candidates) {
 
-            val bb = pathState.pathData.boundingBox ?: continue
+            val bb = pathState.pathData.boundingBox
             val (topLeft, bottomRight) = bb
             val (xMin, yMin) = topLeft
             val (xMax, yMax) = bottomRight
