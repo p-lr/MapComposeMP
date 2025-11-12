@@ -122,7 +122,10 @@ internal class PathState(
         var traversalClickPosition: Point? = null
         val candidates = pathState.entries
             .filter { it.value.isClickable }
-            .sortedByDescending { it.value.zIndex }
+            /* Sort by descending draw order and not just z-index, because z-index is an application
+             * concept and for two paths with the same z-index, the draw order is undetermined.
+             * The draw order is a low level information, unknown to the application. */
+            .sortedByDescending { it.value.drawOrder.value }
 
         for ((id, pathState) in candidates) {
 
@@ -242,6 +245,8 @@ internal class DrawablePathState(
      */
     var offsetAndCount: IntOffset by mutableStateOf(initializeOffsetAndCount(offset, count))
     var simplify: Float by mutableFloatStateOf(simplify?.coerceAtLeast(0f) ?: 1f)
+
+    val drawOrder = MutableStateFlow(0)
 
     fun resetOffsetAndCount() {
         offsetAndCount = IntOffset(0, pathData.data.size)
