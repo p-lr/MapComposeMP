@@ -82,6 +82,12 @@ sourceSets {
 }
 ```
 
+Also, in your `settings.gradle`, you should add this maven repository:
+
+```
+maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+```
+
 ## Basics
 
 MapCompose is optimized to display maps that have several levels, like this:
