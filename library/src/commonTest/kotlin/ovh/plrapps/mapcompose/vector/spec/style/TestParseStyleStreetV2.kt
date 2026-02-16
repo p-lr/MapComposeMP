@@ -11,6 +11,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import androidx.compose.ui.graphics.Color
+import kotlinx.io.Buffer
+import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.library.generated.resources.Res
 import ovh.plrapps.mapcompose.vector.spec.style.props.Expr
@@ -23,11 +25,28 @@ class TestParseStyleStreetV2 {
     @Test
     fun `style_streetV2 correct parsed`() = runComposeUiTest {
         var styleStreetV2: MapLibreConfiguration? = null
+        val loadResource: suspend (String) -> RawSource? = { url ->
+            when {
+                url.endsWith(".json") -> {
+                    val resource = Res.readBytes("files/test_style_street_v2_sprite.json")
+                    val buffer = Buffer()
+                    buffer.write(resource)
+                    buffer
+                }
+                url.endsWith(".png") -> {
+                    val resource = Res.readBytes("files/test_style_street_v2_sprite.png")
+                    val buffer = Buffer()
+                    buffer.write(resource)
+                    buffer
+                }
+                else -> null
+            }
+        }
 
         setContent {
             val style by produceState<MapLibreConfiguration?>(null) {
                 value = Res.readBytes("files/test_style_street_v2.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(source).getOrThrow()
+                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
                 }
             }
             styleStreetV2 = style

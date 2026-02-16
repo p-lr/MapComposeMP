@@ -11,6 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import androidx.compose.ui.graphics.Color
+import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.library.generated.resources.Res
 import ovh.plrapps.mapcompose.vector.spec.style.props.Expr
@@ -23,11 +24,12 @@ class TestParseStyleSimple {
     @Test
     fun `style_simple correct parsed`() = runComposeUiTest {
         var simpleStyle: MapLibreConfiguration? = null
+        val loadResource: suspend (String) -> RawSource? = { null }
 
         setContent {
             val style by produceState<MapLibreConfiguration?>(null) {
                 value = Res.readBytes("files/test_style_simple.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(source).getOrThrow()
+                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
                 }
             }
             simpleStyle = style

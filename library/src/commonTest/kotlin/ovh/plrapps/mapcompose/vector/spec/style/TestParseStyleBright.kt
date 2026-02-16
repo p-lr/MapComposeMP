@@ -5,6 +5,8 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runComposeUiTest
+import kotlinx.io.Buffer
+import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.library.generated.resources.Res
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
@@ -23,11 +25,28 @@ class TestParseStyleBright {
     @Test
     fun `style_bright correct parsed`() = runComposeUiTest {
         var simpleStyle: MapLibreConfiguration? = null
+        val loadResource: suspend (String) -> RawSource? = { url ->
+            when {
+                url.endsWith(".json") -> {
+                    val resource = Res.readBytes("files/test_style_bright_sprite.json")
+                    val buffer = Buffer()
+                    buffer.write(resource)
+                    buffer
+                }
+                url.endsWith(".png") -> {
+                    val resource = Res.readBytes("files/test_style_bright_sprite.png")
+                    val buffer = Buffer()
+                    buffer.write(resource)
+                    buffer
+                }
+                else -> null
+            }
+        }
 
         setContent {
             val style by produceState<MapLibreConfiguration?>(null) {
                 value = Res.readBytes("files/test_style_bright.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(source).getOrThrow()
+                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
                 }
             }
             simpleStyle = style
@@ -109,7 +128,7 @@ class TestParseStyleBright {
         assertEquals(Pair(13.0, Expr.Constant(0.5)), waterwayStops[0])
         assertEquals(Pair(20.0, Expr.Constant(6.0)), waterwayStops[1])
 
-        val lineColor = waterwayLayer.paint?.lineColor?.process()
+        val lineColor = waterwayLayer.paint.lineColor?.process()
         assertEquals(Color(0xFFA0C8F0), lineColor)
     }
 }
