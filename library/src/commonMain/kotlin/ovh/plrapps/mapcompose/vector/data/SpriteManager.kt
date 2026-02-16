@@ -11,6 +11,10 @@ import androidx.compose.ui.unit.LayoutDirection
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.io.RawSource
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
+import kotlinx.io.readString
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.Image
@@ -197,16 +201,16 @@ class SpriteManager(
          * @return Result of loading sprites
          */
         @OptIn(ExperimentalResourceApi::class)
-        suspend fun load(spriteUrl: String, pixelRatio: Int = 1): Result<SpriteManager> {
+        suspend fun load(spriteUrl: String, pixelRatio: Int = 1, loadResource: suspend (String) -> RawSource?): Result<SpriteManager> {
             val suffix = if (pixelRatio > 1) "@2x" else ""
             val jsonUrl = Url("$spriteUrl$suffix.json")
             val imageUrl = Url("$spriteUrl$suffix.png")
 
             return try {
-                val spriteJson = httpClient.get(jsonUrl).bodyAsText()
+                val spriteJson = loadResource(jsonUrl.toString())?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
                 val spriteIndex = json.decodeFromString<Map<String, Sprite>>(spriteJson)
 
-                val spriteImageBytes = httpClient.get(imageUrl).bodyAsBytes()
+                val spriteImageBytes = loadResource(imageUrl.toString())?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
                 val spriteImage = makeFromEncoded(spriteImageBytes).toComposeImageBitmap()
 
                 Result.success(SpriteManager(spriteIndex, spriteImage))

@@ -2,9 +2,18 @@
 
 package ovh.plrapps.mapcompose.api
 
+import androidx.compose.ui.unit.dp
+import kotlinx.io.Buffer
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.map
 import ovh.plrapps.mapcompose.core.*
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.swap
+import ovh.plrapps.mapcompose.utils.throttle
+import ovh.plrapps.mapcompose.vector.VectorRasterizer
+import ovh.plrapps.mapcompose.vector.data.extension.toBytes
+import ovh.plrapps.mapcompose.vector.data.extension.toMVTViewport
+import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 
 
 /**
@@ -53,6 +62,78 @@ fun MapState.addLayer(
     setLayers(newLayers)
 
     return id
+}
+
+suspend fun MapState.addVectorLayer(
+    vectorTileStreamProvider: VectorTileStreamProvider,
+    initialOpacity: Float = 1f,
+    placement: LayerPlacement = AboveAll
+): String {
+    var layerName: String? = null
+
+    val style = vectorTileStreamProvider.loadResources(vectorTileStreamProvider.styleUrl)
+    val configuration = getMapLibreConfiguration(style.toString(), loadResource = vectorTileStreamProvider::loadResources).getOrThrow()
+
+    val rasterizer = VectorRasterizer(
+        configuration = configuration,
+        densityState = this.densityState,
+        fontFamilyResolverState = this.fontFamilyResolverState,
+        textMeasurerState = this.textMeasurerState,
+        getTileStream = vectorTileStreamProvider::getTileStream
+    )
+
+    val tileStreamProvider = TileStreamProvider { row, col, zoomLvl ->
+        val density = this.densityState.value ?: return@TileStreamProvider null
+        val tilePx = with(density) { 512.dp.toPx() }.toInt()
+
+        val imageBitmap = rasterizer.getTile(
+            x = col,
+            y = row,
+            zoom = zoomLvl.toDouble(),
+            tileSize = tilePx
+        )
+
+        val bytes = imageBitmap.toBytes()
+            ?: return@TileStreamProvider null
+
+        return@TileStreamProvider Buffer().apply {
+            write(bytes)
+        }
+    }
+
+    apply {
+        layerName = addLayer(tileStreamProvider)
+    }.apply {
+        viewportInfoFlow
+            .throttle(250)
+            .map { viewportInfo ->
+                viewportInfo ?: return@map
+
+                val zoomLvl = viewportInfo.zoom // Используем zoom из ViewportInfo!
+                val density = this.densityState.value ?: return@map
+                val tilePx = with(density) { 512.dp.toPx() }.toInt()
+
+                val nextSymbols = rasterizer.produceSymbols(
+                    viewport = viewportInfo.toMVTViewport(),
+                    tileSize = tilePx,
+                    z = zoomLvl.toDouble()
+                ).getOrElse { e ->
+                    println("[ERROR] produceSymbols(): ${e.message}")
+                    return@map
+                }
+
+                rasterizer.updateSymbols(
+                    nextSymbols = nextSymbols,
+                    state = this
+                )
+
+            }
+            .catch {
+                println("error: ${it.message}")
+            }
+    }
+
+    return layerName ?: throw IllegalStateException("Layer name cannot be null")
 }
 
 /**

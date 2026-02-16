@@ -7,6 +7,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.zIndex
 import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotate
 import ovh.plrapps.mapcompose.ui.markers.MarkerComposer
@@ -28,6 +30,11 @@ fun MapUI(
     remember(density) {
         state.densityState.value = density
     }
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    remember {
+        state.fontFamilyResolverState.value = fontFamilyResolver
+    }
+    state.textMeasurerState.value = rememberTextMeasurer()
 
     key(state) {
         ZoomPanRotate(

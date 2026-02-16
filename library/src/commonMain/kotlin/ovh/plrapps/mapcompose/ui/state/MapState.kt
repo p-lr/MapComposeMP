@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +107,8 @@ class MapState(
         applyLateInitialValues(initialValues)
     }
     internal val densityState = MutableStateFlow<Density?>(null)
+    internal val fontFamilyResolverState = MutableStateFlow<FontFamily.Resolver?>(null)
+    internal val textMeasurerState = MutableStateFlow<TextMeasurer?>(null)
 
     /**
      * Cancels all internal tasks.

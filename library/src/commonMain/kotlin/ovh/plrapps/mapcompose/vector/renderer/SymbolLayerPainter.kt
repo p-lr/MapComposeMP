@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.MutableStateFlow
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SDF
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
@@ -176,7 +177,7 @@ data class SymbolPlacement(
 )
 
 class SymbolLayerPainter(
-    private val textMeasurer: TextMeasurer,
+    private val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     private val spriteManager: SpriteManager?,
     private val configuration: MapLibreConfiguration,
 ) {
@@ -397,6 +398,8 @@ class SymbolLayerPainter(
         tileY: Int,
         density: Density,
     ): Symbol? {
+        val textMeasurer = textMeasurerState.value ?: return null
+
         val layout = style.layout ?: return null
         val paint = style.paint ?: return null
         val spriteManager = spriteManager ?: return null
@@ -577,6 +580,8 @@ class SymbolLayerPainter(
         tileY: Int,
         density: Density,
     ): Symbol? {
+        val textMeasurer = textMeasurerState.value ?: return null
+
         val layout = style.layout ?: return null
         val paint = style.paint ?: return null
 

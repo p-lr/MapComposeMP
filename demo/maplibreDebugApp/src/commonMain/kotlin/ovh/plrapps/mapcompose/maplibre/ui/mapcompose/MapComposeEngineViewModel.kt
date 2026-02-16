@@ -30,7 +30,6 @@ import org.jetbrains.skia.EncodedImageFormat
 import ovh.plrapps.mapcompose.api.*
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.core.ViewportInfo
-import ovh.plrapps.mapcompose.vector.MapLibreRasterizer
 import ovh.plrapps.mapcompose.maplibre.cache.FileTileCache
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement

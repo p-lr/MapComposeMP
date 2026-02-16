@@ -2,17 +2,18 @@ package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Density
+import kotlinx.coroutines.flow.MutableStateFlow
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 
 class SymbolsProducer(
     configuration: MapLibreConfiguration,
-    private val textMeasurer: TextMeasurer,
+    private val textMeasurer: MutableStateFlow<TextMeasurer?>,
 ) : BaseRenderer(configuration = configuration) {
 
     val symbolsPainter = SymbolLayerPainter(
-        textMeasurer = textMeasurer,
+        textMeasurerState = textMeasurer,
         spriteManager = configuration.spriteManager,
         configuration = configuration
     )

@@ -8,7 +8,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.rememberTextMeasurer
 import org.jetbrains.compose.resources.ExperimentalResourceApi
-import ovh.plrapps.mapcompose.vector.MapLibreRasterizer
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import kotlin.math.roundToInt

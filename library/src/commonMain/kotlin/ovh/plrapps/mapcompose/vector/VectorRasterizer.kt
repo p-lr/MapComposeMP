@@ -9,15 +9,17 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
+import io.ktor.http.Url
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
-import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.io.RawSource
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
+import ovh.plrapps.mapcompose.api.addMarker
+import ovh.plrapps.mapcompose.api.removeMarker
+import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
-import ovh.plrapps.mapcompose.vector.data.TileCache
-import ovh.plrapps.mapcompose.vector.data.httpClient
 import ovh.plrapps.mapcompose.vector.renderer.Symbol
 import ovh.plrapps.mapcompose.vector.renderer.SymbolsProducer
 import ovh.plrapps.mapcompose.vector.renderer.TileRenderer
@@ -25,20 +27,23 @@ import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import pbandk.decodeFromByteArray
+import kotlin.collections.component1
+import kotlin.collections.component2
+import kotlin.coroutines.coroutineContext
 
-class MapLibreRasterizer(
+class VectorRasterizer(
     val configuration: MapLibreConfiguration,
-    val density: Density,
-    val fontFamilyResolver: FontFamily.Resolver,
-    val textMeasurer: TextMeasurer,
-    val tileCache: TileCache?
+    val densityState: MutableStateFlow<Density?>,
+    val fontFamilyResolverState:  MutableStateFlow<FontFamily.Resolver?>,
+    val textMeasurerState: MutableStateFlow<TextMeasurer?>,
+    val getTileStream: suspend (url: String, row: Int, col: Int, zoomLvl: Int) -> RawSource?
 ) {
     private val tileRenderer = TileRenderer(
         configuration = configuration
     )
 
     fun decodePBFFromByteArray(bytes: ByteArray): Tile {
-        return Tile.Companion.decodeFromByteArray(bytes)
+        return Tile.decodeFromByteArray(bytes)
     }
 
     private fun renderTile(
@@ -47,6 +52,8 @@ class MapLibreRasterizer(
         tileSize: Int,
         actualZoom: Double,
     ): ImageBitmap {
+        val density = densityState.value ?: return emptyBitmap(tileSize)
+
         val imageBitmap = ImageBitmap(tileSize, tileSize)
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
@@ -82,22 +89,24 @@ class MapLibreRasterizer(
         return imageBitmap
     }
 
-    private suspend fun fetchTile(url: Url): Result<ByteArray> {
+    private suspend fun fetchTile(url: Url, row: Int, col: Int, zoomLvl: Int): Result<ByteArray> {
         try {
             // Check if the coroutine is cancelled before the network request
             coroutineContext.ensureActive()
-            
+
             println("fetch the tile $url")
-            val response = httpClient.get(url)
-            println("fetch result for $url | ${response.status}")
-            
+            val response = getTileStream(url.toString(), row, col, zoomLvl)
+
             // Check again after network request
             coroutineContext.ensureActive()
-            
-            if (response.status != HttpStatusCode.OK) {
+
+            if (response == null) {
                 return Result.failure(LoadTileException("fetch error"))
             }
-            return Result.success(response.bodyAsBytes())
+            val result = response.buffered().use { bufferedSource ->
+                bufferedSource.readByteArray()
+            }
+            return Result.success(result)
         } catch (e: CancellationException) {
             // We do not log cancellation as an error - this is normal behavior
             throw e
@@ -109,30 +118,27 @@ class MapLibreRasterizer(
     // return sourceName: String and tile: ByteArray
     private suspend fun fetch(z: Int, x: Int, y: Int): Result<Map<String, ByteArray>> {
         val buffer = mutableMapOf<String, ByteArray>()
-        
+
         val results = configuration.tileSources.map { (sourceName, ts) ->
             sourceName to runCatching {
                 // Checking if the coroutine has been cancelled
                 coroutineContext.ensureActive()
-                
-                val key = "x${x}_y${y}_z${z}.pbf"
-                val pbf = tileCache?.get(sourceName, key) 
-                    ?: fetchTile(ts.getTileUrl(z = z, x = x, y = y)).getOrThrow()
-                tileCache?.put(sourceName, key, pbf)
+
+                val pbf = fetchTile(ts.getTileUrl(z = z, x = x, y = y), row = y, col = x, zoomLvl = z).getOrThrow()
                 pbf
             }
         }
-        
+
         // check result
         for ((sourceName, result) in results) {
             result.fold(
                 onSuccess = { pbf -> buffer[sourceName] = pbf },
-                onFailure = { e -> 
+                onFailure = { e ->
                     return Result.failure(LoadTileException("Failed to fetch tile for source '$sourceName': ${e.message}"))
                 }
             )
         }
-        
+
         return if (buffer.size == configuration.tileSources.size) {
             Result.success(buffer)
         } else {
@@ -141,6 +147,8 @@ class MapLibreRasterizer(
     }
 
     private fun emptyBitmap(size: Int): ImageBitmap {
+        val density = densityState.value ?: return ImageBitmap(size, size)
+
         val imageBitmap = ImageBitmap(size, size)
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
@@ -178,11 +186,13 @@ class MapLibreRasterizer(
     }
 
     private val symbolsProducer = SymbolsProducer(
-        textMeasurer = textMeasurer,
+        textMeasurer = textMeasurerState,
         configuration = configuration
     )
 
     suspend fun produceSymbols(viewport: MVTViewport, tileSize: Int, z: Double): Result<List<Symbol>> {
+        val density = densityState.value ?: return Result.failure(LoadTileException("density is null"))
+
         val symbols = mutableListOf<Symbol>()
         // Calculate overlay sizes based on tileMatrix
         val minY = viewport.tileMatrix.keys.min()
@@ -233,8 +243,60 @@ class MapLibreRasterizer(
             }
         }
 
-
         return Result.success(symbols)
+    }
+
+    val symbols = MutableStateFlow<List<Symbol>>(emptyList())
+    private var prevSymbols = emptyList<Symbol>()
+
+    fun updateSymbols(nextSymbols: List<Symbol>, state: MapState) {
+        println("updateSymbols ${nextSymbols.size}")
+        checkIndexErrors(nextSymbols)
+
+        val nextSymbolsId = nextSymbols.map { it.id }
+        val prevSymbolsId = prevSymbols.map { it.id }
+
+        // We remove markers that no longer exist
+        prevSymbolsId.forEach { prevSymbolId ->
+            val shouldRemove = prevSymbolId !in nextSymbolsId
+            if (shouldRemove) {
+                state.removeMarker(prevSymbolId)
+            }
+        }
+
+        // Adding new markers
+        for (symbol in nextSymbols) {
+            if (symbol.id in prevSymbolsId) continue
+
+            state.addMarker(
+                id = symbol.id,
+                x = symbol.global.x,
+                y = symbol.global.y,
+                relativeOffset = symbol.align,
+                clickable = false
+            ) {
+                symbol.render()
+            }
+        }
+        prevSymbols = nextSymbols
+        symbols.value = nextSymbols
+    }
+
+    private class Counter {
+        var value: Int = 0
+    }
+
+    private fun checkIndexErrors(nextSymbols: List<Symbol>) {
+        val counters = mutableMapOf<String, Counter>()
+
+        nextSymbols.forEach { symbol ->
+            counters.getOrPut(symbol.id) { Counter() }.value++
+        }
+        counters.forEach { (id, value) ->
+            if (value.value > 1) {
+                println("[ERROR]: Id $id not unique (${value.value})")
+            }
+        }
     }
 }
 
