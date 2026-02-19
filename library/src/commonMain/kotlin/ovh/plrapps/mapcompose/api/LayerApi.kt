@@ -6,6 +6,8 @@ import androidx.compose.ui.unit.dp
 import kotlinx.io.Buffer
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
+import kotlinx.io.buffered
+import kotlinx.io.readString
 import ovh.plrapps.mapcompose.core.*
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.swap
@@ -64,25 +66,31 @@ fun MapState.addLayer(
     return id
 }
 
-suspend fun MapState.addVectorLayer(
+fun MapState.addVectorLayer(
     vectorTileStreamProvider: VectorTileStreamProvider,
     initialOpacity: Float = 1f,
     placement: LayerPlacement = AboveAll
 ): String {
     var layerName: String? = null
 
-    val style = vectorTileStreamProvider.loadResources(vectorTileStreamProvider.styleUrl)
-    val configuration = getMapLibreConfiguration(style.toString(), loadResource = vectorTileStreamProvider::loadResources).getOrThrow()
+    var rasterizer: VectorRasterizer? = null
+    val getRasterizer: suspend () -> VectorRasterizer = suspend {
+        val style = vectorTileStreamProvider.loadResources(vectorTileStreamProvider.styleUrl)
+        val configuration = getMapLibreConfiguration(style?.buffered()?.readString() ?: "", loadResource = vectorTileStreamProvider::loadResources).getOrThrow()
 
-    val rasterizer = VectorRasterizer(
-        configuration = configuration,
-        densityState = this.densityState,
-        fontFamilyResolverState = this.fontFamilyResolverState,
-        textMeasurerState = this.textMeasurerState,
-        getTileStream = vectorTileStreamProvider::getTileStream
-    )
+        VectorRasterizer(
+            configuration = configuration,
+            densityState = this.densityState,
+            fontFamilyResolverState = this.fontFamilyResolverState,
+            textMeasurerState = this.textMeasurerState,
+            getTileStream = vectorTileStreamProvider::getTileStream
+        )
+    }
 
     val tileStreamProvider = TileStreamProvider { row, col, zoomLvl ->
+        if (rasterizer == null) {
+            rasterizer = getRasterizer()
+        }
         val density = this.densityState.value ?: return@TileStreamProvider null
         val tilePx = with(density) { 512.dp.toPx() }.toInt()
 
@@ -108,6 +116,7 @@ suspend fun MapState.addVectorLayer(
             .throttle(250)
             .map { viewportInfo ->
                 viewportInfo ?: return@map
+                rasterizer ?: return@map
 
                 val zoomLvl = viewportInfo.zoom // Используем zoom из ViewportInfo!
                 val density = this.densityState.value ?: return@map

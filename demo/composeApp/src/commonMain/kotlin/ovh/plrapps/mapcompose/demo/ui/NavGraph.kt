@@ -14,6 +14,7 @@ import ovh.plrapps.mapcompose.demo.ui.screens.MarkersLazyLoadingDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.OsmDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.PathsDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.RotationDemo
+import ovh.plrapps.mapcompose.demo.ui.screens.VectorDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.VisibleAreaPaddingDemo
 
 const val HOME = "home"
@@ -74,6 +75,10 @@ enum class MainDestinations() {
     MARKERS_LAZY_LOADING{
         override val title = "Markers lazy loading"
         override val screen = MarkersLazyLoadingDemo
+    },
+    VECTOR_DEMO {
+        override val title = "Vector tile demo"
+        override val screen = VectorDemo
     };
 
     abstract val title: String
