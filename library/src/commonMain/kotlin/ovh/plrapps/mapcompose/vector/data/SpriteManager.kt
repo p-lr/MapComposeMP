@@ -8,7 +8,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import io.ktor.http.*
 import kotlinx.io.RawSource
 import kotlinx.io.buffered
 import kotlinx.io.readByteArray
@@ -197,14 +196,14 @@ class SpriteManager(
         @OptIn(ExperimentalResourceApi::class)
         suspend fun load(spriteUrl: String, pixelRatio: Int = 1, loadResource: suspend (String) -> RawSource?): Result<SpriteManager> {
             val suffix = if (pixelRatio > 1) "@2x" else ""
-            val jsonUrl = Url("$spriteUrl$suffix.json")
-            val imageUrl = Url("$spriteUrl$suffix.png")
+            val jsonUrl = "$spriteUrl$suffix.json"
+            val imageUrl = "$spriteUrl$suffix.png"
 
             return try {
-                val spriteJson = loadResource(jsonUrl.toString())?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
+                val spriteJson = loadResource(jsonUrl)?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
                 val spriteIndex = json.decodeFromString<Map<String, Sprite>>(spriteJson)
 
-                val spriteImageBytes = loadResource(imageUrl.toString())?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
+                val spriteImageBytes = loadResource(imageUrl)?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
                 val spriteImage = byteArrayToImageBitmap(spriteImageBytes)
 
                 Result.success(SpriteManager(spriteIndex, spriteImage))

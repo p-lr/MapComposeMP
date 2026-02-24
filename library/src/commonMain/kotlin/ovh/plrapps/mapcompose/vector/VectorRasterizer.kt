@@ -9,7 +9,6 @@ import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
-import io.ktor.http.Url
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
@@ -93,13 +92,13 @@ class VectorRasterizer(
         return imageBitmap
     }
 
-    private suspend fun fetchTile(url: Url, row: Int, col: Int, zoomLvl: Int): Result<ByteArray> {
+    private suspend fun fetchTile(url: String, row: Int, col: Int, zoomLvl: Int): Result<ByteArray> {
         try {
             // Check if the coroutine is cancelled before the network request
             currentCoroutineContext().ensureActive()
 
 //            println("fetch the tile $url")
-            val response = getTileStream(url.toString(), row, col, zoomLvl)
+            val response = getTileStream(url, row, col, zoomLvl)
 
             // Check again after network request
             currentCoroutineContext().ensureActive()
