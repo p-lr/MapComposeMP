@@ -67,11 +67,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines)
             implementation(libs.skia)
             api(libs.kotlinx.io.core)
-
-            // TODO: remove eventually after changes
             implementation(libs.pbandk.runtime)
-
-            // TODO: remove after changes, if possible
             implementation(libs.kotlinx.serialization.json)
         }
         desktopMain.dependencies {
