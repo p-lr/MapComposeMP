@@ -20,5 +20,4 @@ dependencyResolutionManagement {
 
 include(":demo:composeApp")
 include(":library")
-include(":maplibre-rasterizer")
 include(":demo:maplibreDebugApp")

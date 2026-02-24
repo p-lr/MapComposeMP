@@ -45,7 +45,6 @@ kotlin {
             implementation(libs.skia)
             api(libs.kotlinx.io.core)
             implementation(project(":library"))
-            implementation(project(":maplibre-rasterizer"))
             implementation(libs.lazytable)
             implementation(libs.kotlinx.serialization.json)
 
