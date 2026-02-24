@@ -8,22 +8,23 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
 import io.ktor.http.*
 import kotlinx.io.RawSource
 import kotlinx.io.buffered
 import kotlinx.io.readByteArray
 import kotlinx.io.readString
 import org.jetbrains.compose.resources.ExperimentalResourceApi
-import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.Image.Companion.makeFromEncoded
-import org.jetbrains.skia.ImageInfo
-import ovh.plrapps.mapcompose.vector.data.extension.toComposeImageBitmap
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+internal expect fun imageBitmapFromArgb(
+    argb: IntArray,
+    width: Int,
+    height: Int
+): ImageBitmap
+
+internal expect fun byteArrayToImageBitmap(bytes: ByteArray): ImageBitmap
 
 class SpriteManager(
     private val spriteIndex: Map<String, Sprite>,
@@ -118,10 +119,7 @@ class SpriteManager(
             return resizedBitmap
         }
 
-        fun renderSdf(
-            src: ImageBitmap,
-            sdf: SDF
-        ): ImageBitmap {
+        fun renderSdf(src: ImageBitmap, sdf: SDF): ImageBitmap {
             val width = src.width
             val height = src.height
             val strokeColor = sdf.haloColor
@@ -130,10 +128,10 @@ class SpriteManager(
 
             val srcPixels = src.toPixelMap()
 
-
             val fillEdge = sdf.threshold
             val strokeEdge = fillEdge + strokeWidth
             val outPixels = IntArray(width * height)
+
             for (y in 0 until height) {
                 for (x in 0 until width) {
                     val idx = y * width + x
@@ -154,11 +152,7 @@ class SpriteManager(
                 }
             }
 
-
-            val byteArray = intArrayToImageByteArray(outPixels)
-            val imageInfo = ImageInfo.makeN32(width, height, ColorAlphaType.PREMUL)
-            val skiaImage = Image.makeRaster(imageInfo, byteArray, width * 4)
-            return skiaImage.toComposeImageBitmap()
+            return imageBitmapFromArgb(outPixels, width, height)
         }
 
         fun cropImageBitmap(
@@ -211,7 +205,7 @@ class SpriteManager(
                 val spriteIndex = json.decodeFromString<Map<String, Sprite>>(spriteJson)
 
                 val spriteImageBytes = loadResource(imageUrl.toString())?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
-                val spriteImage = makeFromEncoded(spriteImageBytes).toComposeImageBitmap()
+                val spriteImage = byteArrayToImageBitmap(spriteImageBytes)
 
                 Result.success(SpriteManager(spriteIndex, spriteImage))
             } catch (e: Exception) {

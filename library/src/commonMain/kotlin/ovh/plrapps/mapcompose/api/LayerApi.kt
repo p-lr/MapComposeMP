@@ -3,8 +3,10 @@
 package ovh.plrapps.mapcompose.api
 
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.MainScope
 import kotlinx.io.Buffer
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.io.buffered
 import kotlinx.io.readString
@@ -92,7 +94,7 @@ fun MapState.addVectorLayer(
             rasterizer = getRasterizer()
         }
         val density = this.densityState.value ?: return@TileStreamProvider null
-        val tilePx = with(density) { 512.dp.toPx() }.toInt()
+        val tilePx = with(density) { 256.dp.toPx() }.toInt()
 
         val imageBitmap = rasterizer.getTile(
             x = col,
@@ -140,6 +142,7 @@ fun MapState.addVectorLayer(
             .catch {
                 println("error: ${it.message}")
             }
+            .launchIn(MainScope())
     }
 
     return layerName ?: throw IllegalStateException("Layer name cannot be null")
