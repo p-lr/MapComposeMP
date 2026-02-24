@@ -122,7 +122,7 @@ fun MapState.addVectorLayer(
 
                 val zoomLvl = viewportInfo.zoom // Используем zoom из ViewportInfo!
                 val density = this.densityState.value ?: return@map
-                val tilePx = with(density) { 512.dp.toPx() }.toInt()
+                val tilePx = with(density) { 256.dp.toPx() }.toInt()
 
                 val nextSymbols = rasterizer.produceSymbols(
                     viewport = viewportInfo.toMVTViewport(),

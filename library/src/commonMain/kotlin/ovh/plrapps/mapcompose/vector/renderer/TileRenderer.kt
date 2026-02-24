@@ -76,10 +76,6 @@ class TileRenderer(
                             is LineLayer -> LineLayerPainter()
                             is RasterLayer -> RasterLayerPainter()
                             is SkyLayer -> SkyLayerPainter()
-//                            is SymbolLayer -> SymbolLayerPainter(
-//                                textMeasurer = textMeasurer,
-//                                spriteManager = configuration.spriteManager
-//                            )
                         }
                     }
 

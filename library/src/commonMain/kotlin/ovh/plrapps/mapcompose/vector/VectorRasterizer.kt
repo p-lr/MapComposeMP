@@ -11,7 +11,10 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import io.ktor.http.Url
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.io.RawSource
 import kotlinx.io.buffered
@@ -29,7 +32,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import pbandk.decodeFromByteArray
 import kotlin.collections.component1
 import kotlin.collections.component2
-import kotlin.coroutines.coroutineContext
 
 class VectorRasterizer(
     val configuration: MapLibreConfiguration,
@@ -38,12 +40,13 @@ class VectorRasterizer(
     val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     val getTileStream: suspend (url: String, row: Int, col: Int, zoomLvl: Int) -> RawSource?
 ) {
-    private val tileRenderer = TileRenderer(
-        configuration = configuration
-    )
-
-    fun decodePBFFromByteArray(bytes: ByteArray): Tile {
-        return Tile.decodeFromByteArray(bytes)
+    fun decodePBFFromByteArray(bytes: ByteArray): Tile? {
+        return try {
+            Tile.decodeFromByteArray(bytes)
+        } catch (e: Exception) {
+            println("Error decoding PBF: ${e.message}")
+            null
+        }
     }
 
     private fun renderTile(
@@ -58,6 +61,7 @@ class VectorRasterizer(
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
         val allTiles = mutableMapOf<String, Tile?>()
+        val tileRenderer = TileRenderer(configuration = configuration)
 
         drawScope.draw(
             density = density,
@@ -92,13 +96,13 @@ class VectorRasterizer(
     private suspend fun fetchTile(url: Url, row: Int, col: Int, zoomLvl: Int): Result<ByteArray> {
         try {
             // Check if the coroutine is cancelled before the network request
-            coroutineContext.ensureActive()
+            currentCoroutineContext().ensureActive()
 
-            println("fetch the tile $url")
+//            println("fetch the tile $url")
             val response = getTileStream(url.toString(), row, col, zoomLvl)
 
             // Check again after network request
-            coroutineContext.ensureActive()
+            currentCoroutineContext().ensureActive()
 
             if (response == null) {
                 return Result.failure(LoadTileException("fetch error"))
@@ -116,33 +120,28 @@ class VectorRasterizer(
     }
 
     // return sourceName: String and tile: ByteArray
-    private suspend fun fetch(z: Int, x: Int, y: Int): Result<Map<String, ByteArray>> {
-        val buffer = mutableMapOf<String, ByteArray>()
-
-        val results = configuration.tileSources.map { (sourceName, ts) ->
-            sourceName to runCatching {
-                // Checking if the coroutine has been cancelled
-                coroutineContext.ensureActive()
-
-                val pbf = fetchTile(ts.getTileUrl(z = z, x = x, y = y), row = y, col = x, zoomLvl = z).getOrThrow()
-                pbf
-            }
-        }
-
-        // check result
-        for ((sourceName, result) in results) {
-            result.fold(
-                onSuccess = { pbf -> buffer[sourceName] = pbf },
-                onFailure = { e ->
-                    return Result.failure(LoadTileException("Failed to fetch tile for source '$sourceName': ${e.message}"))
+    private suspend fun fetch(z: Int, x: Int, y: Int): Result<Map<String, ByteArray>> = supervisorScope {
+        try {
+            // Kick off concurrent fetches per source without failing the whole scope on one error
+            val deferred = configuration.tileSources.map { (sourceName, ts) ->
+                sourceName to async {
+                    // Ensure still active before heavy work
+                    coroutineContext.ensureActive()
+                    fetchTile(ts.getTileUrl(z = z, x = x, y = y), row = y, col = x, zoomLvl = z).getOrThrow()
                 }
-            )
-        }
+            }
 
-        return if (buffer.size == configuration.tileSources.size) {
-            Result.success(buffer)
-        } else {
-            Result.failure(LoadTileException("Not all tiles were loaded: expected ${configuration.tileSources.size}, got ${buffer.size}"))
+            // Await all; collect successes, ignore failures so partial data can still render
+            val buffer = mutableMapOf<String, ByteArray>()
+            for ((sourceName, d) in deferred) {
+                runCatching { d.await() }
+                    .onSuccess { bytes -> buffer[sourceName] = bytes }
+                    .onFailure { /* ignore single source failure */ }
+            }
+
+            return@supervisorScope Result.success(buffer)
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
@@ -198,7 +197,7 @@ class VectorRasterizer(
         val minY = viewport.tileMatrix.keys.min()
         val maxY = viewport.tileMatrix.keys.max()
 
-        println("viewport zoom = ${viewport.zoom} | zoom = $z")
+//        println("viewport zoom = ${viewport.zoom} | zoom = $z")
         // For each tile in the viewport
         for (y in minY..maxY) {
             for (x in viewport.tileMatrix[y] ?: emptyList()) {
@@ -218,7 +217,7 @@ class VectorRasterizer(
                             allTiles.getOrPut(styleLayerSourceName) {
                                 styleLayerSourceName
                                     .let { sourceName -> pbfList[sourceName] }
-                                    ?.let { bytes -> Tile.decodeFromByteArray(bytes) }
+                                    ?.let { bytes -> decodePBFFromByteArray(bytes) }
                             }
                         }
                     if (tile == null) continue
@@ -250,7 +249,7 @@ class VectorRasterizer(
     private var prevSymbols = emptyList<Symbol>()
 
     fun updateSymbols(nextSymbols: List<Symbol>, state: MapState) {
-        println("updateSymbols ${nextSymbols.size}")
+//        println("updateSymbols ${nextSymbols.size}")
         checkIndexErrors(nextSymbols)
 
         val nextSymbolsId = nextSymbols.map { it.id }
