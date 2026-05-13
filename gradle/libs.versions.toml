@@ -1,5 +1,5 @@
 [versions]
-agp = "8.13.0"
+agp = "9.2.1"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
@@ -17,7 +17,7 @@ compose-plugin = "1.9.1"
 junit = "4.13.2"
 kotlin = "2.2.20"
 coroutines = "1.10.2"
-skiko = "0.9.22.2"  # should be the exact same version compose.ui depends on. See https://mvnrepository.com/artifact/androidx.compose.ui/ui
+skiko = "0.9.22.2"  # should be the exact same version compose.ui depends on. See https://mvnrepository.com/artifact/org.jetbrains.compose.ui/ui
 ktor = "3.3.1"
 voyager = "1.0.1"
 kotlinx-io = "0.8.0"
