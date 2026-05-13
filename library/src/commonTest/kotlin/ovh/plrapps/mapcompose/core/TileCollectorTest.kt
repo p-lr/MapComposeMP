@@ -8,7 +8,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
-import org.jetbrains.skia.Bitmap
 import kotlin.test.Test
 import kotlin.test.assertTrue
 

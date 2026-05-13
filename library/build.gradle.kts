@@ -60,7 +60,8 @@ kotlin {
     
     sourceSets {
         val desktopMain by getting
-        
+        val wasmJsMain by getting
+
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.androidx.activity.compose)
@@ -73,14 +74,17 @@ kotlin {
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)
             implementation(libs.kotlinx.coroutines)
-            implementation(libs.skia)
             api(libs.kotlinx.io.core)
         }
         desktopMain.dependencies {
             implementation(compose.desktop.currentOs)
+            implementation(libs.skiko)
         }
         iosMain.dependencies {
-
+            implementation(libs.skiko)
+        }
+        wasmJsMain.dependencies {
+            implementation(libs.skiko)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
