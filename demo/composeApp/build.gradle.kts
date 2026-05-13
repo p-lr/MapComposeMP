@@ -6,7 +6,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidApplication)
+    alias(libs.plugins.androidKotlinMultiplatform)
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
 }
@@ -16,14 +16,13 @@ kotlin {
         compilations.configureEach {
             compileTaskProvider.get().compilerOptions {
                 freeCompilerArgs.addAll(
-                    "-Xjvm-default=all-compatibility",
-                    "-Xopt-in=androidx.compose.material.ExperimentalMaterialApi",
-                    "-Xopt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-                    "-Xopt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-                    "-Xopt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-                    "-Xopt-in=kotlinx.coroutines.FlowPreview",
-                    "-Xopt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-                    "-Xopt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
+                    "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
+                    "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+                    "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+                    "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+                    "-opt-in=kotlinx.coroutines.FlowPreview",
+                    "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+                    "-opt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
                     "-Xannotation-default-target=param-property",
                     "-Xcontext-parameters"
                 )
@@ -31,15 +30,20 @@ kotlin {
         }
     }
 
-    androidTarget {
+    android {
+        namespace = "ovh.plrapps.mapcomposemp.demo"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+            freeCompilerArgs.add("-jvm-default=enable")
         }
     }
-    
+
     jvm("desktop") {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+            freeCompilerArgs.add("-jvm-default=enable")
         }
     }
 
@@ -53,10 +57,10 @@ kotlin {
             isStatic = true
         }
     }
-    
+
     sourceSets {
         val desktopMain by getting
-        
+
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.androidx.activity.compose)
@@ -64,6 +68,7 @@ kotlin {
             implementation(libs.androidx.navigation)
             implementation(libs.ktor.client.android)
         }
+        @Suppress("DEPRECATION")
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -89,40 +94,6 @@ kotlin {
     }
 }
 
-android {
-    namespace = "ovh.plrapps.mapcomposemp.demo"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
-
-    sourceSets["main"].apply {
-        assets.srcDirs("src/commonMain/composeResources")
-    }
-
-    defaultConfig {
-        applicationId = "ovh.plrapps.mapcomposemp.demo"
-        minSdk = libs.versions.android.minSdk.get().toInt()
-        targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "1.0"
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-    buildTypes {
-        getByName("release") {
-            isMinifyEnabled = false
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    dependencies {
-        debugImplementation(libs.compose.ui.tooling)
-    }
-}
-
 compose.desktop {
     application {
         mainClass = "MainKt"
@@ -141,4 +112,4 @@ compose.resources {
     generateResClass = auto
 }
 
-task("testClasses")
+tasks.register("testClasses")

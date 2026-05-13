@@ -22,4 +22,5 @@ dependencyResolutionManagement {
 }
 
 include(":demo:composeApp")
+include(":demo:androidApp")
 include(":library")

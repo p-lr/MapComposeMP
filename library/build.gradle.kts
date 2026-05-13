@@ -1,11 +1,12 @@
-@file:OptIn(ExperimentalKotlinGradlePluginApi::class)
+@file:OptIn(ExperimentalKotlinGradlePluginApi::class, ExperimentalWasmDsl::class)
 
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
-    alias(libs.plugins.androidLibrary)
+    alias(libs.plugins.androidKotlinMultiplatform)
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.vanniktechPublish)
@@ -16,11 +17,10 @@ kotlin {
         compilations.configureEach {
             compileTaskProvider.get().compilerOptions {
                 freeCompilerArgs.addAll(
-                    "-Xjvm-default=all-compatibility",
                     "-Xexpect-actual-classes",
-                    "-Xopt-in=kotlinx.coroutines.FlowPreview",
-                    "-Xopt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-                    "-Xopt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
+                    "-opt-in=kotlinx.coroutines.FlowPreview",
+                    "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+                    "-opt-in=kotlinx.coroutines.ExperimentalForInheritanceCoroutinesApi",
                     "-Xannotation-default-target=param-property",
                     "-Xcontext-parameters",
                 )
@@ -28,16 +28,21 @@ kotlin {
         }
     }
 
-    androidTarget {
+    android {
+        namespace = "ovh.plrapps.mapcomposemp"
+        compileSdk = libs.versions.android.compileSdk.get().toInt()
+        minSdk = libs.versions.android.minSdk.get().toInt()
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+            freeCompilerArgs.add("-jvm-default=enable")
         }
-        publishLibraryVariants("release")
+        withHostTest {}
     }
-    
+
     jvm("desktop") {
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_11)
+            freeCompilerArgs.add("-jvm-default=enable")
         }
     }
 
@@ -57,15 +62,17 @@ kotlin {
         nodejs()
         d8()
     }
-    
+
     sourceSets {
         val desktopMain by getting
         val wasmJsMain by getting
 
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
+            implementation(libs.compose.ui.tooling)
             implementation(libs.androidx.activity.compose)
         }
+        @Suppress("DEPRECATION")
         commonMain.dependencies {
             implementation(compose.runtime)
             implementation(compose.foundation)
@@ -93,33 +100,9 @@ kotlin {
     }
 }
 
-android {
-    namespace = "ovh.plrapps.mapcomposemp"
-    compileSdk = libs.versions.android.compileSdk.get().toInt()
 
-    defaultConfig {
-        minSdk = libs.versions.android.minSdk.get().toInt()
-    }
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-    buildTypes {
-        getByName("release") {
-            isMinifyEnabled = false
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-    }
-    dependencies {
-        debugImplementation(libs.compose.ui.tooling)
-    }
-}
-
-task("testClasses")
+tasks.register("testClasses")
+tasks.register("testDebugUnitTest") { dependsOn("testAndroid") }
 
 ext["signing.keyId"] = System.getenv("signingKeyId")
 ext["signing.password"] = System.getenv("signingPwd")
@@ -156,4 +139,3 @@ mavenPublishing {
         }
     }
 }
-

@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.core.TileStreamProvider
 fun makeResTileStreamProvider(appContext: Context): TileStreamProvider {
     return TileStreamProvider { row, col, zoomLvl ->
         runCatching {
-            appContext.assets?.open("files/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg")
+            appContext.assets?.open("composeResources/ovh.plrapps.mapcomposemp.demo/files/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg")
         }.getOrNull()?.asSource()
     }
 }
