@@ -17,7 +17,10 @@ import ovh.plrapps.mapcompose.demo.ui.MainDestinations
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.app_name
 
-expect object HomeScreen : Screen
+expect object HomeScreen : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 @OptIn(ExperimentalResourceApi::class, ExperimentalMaterial3Api::class)

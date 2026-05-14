@@ -8,7 +8,7 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 
 actual object LayersDemoSimple : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { LayersVM() }
 
         MapWithZoomControl(state = screenModel.state) {

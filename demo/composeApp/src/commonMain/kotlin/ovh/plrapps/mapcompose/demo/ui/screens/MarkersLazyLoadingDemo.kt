@@ -6,7 +6,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersLazyLoadingVM
 import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object MarkersLazyLoadingDemo : Screen
+expect object MarkersLazyLoadingDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun MarkersLazyLoadingCommonUi(screenModel: MarkersLazyLoadingVM) {

@@ -6,7 +6,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersClusteringVM
 import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object MarkersClusteringDemo : Screen
+expect object MarkersClusteringDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun MarkersClusteringCommonUi(screenModel: MarkersClusteringVM) {

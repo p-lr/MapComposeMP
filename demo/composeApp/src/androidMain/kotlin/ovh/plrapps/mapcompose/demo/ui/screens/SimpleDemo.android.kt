@@ -9,7 +9,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.makeResTileStreamProvider
 
 actual object MapDemoSimple : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val appContext = LocalContext.current.applicationContext
         val screenModel = rememberScreenModel {
             /* For best performance, use a platform specific impl which return streams of tiles

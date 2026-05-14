@@ -72,14 +72,10 @@ kotlin {
             implementation(libs.compose.ui.tooling)
             implementation(libs.androidx.activity.compose)
         }
-        @Suppress("DEPRECATION")
         commonMain.dependencies {
-            implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material)
-            implementation(compose.ui)
-            implementation(compose.components.resources)
-            implementation(compose.components.uiToolingPreview)
+            implementation(libs.jetbrains.compose.runtime)
+            implementation(libs.jetbrains.compose.foundation)
+            implementation(libs.jetbrains.compose.ui)
             implementation(libs.kotlinx.coroutines)
             api(libs.kotlinx.io.core)
         }

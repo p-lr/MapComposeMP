@@ -34,7 +34,10 @@ import ovh.plrapps.mapcompose.api.setVisibleAreaPadding
 import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object VisibleAreaPaddingDemo : Screen
+expect object VisibleAreaPaddingDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {

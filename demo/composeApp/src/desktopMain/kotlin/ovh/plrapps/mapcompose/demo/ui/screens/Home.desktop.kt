@@ -7,7 +7,7 @@ import cafe.adriel.voyager.navigator.currentOrThrow
 
 actual object HomeScreen : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val navigator = LocalNavigator.currentOrThrow
 
         HomeScreenCommonUi(

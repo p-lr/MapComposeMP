@@ -11,7 +11,7 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
  */
 actual object CustomDraw : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { CustomDrawVM() }
 
         MapWithZoomControl(state = screenModel.state) {

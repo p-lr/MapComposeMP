@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 
 actual object PathsDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { PathsVM() }
 
         PathsCommonUi(screenModel)

@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.HttpTilesVM
 
 actual object HttpTilesDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { HttpTilesVM() }
 
         HttpTilesCommonUi(screenModel)

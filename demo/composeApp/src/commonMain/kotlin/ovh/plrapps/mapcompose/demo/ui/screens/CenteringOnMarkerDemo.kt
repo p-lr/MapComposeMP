@@ -13,7 +13,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CenteringOnMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
-expect object CenteringOnMarkerDemo : Screen
+expect object CenteringOnMarkerDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun CenteringOnMarkerCommonUi(screenModel: CenteringOnMarkerVM) {

@@ -11,7 +11,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.AddingMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
-expect object AddingMarkerDemo : Screen
+expect object AddingMarkerDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun AddingMarkerCommonUi(screenModel: AddingMarkerVM) {

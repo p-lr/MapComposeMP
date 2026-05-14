@@ -6,7 +6,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
-expect object MapDemoSimple : Screen
+expect object MapDemoSimple : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun MapSimpleCommonUi(screenModel: SimpleDemoVM) {

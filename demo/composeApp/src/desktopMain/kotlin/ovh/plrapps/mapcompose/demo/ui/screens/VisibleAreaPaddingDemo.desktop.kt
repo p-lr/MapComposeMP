@@ -8,7 +8,7 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 
 actual object VisibleAreaPaddingDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { VisibleAreaPaddingVM() }
 
         MapWithZoomControl(state = screenModel.state) {

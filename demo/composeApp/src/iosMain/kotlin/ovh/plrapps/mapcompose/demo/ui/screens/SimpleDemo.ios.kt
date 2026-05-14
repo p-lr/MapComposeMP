@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM
 
 actual object MapDemoSimple : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { SimpleDemoVM() }
 
         MapSimpleCommonUi(screenModel)

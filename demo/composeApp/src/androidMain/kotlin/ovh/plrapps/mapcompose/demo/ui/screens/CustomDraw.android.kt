@@ -10,7 +10,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CustomDrawVM
  */
 actual object CustomDraw : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { CustomDrawVM() }
 
         CustomDrawCommonUi(screenModel)

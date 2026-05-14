@@ -14,7 +14,10 @@ import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
 
-expect object AnimationDemo : Screen
+expect object AnimationDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun AnimationCommonUi(screenModel: AnimationDemoVM) {

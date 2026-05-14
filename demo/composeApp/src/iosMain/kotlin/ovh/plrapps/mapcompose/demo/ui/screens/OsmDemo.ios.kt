@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.OsmVM
 
 actual object OsmDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { OsmVM() }
 
         OsmCommonUi(screenModel)

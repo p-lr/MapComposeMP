@@ -34,7 +34,10 @@ import cafe.adriel.voyager.core.screen.Screen
 /**
  * This demo shows how to embed custom drawings inside [MapUI].
  */
-expect object CustomDraw : Screen
+expect object CustomDraw : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun CustomDrawCommonUi(screenModel: CustomDrawVM) {

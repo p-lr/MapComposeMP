@@ -10,7 +10,7 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import cafe.adriel.voyager.navigator.CurrentScreen
 import cafe.adriel.voyager.navigator.Navigator
-import org.jetbrains.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.Preview
 import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreen
 import ovh.plrapps.mapcompose.demo.ui.screens.MapDemoSimple
 

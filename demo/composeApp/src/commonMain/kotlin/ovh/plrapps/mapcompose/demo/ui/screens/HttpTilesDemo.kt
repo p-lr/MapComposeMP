@@ -6,7 +6,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.HttpTilesVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
-expect object HttpTilesDemo : Screen
+expect object HttpTilesDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun HttpTilesCommonUi(screenModel: HttpTilesVM) {

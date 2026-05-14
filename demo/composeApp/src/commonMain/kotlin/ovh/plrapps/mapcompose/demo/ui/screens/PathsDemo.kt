@@ -6,7 +6,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 import ovh.plrapps.mapcompose.ui.MapUI
 import cafe.adriel.voyager.core.screen.Screen
 
-expect object PathsDemo : Screen
+expect object PathsDemo : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun PathsCommonUi(screenModel: PathsVM) {

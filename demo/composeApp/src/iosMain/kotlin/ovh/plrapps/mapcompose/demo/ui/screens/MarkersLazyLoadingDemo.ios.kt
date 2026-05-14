@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersLazyLoadingVM
 
 actual object MarkersLazyLoadingDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { MarkersLazyLoadingVM() }
 
         MarkersLazyLoadingCommonUi(screenModel)

@@ -11,7 +11,10 @@ import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object LayersDemoSimple : Screen
+expect object LayersDemoSimple : Screen {
+    @Composable
+    override fun Content()
+}
 
 @Composable
 fun LayersCommonUi(screenModel: LayersVM) {

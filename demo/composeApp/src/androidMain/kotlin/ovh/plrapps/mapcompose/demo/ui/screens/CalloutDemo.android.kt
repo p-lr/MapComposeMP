@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CalloutVM
 
 actual object CalloutDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { CalloutVM() }
 
         CalloutCommonUi(screenModel)

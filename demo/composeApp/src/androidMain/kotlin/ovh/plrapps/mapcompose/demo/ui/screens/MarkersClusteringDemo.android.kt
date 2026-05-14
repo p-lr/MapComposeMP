@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersClusteringVM
 
 actual object MarkersClusteringDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { MarkersClusteringVM() }
 
         MarkersClusteringCommonUi(screenModel)

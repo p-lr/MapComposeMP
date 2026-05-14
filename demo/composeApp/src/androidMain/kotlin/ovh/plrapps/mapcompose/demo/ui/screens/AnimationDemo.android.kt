@@ -7,7 +7,7 @@ import ovh.plrapps.mapcompose.demo.viewmodels.AnimationDemoVM
 
 actual object AnimationDemo : Screen {
     @Composable
-    override fun Content() {
+    actual override fun Content() {
         val screenModel = rememberScreenModel { AnimationDemoVM() }
 
         AnimationCommonUi(screenModel)
