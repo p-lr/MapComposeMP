@@ -1,28 +1,31 @@
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Scaffold
-import androidx.compose.material.Text
-import androidx.compose.material.TopAppBar
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.window.ComposeUIViewController
 import cafe.adriel.voyager.navigator.CurrentScreen
 import cafe.adriel.voyager.navigator.Navigator
-import org.jetbrains.compose.ui.tooling.preview.Preview
 import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreen
 
 @Composable
-@Preview
+@OptIn(ExperimentalMaterial3Api::class)
 fun iOSApp() {
     MaterialTheme {
         Navigator(HomeScreen) { navigator ->
             Scaffold(
                 topBar = {
                     if (navigator.lastItem != HomeScreen) {
-                        TopAppBar {
-                            Button(onClick = { navigator.pop() }) {
-                                Text("Back")
+                        TopAppBar(
+                            title = {},
+                            navigationIcon = {
+                                Button(onClick = { navigator.pop() }) {
+                                    Text("Back")
+                                }
                             }
-                        }
+                        )
                     }
                 },
                 content = { CurrentScreen() },
