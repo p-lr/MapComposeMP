@@ -113,7 +113,8 @@ internal class TileCanvasState(
         /* This is very important to null a tile's bitmap on the main thread because this ensures
          * that on the next composition the bitmap won't be accessed.
          * In the future, if the Compose framework does multi-threaded rendering, another technique
-         * will have to be used. */
+         * will have to be used. Or, consider not using Bitmap.recycle() at all since it seems
+         * not necessary for hardware bitmaps. */
         scope.launch(Dispatchers.Main) {
             for (t in recycleChannel) {
                 t.performRecycle()
