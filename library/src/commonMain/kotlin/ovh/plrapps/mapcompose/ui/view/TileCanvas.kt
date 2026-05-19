@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -16,8 +17,11 @@ import ovh.plrapps.mapcompose.core.ColorFilterProvider
 import ovh.plrapps.mapcompose.core.Tile
 import ovh.plrapps.mapcompose.core.VisibleTilesResolver
 import ovh.plrapps.mapcompose.ui.layout.grid
+import ovh.plrapps.mapcompose.ui.state.Rollover
+import ovh.plrapps.mapcompose.ui.state.RolloverData
 import ovh.plrapps.mapcompose.ui.state.ZoomPanRotateState
 import kotlin.math.ceil
+import kotlin.time.TimeSource
 
 
 @Composable
@@ -63,6 +67,7 @@ internal fun TileCanvas(
             scale(scale = zoomPRState.scale.toFloat(), Offset.Zero)
         }) {
             updateFilterBitmap(paint, isFilteringBitmap)
+            val rolloverX = zoomPRState.rolloverX.value
 
             for (tile in tilesToRender) {
                 if (tile.markedForSweep) continue
@@ -70,15 +75,33 @@ internal fun TileCanvas(
                 val scaleForLevel = visibleTilesResolver.getScaleForLevel(tile.zoom)
                     ?: continue
                 val tileScaled = (tileSize / scaleForLevel).toInt()
-                val l = tile.col * tileScaled
-                val t = tile.row * tileScaled
+                val phases = tile.phases.applyRolloverX(rolloverX, tile.timeMark)
 
-                val colorFilter = colorFilterProvider?.getColorFilter(tile.row, tile.col, tile.zoom)
-
-                setTilePaintProperties(paint, alpha = (tile.alpha * 255).toInt(), colorFilter)
-
-                drawIntoCanvas {
-                    drawTileIntoCanvas(it, bitmap, paint, l, t, tileScaled, x0, y0)
+                if (phases == null) {
+                    drawTile(
+                        tile = tile,
+                        tileScaled = tileScaled,
+                        phi = 0,
+                        x0 = x0,
+                        y0 = y0,
+                        colorFilterProvider = colorFilterProvider,
+                        paint = paint,
+                        bitmap = bitmap,
+                    )
+                } else {
+                    val colCount = visibleTilesResolver.getColCountForLevel(tile.zoom) ?: continue
+                    for (i in phases) {
+                        drawTile(
+                            tile = tile,
+                            tileScaled = tileScaled,
+                            phi = i * colCount,
+                            x0 = x0,
+                            y0 = y0,
+                            colorFilterProvider = colorFilterProvider,
+                            paint = paint,
+                            bitmap = bitmap,
+                        )
+                    }
                 }
 
                 /* If a tile isn't fully opaque, increase its alpha state by the alpha tick */
@@ -90,6 +113,67 @@ internal fun TileCanvas(
                 }
             }
         }
+    }
+}
+
+private fun DrawScope.drawTile(
+    tile: Tile,
+    tileScaled: Int,
+    phi: Int,
+    x0: Int,
+    y0: Int,
+    colorFilterProvider: ColorFilterProvider?,
+    paint: PaintPlatform,
+    bitmap: ImageBitmap,
+) {
+    val l = tile.col * tileScaled + phi * tileScaled
+    val t = tile.row * tileScaled
+
+    val colorFilter = colorFilterProvider?.getColorFilter(tile.row, tile.col, tile.zoom)
+
+    setTilePaintProperties(paint, alpha = (tile.alpha * 255).toInt(), colorFilter)
+
+    drawIntoCanvas {
+        drawTileIntoCanvas(it, bitmap, paint, l, t, tileScaled, x0, y0)
+    }
+}
+
+private fun IntRange?.applyRolloverX(rolloverData: RolloverData?, timeMark: TimeSource.Monotonic.ValueTimeMark?): IntRange? {
+    return if (rolloverData == null || timeMark == null) {
+        this
+    } else {
+        val rollover = getAppliedRollover(rolloverData, timeMark) ?: return this
+        if (this == null) {
+            when (rollover) {
+                Rollover.Forward -> -1..0
+                Rollover.Backward -> 0..1
+                is Rollover.None -> null
+            }
+        } else {
+            when (rollover) {
+                Rollover.Forward -> IntRange(first - 1, last)
+                Rollover.Backward -> IntRange(first, last + 1)
+                is Rollover.None -> this
+            }
+        }
+    }
+}
+
+/**
+ * Apply [Rollover.None] only when the tile originates from a snapshot made _after_ the rollover.
+ * Otherwise, when the tile originates from a snapshot made _before_ the rollover, the tile's phases
+ * should be applied either [Rollover.Forward] or [Rollover.Backward] (depending on the direction
+ * of the scroll).
+ */
+private fun getAppliedRollover(rolloverData: RolloverData, timeMark: TimeSource.Monotonic.ValueTimeMark): Rollover? {
+    return if (rolloverData.current is Rollover.None) {
+        if (timeMark > rolloverData.current.timeMark) {
+            rolloverData.current
+        } else {
+            rolloverData.previous
+        }
+    } else {
+        rolloverData.current
     }
 }
 
