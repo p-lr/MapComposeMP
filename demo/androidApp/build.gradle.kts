@@ -23,8 +23,8 @@ val copyComposeResources = tasks.register<Sync>("copyComposeResourcesToAssets") 
 val generatedComposeResources = layout.buildDirectory.dir("generated/composeResources").get().asFile
 
 android {
-    sourceSets["main"].assets.srcDir(generatedComposeResources)
-    namespace = "ovh.plrapps.mapcomposemp.demo"
+    sourceSets["main"].assets.directories.add(generatedComposeResources.absolutePath)
+    namespace = "ovh.plrapps.mapcomposemp.demo.android"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
 
     defaultConfig {
