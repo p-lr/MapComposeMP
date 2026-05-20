@@ -15,7 +15,7 @@ actual object MapDemoSimple : Screen {
             /* For best performance, use a platform specific impl which return streams of tiles
              * The difference can be seen when profiling memory usage from AS with low overhead,
              * when comparing with SimpleDemoVM() */
-            SimpleDemoVM(makeResTileStreamProvider(appContext))
+            SimpleDemoVM(makeResTileStreamProvider(appContext, "mont_blanc_layered"))
         }
 
         MapSimpleCommonUi(screenModel)

@@ -7,6 +7,7 @@ import ovh.plrapps.mapcompose.demo.ui.screens.CalloutDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.CenteringOnMarkerDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.CustomDraw
 import ovh.plrapps.mapcompose.demo.ui.screens.HttpTilesDemo
+import ovh.plrapps.mapcompose.demo.ui.screens.InfiniteScrollDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.LayersDemoSimple
 import ovh.plrapps.mapcompose.demo.ui.screens.MapDemoSimple
 import ovh.plrapps.mapcompose.demo.ui.screens.MarkersClusteringDemo
@@ -54,6 +55,10 @@ enum class MainDestinations() {
     ANIMATION_DEMO{
         override val title = "Animation demo"
         override val screen = AnimationDemo
+    },
+    INFINITE_SCROLL_DEMO{
+        override val title = "Infinite scroll demo"
+        override val screen = InfiniteScrollDemo
     },
     OSM_DEMO{
         override val title = "Open Street Map demo"
