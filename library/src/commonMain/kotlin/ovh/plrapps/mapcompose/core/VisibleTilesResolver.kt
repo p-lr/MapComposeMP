@@ -54,7 +54,6 @@ internal class VisibleTilesResolver(
 
     /**
      * Returns the level, an entire value belonging to [0 ; [levelCount] - 1]
-     * Internal for test purposes.
      */
     internal fun getLevel(scale: Double, magnifyingFactor: Int = 0): Int {
         /* This value can be negative */

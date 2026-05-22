@@ -446,6 +446,14 @@ val MapState.fullSize: IntSize
     get() = IntSize(zoomPanRotateState.fullWidth, zoomPanRotateState.fullHeight)
 
 /**
+ * Returns the level, an entire value belonging to [0 ; levelCount - 1], where `levelCount` is the
+ * count of levels passed at [MapState] constructor.
+ */
+fun MapState.getLevelAtScale(scale: Double): Int {
+    return visibleTilesResolver.getLevel(scale)
+}
+
+/**
  * Stops all currently running animations. If other animations are scheduled to run (inside running
  * coroutines), you might have to cancel those coroutines as well.
  */
