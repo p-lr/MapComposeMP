@@ -215,6 +215,21 @@ fun MapState.getPathData(id: String): PathData? {
 }
 
 /**
+ * Returns the path [BoundingBox].
+ * A typical use case is to then invoke scrollTo api which takes a [BoundingBox] as input.
+ */
+fun MapState.getPathBoundingBox(id: String): BoundingBox? {
+    return pathState.pathState[id]?.pathData?.let {
+        BoundingBox(
+            xLeft = it.boundingBox.first.x,
+            yTop = it.boundingBox.first.y,
+            xRight = it.boundingBox.second.x,
+            yBottom = it.boundingBox.second.y
+        )
+    }
+}
+
+/**
  * Loops on all paths and snapshots each path properties.
  * Useful to loop and update paths depending on their properties.
  */
