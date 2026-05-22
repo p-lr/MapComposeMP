@@ -8,21 +8,44 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import ovh.plrapps.mapcompose.api.*
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ovh.plrapps.mapcompose.api.BoundingBox
+import ovh.plrapps.mapcompose.api.ClusterScaleThreshold
+import ovh.plrapps.mapcompose.api.MarkerDataSnapshot
+import ovh.plrapps.mapcompose.api.VisibleArea
+import ovh.plrapps.mapcompose.api.fullSize
+import ovh.plrapps.mapcompose.api.maxScale
+import ovh.plrapps.mapcompose.api.referentialSnapshotFlow
+import ovh.plrapps.mapcompose.api.scrollTo
+import ovh.plrapps.mapcompose.api.visibleArea
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.ui.state.markers.MarkerRenderState
-import ovh.plrapps.mapcompose.ui.state.markers.model.*
 import ovh.plrapps.mapcompose.ui.state.markers.model.ClusterClickBehavior
+import ovh.plrapps.mapcompose.ui.state.markers.model.ClusterInfo
 import ovh.plrapps.mapcompose.ui.state.markers.model.Custom
 import ovh.plrapps.mapcompose.ui.state.markers.model.Default
+import ovh.plrapps.mapcompose.ui.state.markers.model.MarkerData
+import ovh.plrapps.mapcompose.ui.state.markers.model.MarkerType
 import ovh.plrapps.mapcompose.ui.state.markers.model.None
+import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
 import ovh.plrapps.mapcompose.utils.contains
 import ovh.plrapps.mapcompose.utils.map
 import ovh.plrapps.mapcompose.utils.throttle
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.absoluteValue
+import kotlin.math.ceil
+import kotlin.math.ln
+import kotlin.math.pow
+import kotlin.math.sqrt
 
 internal class Clusterer(
     val id: String,
@@ -527,5 +550,23 @@ private data class Cluster(
     val y: Double,
     val markers: List<Marker>
 ) : Placeable {
-    val id = clusterIdPrefix + markers.map { it.id }.sorted()
+    val id = buildString {
+        append(clusterIdPrefix)
+
+        /* Now we produce a hash based on the ids of the markers, and this hash *does not* depend
+         * on the order of the markers. */
+        val hashes = LongArray(markers.size)
+        for (i in markers.indices) {
+            hashes[i] = markers[i].id.hashCode().toLong()
+        }
+
+        hashes.sort()
+
+        var h = 0L
+        for (value in hashes) {
+            h = 31 * h + value
+        }
+
+        append(h.absoluteValue.toString(16))
+    }
 }
