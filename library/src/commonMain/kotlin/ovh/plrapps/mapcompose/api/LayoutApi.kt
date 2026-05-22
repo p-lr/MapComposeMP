@@ -602,6 +602,16 @@ internal val visibleAreaMutex = Mutex()
 internal var visibleArea: VisibleArea? = null
 
 /**
+ * Returns a flow which emits [MapState] whenever the viewport changes.
+ * It's a flow equivalent of [setStateChangeListener].
+ */
+fun MapState.viewportChangeFlow(): Flow<MapState> {
+    return snapshotFlow {
+        centroidX.hashCode() + centroidY.hashCode() + scale.hashCode() + rotation.hashCode()
+    }.map { this }
+}
+
+/**
  * The [MapState] is considered idle when its [centroidX] and [centroidY] haven't changed for at
  * least [thresholdMillis] which is 400ms by default.
  */
