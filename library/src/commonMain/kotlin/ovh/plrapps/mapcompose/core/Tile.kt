@@ -24,7 +24,8 @@ internal data class Tile(
     val opacities: List<Float>
 ) {
     @Volatile
-    var bitmap: ImageBitmap? = null
+    var bitmap: ImageBitmap? = null   // write on main-thread only
+
     var alpha: Float by mutableFloatStateOf(0f)
 
     @Volatile

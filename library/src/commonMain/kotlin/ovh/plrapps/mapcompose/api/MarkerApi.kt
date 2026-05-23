@@ -22,7 +22,10 @@ import ovh.plrapps.mapcompose.ui.state.markers.DragInterceptor
 import ovh.plrapps.mapcompose.ui.state.markers.DragStartListener
 import ovh.plrapps.mapcompose.ui.state.markers.model.MarkerData
 import ovh.plrapps.mapcompose.ui.state.markers.model.RenderingStrategy
-import ovh.plrapps.mapcompose.utils.*
+import ovh.plrapps.mapcompose.utils.AngleDegree
+import ovh.plrapps.mapcompose.utils.rotateX
+import ovh.plrapps.mapcompose.utils.rotateY
+import ovh.plrapps.mapcompose.utils.toRad
 import ovh.plrapps.mapcompose.utils.withRetry
 
 

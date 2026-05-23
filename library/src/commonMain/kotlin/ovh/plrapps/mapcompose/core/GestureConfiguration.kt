@@ -3,7 +3,7 @@ package ovh.plrapps.mapcompose.core
 
 /**
  * Configuration of various gestures.
- * Scroll fling friction is controlled by [ViewConfiguration.getScrollFriction].
+ * On Android, scroll fling friction is controlled by ViewConfiguration.getScrollFriction.
  */
 class GestureConfiguration {
     /**
