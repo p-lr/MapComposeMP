@@ -13,6 +13,16 @@ plugins {
 }
 
 kotlin {
+    applyDefaultHierarchyTemplate {
+        common {
+            group("skia") {
+                withIos()
+                withJvm()
+                withWasmJs()
+            }
+        }
+    }
+
     targets.configureEach {
         compilations.configureEach {
             compileTaskProvider.get().compilerOptions {
@@ -64,9 +74,6 @@ kotlin {
     }
 
     sourceSets {
-        val desktopMain by getting
-        val wasmJsMain by getting
-
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.ui.tooling)
@@ -79,15 +86,13 @@ kotlin {
             implementation(libs.kotlinx.coroutines)
             api(libs.kotlinx.io.core)
         }
-        desktopMain.dependencies {
+        named("skiaMain").configure {
+            dependencies {
+                implementation(libs.skiko)
+            }
+        }
+        getByName("desktopMain").dependencies {
             implementation(compose.desktop.currentOs)
-            implementation(libs.skiko)
-        }
-        iosMain.dependencies {
-            implementation(libs.skiko)
-        }
-        wasmJsMain.dependencies {
-            implementation(libs.skiko)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
