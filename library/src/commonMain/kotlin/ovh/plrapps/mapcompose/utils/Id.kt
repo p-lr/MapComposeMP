@@ -1,3 +1,5 @@
 package ovh.plrapps.mapcompose.utils
 
-expect fun generateId(): String
+import kotlin.uuid.Uuid
+
+fun generateId() = Uuid.random().toString()
