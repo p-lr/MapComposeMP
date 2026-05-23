@@ -52,7 +52,7 @@ import kotlin.math.pow
  * ```
  * This architecture is an example of Communicating Sequential Processes (CSP).
  *
- * @author p-lr on 22/06/19
+ * @since 22/06/19
  */
 internal class TileCollector(
     private val workerCount: Int,
@@ -108,7 +108,7 @@ internal class TileCollector(
             }
 
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
-            val bitmapForLayers = layers.mapIndexed { index, layer ->
+            val bitmapForLayers = layers.map { layer ->
                 async {
                     val source = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
                     BitmapForLayer(source?.buffered(), layer)
@@ -206,7 +206,5 @@ internal class TileCollector(
 
     private val workerDispatcher = IODispatcher.limitedParallelism(workerCount)
 }
-
-internal data class BitmapConfiguration(val highFidelityColors: Boolean, val bytesPerPixel: Int)
 
 private class BitmapForLayer(val source: Source?, val layer: Layer)
