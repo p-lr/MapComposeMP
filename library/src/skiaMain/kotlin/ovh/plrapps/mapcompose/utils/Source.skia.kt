@@ -19,19 +19,25 @@ actual fun Source.decodeFirstLayer(
     hasLayers: Boolean,
     optimizeForLowEndDevices: Boolean,
     subSamplingRatio: Int
-): ImageBitmap? = decodeImage(this.readByteArray(), subSamplingRatio)
+): ImageBitmap? {
+    return decodeImage(this.readByteArray(), subSamplingRatio)
+}
 
 actual fun Source.decodeOverlay(
     previousLayer: ImageBitmap?,
     tileSize: Int,
     optimizeForLowEndDevices: Boolean,
     subSamplingRatio: Int
-): ImageBitmap? = decodeImage(this.readByteArray(), subSamplingRatio)
+): ImageBitmap? {
+    return decodeImage(this.readByteArray(), subSamplingRatio)
+}
 
 actual fun processFinalImage(
     currentImage: ImageBitmap,
     previousLayer: ImageBitmap?
-): ImageBitmap = currentImage
+): ImageBitmap {
+    return currentImage
+}
 
 private fun decodeImage(bytes: ByteArray, subSamplingRatio: Int): ImageBitmap? {
     if (subSamplingRatio <= 1) return decodeFull(bytes)

@@ -8,8 +8,12 @@ import androidx.compose.ui.graphics.asSkiaColorFilter
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import org.jetbrains.skia.Paint
+import org.jetbrains.skia.SamplingMode
 
-actual class PaintPlatform(val paint: Paint)
+actual class PaintPlatform(
+    val paint: Paint,
+    var samplingMode: SamplingMode = SamplingMode.LINEAR
+)
 
 actual fun makePaintPlatform(): PaintPlatform {
     return PaintPlatform(
@@ -18,7 +22,8 @@ actual fun makePaintPlatform(): PaintPlatform {
 }
 
 actual fun updateFilterBitmap(paintPlatform: PaintPlatform, isFilteringBitmap: () -> Boolean) {
-    // No-op : this feature isn't implemented by skiko
+    paintPlatform.samplingMode =
+        if (isFilteringBitmap()) SamplingMode.LINEAR else SamplingMode.DEFAULT
 }
 
 actual fun setTilePaintProperties(
