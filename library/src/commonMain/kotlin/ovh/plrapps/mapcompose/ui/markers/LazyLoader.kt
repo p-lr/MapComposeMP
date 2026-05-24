@@ -2,9 +2,13 @@ package ovh.plrapps.mapcompose.ui.markers
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ovh.plrapps.mapcompose.api.referentialSnapshotFlow
 import ovh.plrapps.mapcompose.api.visibleArea
 import ovh.plrapps.mapcompose.ui.state.MapState

@@ -11,8 +11,7 @@ import kotlinx.io.RawSource
  * already. The [getTileStream] method is declared using the suspend modifier, as it is sometimes
  * useful to provide an implementation which suspends.
  *
- * MapCompose leverages bitmap pooling to reduce the pressure on the garbage collector. However,
- * there's no tile caching by default - this is an implementation detail of the supplied
+ * There's no tile caching by default - this is an implementation detail of the supplied
  * [TileStreamProvider].
  *
  * If [getTileStream] returns null, the tile won't be rendered.
