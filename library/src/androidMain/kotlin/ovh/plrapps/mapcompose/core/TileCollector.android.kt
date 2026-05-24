@@ -64,11 +64,11 @@ internal actual fun Source.decodeOverlay(
 
 internal actual fun processFinalImage(currentImage: ImageBitmap, previousLayer: ImageBitmap?): ImageBitmap {
     return if (canUseHardwareBitmaps()) {
+        previousLayer?.asAndroidBitmap()?.recycle()
         val bitmap = currentImage.asAndroidBitmap()
         bitmap.copy(Config.HARDWARE, false).asImageBitmap().also {
             /* Since we copied to hardware bitmap, be can recycle */
             bitmap.recycle()
-            previousLayer?.asAndroidBitmap()?.recycle()
         }
     } else currentImage
 }
