@@ -137,10 +137,8 @@ private fun invokeDragInterceptor(
     val dx = rotateX(deltaPx.x.toDouble(), deltaPx.y.toDouble(), angle)
     val dy = rotateY(deltaPx.x.toDouble(), deltaPx.y.toDouble(), angle)
 
-    val deltaX =
-        (data.x + dx / (zoomPRState.fullWidth * zoomPRState.scale)).coerceIn(0.0, 1.0) - data.x
-    val deltaY =
-        (data.y + dy / (zoomPRState.fullHeight * zoomPRState.scale)).coerceIn(0.0, 1.0) - data.y
+    val deltaX = dx / (zoomPRState.fullWidth * zoomPRState.scale)
+    val deltaY = dy / (zoomPRState.fullHeight * zoomPRState.scale)
 
     /* Compute the pointer offset */
     val origin = Offset(- data.measuredWidth * data.relativeOffset.x, - data.measuredHeight * data.relativeOffset.y)
@@ -153,15 +151,13 @@ private fun invokeDragInterceptor(
     val px = data.x + pointerOffsetRotated.x.toDouble() / (zoomPRState.fullWidth * zoomPRState.scale)
     val py = data.y + pointerOffsetRotated.y.toDouble() / (zoomPRState.fullHeight * zoomPRState.scale)
 
-    with(data) {
-        dragInterceptor?.onMove(
-            id = data.id,
-            x = data.x,
-            y = data.y,
-            dx = deltaX,
-            dy = deltaY,
-            px = if (data.isConstrainedInBounds) px.coerceIn(0.0, 1.0) else px,
-            py = if (data.isConstrainedInBounds) py.coerceIn(0.0, 1.0) else py
-        )
-    }
+    data.dragInterceptor?.onMove(
+        id = data.id,
+        x = data.x,
+        y = data.y,
+        dx = deltaX,
+        dy = deltaY,
+        px = if (data.isConstrainedInBounds) px.coerceIn(0.0, 1.0) else px,
+        py = if (data.isConstrainedInBounds) py.coerceIn(0.0, 1.0) else py
+    )
 }
