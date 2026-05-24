@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.utils
+package ovh.plrapps.mapcompose.core
 
 import android.graphics.Bitmap.Config
 import android.graphics.BitmapFactory
@@ -9,15 +9,22 @@ import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.io.Source
 import kotlinx.io.asInputStream
 
+internal actual fun makeWorkerData() = WorkerData()
 
-actual fun Source.decodeFirstLayer(
+internal actual class WorkerData {
+    val bitmapOptions = BitmapFactory.Options()
+}
+
+internal actual fun Source.decodeFirstLayer(
     hasLayers: Boolean,
     optimizeForLowEndDevices: Boolean,
-    subSamplingRatio: Int
+    subSamplingRatio: Int,
+    workerData: WorkerData
 ): ImageBitmap? {
-    val bitmapOptions = BitmapFactory.Options()
+    val bitmapOptions = workerData.bitmapOptions
+    bitmapOptions.inBitmap = null
     bitmapOptions.inSampleSize = subSamplingRatio
-    if (hasLayers) {
+    if (hasLayers || !canUseHardwareBitmaps()) {
         bitmapOptions.inMutable = true
         bitmapOptions.inPreferredConfig = if (optimizeForLowEndDevices) {
             Config.RGB_565
@@ -25,16 +32,8 @@ actual fun Source.decodeFirstLayer(
             Config.ARGB_8888
         }
     } else {
-        if (canUseHardwareBitmaps()) {
-            bitmapOptions.inPreferredConfig = Config.HARDWARE
-        } else {
-            bitmapOptions.inMutable = true
-            bitmapOptions.inPreferredConfig = if (optimizeForLowEndDevices) {
-                Config.RGB_565
-            } else {
-                Config.ARGB_8888
-            }
-        }
+        bitmapOptions.inMutable = false
+        bitmapOptions.inPreferredConfig = Config.HARDWARE
     }
 
     return runCatching {
@@ -42,13 +41,14 @@ actual fun Source.decodeFirstLayer(
     }.getOrNull()?.asImageBitmap()
 }
 
-actual fun Source.decodeOverlay(
+internal actual fun Source.decodeOverlay(
     previousLayer: ImageBitmap?,
     tileSize: Int,
     optimizeForLowEndDevices: Boolean,
-    subSamplingRatio: Int
+    subSamplingRatio: Int,
+    workerData: WorkerData
 ): ImageBitmap? {
-    val bitmapOptions = BitmapFactory.Options()
+    val bitmapOptions = workerData.bitmapOptions
     bitmapOptions.inSampleSize = subSamplingRatio
     bitmapOptions.inBitmap = previousLayer?.asAndroidBitmap()
     bitmapOptions.inMutable = true
@@ -62,7 +62,7 @@ actual fun Source.decodeOverlay(
     }.getOrNull()?.asImageBitmap()
 }
 
-actual fun processFinalImage(currentImage: ImageBitmap, previousLayer: ImageBitmap?): ImageBitmap {
+internal actual fun processFinalImage(currentImage: ImageBitmap, previousLayer: ImageBitmap?): ImageBitmap {
     return if (canUseHardwareBitmaps()) {
         val bitmap = currentImage.asAndroidBitmap()
         bitmap.copy(Config.HARDWARE, false).asImageBitmap().also {

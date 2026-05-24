@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.utils
+package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
@@ -15,24 +15,30 @@ import org.jetbrains.skia.Rect
 import org.jetbrains.skia.SamplingMode
 import org.jetbrains.skia.Surface
 
-actual fun Source.decodeFirstLayer(
+internal actual fun makeWorkerData() = WorkerData
+
+internal actual data object WorkerData
+
+internal actual fun Source.decodeFirstLayer(
     hasLayers: Boolean,
     optimizeForLowEndDevices: Boolean,
-    subSamplingRatio: Int
+    subSamplingRatio: Int,
+    workerData: WorkerData
 ): ImageBitmap? {
     return decodeImage(this.readByteArray(), subSamplingRatio)
 }
 
-actual fun Source.decodeOverlay(
+internal actual fun Source.decodeOverlay(
     previousLayer: ImageBitmap?,
     tileSize: Int,
     optimizeForLowEndDevices: Boolean,
-    subSamplingRatio: Int
+    subSamplingRatio: Int,
+    workerData: WorkerData
 ): ImageBitmap? {
     return decodeImage(this.readByteArray(), subSamplingRatio)
 }
 
-actual fun processFinalImage(
+internal actual fun processFinalImage(
     currentImage: ImageBitmap,
     previousLayer: ImageBitmap?
 ): ImageBitmap {

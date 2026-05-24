@@ -1,5 +1,3 @@
-@file:OptIn(ExperimentalCoroutinesApi::class)
-
 package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.geometry.Offset
@@ -8,7 +6,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -20,9 +17,6 @@ import kotlinx.coroutines.selects.select
 import kotlinx.io.Source
 import kotlinx.io.buffered
 import ovh.plrapps.mapcompose.utils.IODispatcher
-import ovh.plrapps.mapcompose.utils.decodeFirstLayer
-import ovh.plrapps.mapcompose.utils.decodeOverlay
-import ovh.plrapps.mapcompose.utils.processFinalImage
 import kotlin.concurrent.Volatile
 import kotlin.math.pow
 
@@ -100,6 +94,7 @@ internal class TileCollector(
 
         val layerIds = layers.map { it.id }
         val paint = Paint()
+        val workerData = makeWorkerData()
 
         for (spec in tilesToDownload) {
             if (layers.isEmpty()) {
@@ -118,7 +113,8 @@ internal class TileCollector(
             val firstLayerImage = bitmapForLayers.firstOrNull()?.source?.decodeFirstLayer(
                 hasLayers = layers.size > 1,
                 optimizeForLowEndDevices = optimizeForLowEndDevices,
-                subSamplingRatio = subSamplingRatio
+                subSamplingRatio = subSamplingRatio,
+                workerData = workerData
             ) ?: run {
                 tilesDownloaded.send(spec)
                 /* When the decoding failed or if there's nothing to decode, then send back the Tile
@@ -149,7 +145,8 @@ internal class TileCollector(
                         previousLayer = previousLayer,
                         tileSize = tileSize,
                         optimizeForLowEndDevices = optimizeForLowEndDevices,
-                        subSamplingRatio = subSamplingRatio
+                        subSamplingRatio = subSamplingRatio,
+                        workerData = workerData
                     ) ?: continue
                     canvas.drawImage(
                         image = previousLayer,
@@ -206,5 +203,28 @@ internal class TileCollector(
 
     private val workerDispatcher = IODispatcher.limitedParallelism(workerCount)
 }
+
+internal expect fun makeWorkerData(): WorkerData
+internal expect class WorkerData
+
+internal expect fun Source.decodeFirstLayer(
+    hasLayers: Boolean,
+    optimizeForLowEndDevices: Boolean,
+    subSamplingRatio: Int,
+    workerData: WorkerData
+): ImageBitmap?
+
+internal expect fun Source.decodeOverlay(
+    previousLayer: ImageBitmap?,
+    tileSize: Int,
+    optimizeForLowEndDevices: Boolean,
+    subSamplingRatio: Int,
+    workerData: WorkerData
+): ImageBitmap?
+
+internal expect fun processFinalImage(
+    currentImage: ImageBitmap,
+    previousLayer: ImageBitmap?
+): ImageBitmap
 
 private class BitmapForLayer(val source: Source?, val layer: Layer)
