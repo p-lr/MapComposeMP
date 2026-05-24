@@ -219,6 +219,10 @@ class PathData internal constructor(
         get() = data.size
 }
 
+/**
+ * This class isn't thread-safe.
+ * Public methods shouldn't be invoked concurrently.
+ */
 @Suppress("unused")
 class PathDataBuilder internal constructor(
     private val fullWidth: Int,
