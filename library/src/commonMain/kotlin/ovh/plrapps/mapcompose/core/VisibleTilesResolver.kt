@@ -221,10 +221,17 @@ internal class VisibleTilesResolver(
         }
     }
 
-    // internal for test purposes
+    /**
+     * The logic slightly differs from the android native lib because in the multiplatform version
+     * we need to be consistent with how non subsampled tiles are loaded: we load tiles from the
+     * next level to avoid blur effect. In the native lib, we subsample one level sooner.
+     * Even though this is hardly noticeable, it matters on desktop.
+     * Internal for test purposes.
+     */
     internal fun getSubSample(scale: Double): Int {
-        return if (scale < (scaleForLevel[0] ?: Double.MIN_VALUE)) {
-            ceil(ln((scaleForLevel[0] ?: error("")) / scale) / ln(2.0)).toInt()
+        val scaleOfLowestLevel = scaleForLevel[0] ?: return 0
+        return if (scale < scaleOfLowestLevel) {
+            floor(ln(scaleOfLowestLevel / scale) / ln(2.0)).toInt()
         } else {
             0
         }

@@ -48,10 +48,12 @@ class VisibleTilesResolverTest {
         )
 
         assertEquals(0, resolver.getSubSample(0.008))
-        assertEquals(1, resolver.getSubSample(0.0078)) // 0.0078 is the scale of level 0
+        assertEquals(0, resolver.getSubSample(0.0078)) // 0.0078 is the scale of level 0
+        /* Midway below the lowest level, the subsample is still 0 because we're using tile from next level, which is the lowest level */
+        assertEquals(0, resolver.getSubSample(1.0 / 2.0.pow(7.5)))
 
-        /* Outside of bounds: subsample should be at least 1 */
-        assertEquals(1, resolver.getSubSample(1.0 / 2.0.pow(7.5)))
+        /* For scales below or equal than 0.0078 / 2 the subsample should be at least 1 */
+        assertEquals(1, resolver.getSubSample(1.0 / 2.0.pow(8)))
         assertEquals(2, resolver.getSubSample(1.0 / 2.0.pow(9)))
         assertEquals(3, resolver.getSubSample(1.0 / 2.0.pow(10)))
     }
