@@ -4,12 +4,32 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CloseableCoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.*
-import ovh.plrapps.mapcompose.core.*
-import ovh.plrapps.mapcompose.utils.IODispatcher
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import ovh.plrapps.mapcompose.core.ColorFilterProvider
+import ovh.plrapps.mapcompose.core.Layer
+import ovh.plrapps.mapcompose.core.SpaceKey
+import ovh.plrapps.mapcompose.core.Tile
+import ovh.plrapps.mapcompose.core.TileCollector
+import ovh.plrapps.mapcompose.core.TileMatrix
+import ovh.plrapps.mapcompose.core.TileSpec
+import ovh.plrapps.mapcompose.core.Viewport
+import ovh.plrapps.mapcompose.core.VisibleTiles
+import ovh.plrapps.mapcompose.core.VisibleTilesResolver
+import ovh.plrapps.mapcompose.core.VisibleWindow
+import ovh.plrapps.mapcompose.core.debounce
+import ovh.plrapps.mapcompose.core.spaceKey
+import ovh.plrapps.mapcompose.core.throttle
 import kotlin.math.pow
 import kotlin.time.TimeSource
 
@@ -22,7 +42,7 @@ import kotlin.time.TimeSource
  * [MutableState]. A composable using [tilesToRender] will be automatically recomposed when this
  * list changes.
  *
- * @author P.Laurence on 04/06/2019
+ * @since 04/06/2019
  */
 internal class TileCanvasState(
     parentScope: CoroutineScope, tileSize: Int,
@@ -30,8 +50,8 @@ internal class TileCanvasState(
     workerCount: Int, highFidelityColors: Boolean
 ) {
 
-    /* This view-model uses a background thread for its computations */
-    private val singleThreadDispatcher = IODispatcher.limitedParallelism(1, "TileCanvasThread")
+    /* This view-model uses a dedicated background thread for its computations */
+    private val singleThreadDispatcher = tileCanvasDispatcher()
     private val scope = CoroutineScope(
         parentScope.coroutineContext + singleThreadDispatcher
     )
@@ -151,6 +171,7 @@ internal class TileCanvasState(
 
     fun shutdown() {
         scope.cancel()
+        singleThreadDispatcher.close()
     }
 
     suspend fun setViewport(viewport: Viewport) {
@@ -343,7 +364,7 @@ internal class TileCanvasState(
 
                     val minColAtLvl = curMinCol.minAtGreaterLevel(dLevel)
                     val maxColAtLvl = curMaxCol.maxAtGreaterLevel(dLevel)
-                    return tile.row in minRowAtLvl..maxRowAtLvl && tile.col in minColAtLvl..maxColAtLvl
+                    tile.row in minRowAtLvl..maxRowAtLvl && tile.col in minColAtLvl..maxColAtLvl
                 } else { // User is zooming in
                     val dLevel = level - tile.zoom
                     val minRowAtLvl = tile.row.minAtGreaterLevel(dLevel)
@@ -351,7 +372,7 @@ internal class TileCanvasState(
 
                     val minColAtLvl = tile.col.minAtGreaterLevel(dLevel)
                     val maxColAtLvl = tile.col.maxAtGreaterLevel(dLevel)
-                    return curMinCol <= maxColAtLvl && minColAtLvl <= curMaxCol && curMinRow <= maxRowAtLvl &&
+                    curMinCol <= maxColAtLvl && minColAtLvl <= curMaxCol && curMinRow <= maxRowAtLvl &&
                             minRowAtLvl <= curMaxRow
                 }
             }
@@ -495,15 +516,6 @@ internal class TileCanvasState(
         }
     }
 
-    private fun evictAll() = scope.launch {
-        val iterator = tilesCollected.iterator()
-        while (iterator.hasNext()) {
-            val tile = iterator.next()
-            iterator.remove()
-            tile.recycle()
-        }
-    }
-
     /**
      * Post a new value to the observable. The view should update its UI.
      */
@@ -551,3 +563,4 @@ internal class TileCanvasState(
 
 internal expect fun Tile.sendToRecycle(recycleChannel: Channel<Tile>)
 internal expect fun Tile.performRecycle()
+internal expect fun tileCanvasDispatcher(): CloseableCoroutineDispatcher
