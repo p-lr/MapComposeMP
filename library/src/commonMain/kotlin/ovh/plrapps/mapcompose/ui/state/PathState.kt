@@ -149,10 +149,12 @@ internal class PathState(
             var d = Double.MAX_VALUE
             var nearestP1: Point? = null
             var nearestP2: Point? = null
-            for (i in 0 until pathState.pathData.data.size) {
-                if (i + 1 == pathState.pathData.data.size) break
-                val p1 = pathState.pathData.data[i]
-                val p2 = pathState.pathData.data[i + 1]
+
+            val points = pathState.currentDecimatedPath.value ?: pathState.pathData.data
+            for (i in points.indices) {
+                if (i + 1 == points.size) break
+                val p1 = points[i]
+                val p2 = points[i + 1]
                 val dist = getDistance(xPx, yPx, p1.x, p1.y, p2.x, p2.y)
                 if (dist < threshold && dist < d) {
                     d = dist
@@ -260,9 +262,9 @@ internal class DrawablePathState(
 
     private fun initializeOffsetAndCount(offset: Int?, cnt: Int?): IntOffset {
         val ofst = offset?.coerceIn(0, pathData.data.size) ?: 0
-        val count = cnt?.coerceIn(
+        val count = (cnt ?: pathData.data.size).coerceIn(
             0, (pathData.data.size - ofst)
-        ) ?: pathData.data.size
+        )
         return IntOffset(ofst, count)
     }
 
