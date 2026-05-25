@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.ui.state
 
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CloseableCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.Channel
@@ -10,7 +11,7 @@ internal actual fun Tile.sendToRecycle(recycleChannel: Channel<Tile>) {
     // Empty on purpose
 }
 
-internal actual fun Tile.performRecycle() {
+internal actual fun performRecycle(bitmap: ImageBitmap) {
     // Empty on purpose
 }
 

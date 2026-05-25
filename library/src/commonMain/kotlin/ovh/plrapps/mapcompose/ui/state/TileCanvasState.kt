@@ -4,6 +4,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.CloseableCoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -148,8 +149,9 @@ internal class TileCanvasState(
          * not necessary for hardware bitmaps. */
         scope.launch(Dispatchers.Main) {
             for (t in recycleChannel) {
-                t.performRecycle()
+                val b = t.bitmap
                 t.bitmap = null
+                if (b != null) performRecycle(b)
             }
         }
     }
@@ -562,5 +564,5 @@ internal class TileCanvasState(
 }
 
 internal expect fun Tile.sendToRecycle(recycleChannel: Channel<Tile>)
-internal expect fun Tile.performRecycle()
+internal expect fun performRecycle(bitmap: ImageBitmap)
 internal expect fun tileCanvasDispatcher(): CloseableCoroutineDispatcher
