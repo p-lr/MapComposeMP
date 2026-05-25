@@ -6,6 +6,7 @@ internal data class Custom(
     val withDefaultBehavior: Boolean = false,
     val onClick: (ClusterInfo) -> Unit
 ) : ClusterClickBehavior
+
 internal data object None : ClusterClickBehavior
 
 internal data class ClusterInfo(val x: Double, val y: Double, val markers: List<MarkerData>)

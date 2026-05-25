@@ -24,11 +24,11 @@ actual fun updateFilterBitmap(paintPlatform: PaintPlatform, isFilteringBitmap: (
 
 actual fun setTilePaintProperties(
     paintPlatform: PaintPlatform,
-    alpha: Int,
+    alpha: Float,
     colorFilter: ColorFilter?
 ) {
     paintPlatform.paint.apply {
-        this.alpha = alpha
+        this.alpha = (alpha * 255).toInt()
         this.colorFilter = colorFilter?.asAndroidColorFilter()
     }
 }

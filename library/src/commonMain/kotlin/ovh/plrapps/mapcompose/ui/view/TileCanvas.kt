@@ -131,7 +131,7 @@ private fun DrawScope.drawTile(
 
     val colorFilter = colorFilterProvider?.getColorFilter(tile.row, tile.col, tile.zoom)
 
-    setTilePaintProperties(paint, alpha = (tile.alpha * 255).toInt(), colorFilter)
+    setTilePaintProperties(paint, alpha = tile.alpha, colorFilter)
 
     drawIntoCanvas {
         drawTileIntoCanvas(it, bitmap, paint, l, t, tileScaled, x0, y0)
@@ -183,7 +183,7 @@ expect fun makePaintPlatform(): PaintPlatform
 expect fun updateFilterBitmap(paintPlatform: PaintPlatform, isFilteringBitmap: () -> Boolean)
 expect fun setTilePaintProperties(
     paintPlatform: PaintPlatform,
-    alpha: Int,
+    alpha: Float,
     colorFilter: ColorFilter?
 )
 
