@@ -2,15 +2,14 @@ package ovh.plrapps.mapcompose.ui.view
 
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import org.jetbrains.skia.SamplingMode
 
 actual class PaintPlatform(
-    val paint: Paint,
-    var samplingMode: SamplingMode = SamplingMode.LINEAR
+    val paint: Paint
 )
 
 actual fun makePaintPlatform(): PaintPlatform {
@@ -20,8 +19,7 @@ actual fun makePaintPlatform(): PaintPlatform {
 }
 
 actual fun updateFilterBitmap(paintPlatform: PaintPlatform, isFilteringBitmap: () -> Boolean) {
-    paintPlatform.samplingMode =
-        if (isFilteringBitmap()) SamplingMode.LINEAR else SamplingMode.DEFAULT
+    paintPlatform.paint.filterQuality = if (isFilteringBitmap()) FilterQuality.Low else FilterQuality.None
 }
 
 actual fun setTilePaintProperties(
