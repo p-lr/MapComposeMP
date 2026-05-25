@@ -33,6 +33,7 @@ actual fun setTilePaintProperties(
     }
 }
 
+/* Sharing Rect instance -- safe as long as composition is done from the main thread */
 val dest = Rect()
 actual fun drawTileIntoCanvas(
     canvas: Canvas,
