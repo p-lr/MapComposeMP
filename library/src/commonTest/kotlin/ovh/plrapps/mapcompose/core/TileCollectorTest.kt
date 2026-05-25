@@ -1,22 +1,22 @@
 package ovh.plrapps.mapcompose.core
 
+import androidx.compose.ui.graphics.toPixelMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlin.test.Test
-import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 /**
  * Test the [TileCollector.collectTiles] engine. The following assertions are tested:
- * * The Bitmap flow should pick a [Bitmap] from the pool if possible
- * * If [TileSpec]s are send to the input channel, corresponding [Tile]s are received from the
+ * - If [TileSpec]s are send to the input channel, corresponding [Tile]s are received from the
  * output channel (from the [TileCollector.collectTiles] point of view).
- * * The [Bitmap] of the [Tile]s produced should be consistent with the output of the flow
+ * - The bitmap of the [Tile]s produced should be consistent with the output of the flow.
  */
 class TileCollectorTest {
 
@@ -44,28 +44,41 @@ class TileCollectorTest {
             makeTile()
         }
 
-        fun CoroutineScope.consumeTiles(tileChannel: ReceiveChannel<Tile>) = launch {
-            for (tile in tileChannel) {
-                // BitmapFactory is a stub on Android unit tests, so bitmap may be null there.
-                // On all other platforms (desktop, iOS, WASM) the assertion runs normally.
-                tile.bitmap?.let { assertTrue(it.width == 1) }
-            }
-        }
-
         val layers = listOf(
             Layer("default", tileStreamProvider)
         )
-
-        /* Start consuming tiles */
-        val tileConsumeJob = launch {
-            consumeTiles(tilesOutput)
-        }
 
         /* Start collecting tiles */
         val tileCollector = TileCollector(1, false, tileSize)
         val tileCollectorJob = launch {
             tileCollector.collectTiles(visibleTileLocationsChannel, tilesOutput, layers)
         }
+
+        fun CoroutineScope.consumeTiles(tileChannel: ReceiveChannel<Tile>) = launch {
+            var receivedTiles = 0
+            for (tile in tileChannel) {
+                println("received tile ${tile.zoom}-${tile.row}-${tile.col}")
+                // BitmapFactory is a stub on Android unit tests, so bitmap may be null there.
+                // On all other platforms (desktop, iOS, WASM) the assertions run normally.
+                tile.bitmap?.let { bitmap ->
+                    assertEquals(1, bitmap.width)
+                    assertEquals(1, bitmap.height)
+                    // Embedded PNG is a single fully-transparent pixel (palette black + tRNS alpha 0).
+                    assertEquals(0f, bitmap.toPixelMap()[0, 0].alpha)
+                }
+                receivedTiles += 1
+
+                if (tile.zoom == 6 && tile.row == 6 && tile.col == 6) {
+                    println("received poison pill")
+                    assertEquals(7, receivedTiles)
+                    cancel()
+                    tileCollectorJob.cancel()
+                }
+            }
+        }
+
+        /* Start consuming tiles */
+        consumeTiles(tilesOutput)
 
         launch {
             val locations1 = listOf(
@@ -80,17 +93,13 @@ class TileCollectorTest {
             val locations2 = listOf(
                 TileSpec(1, 0, 0),
                 TileSpec(1, 1, 1),
-                TileSpec(1, 2, 1)
+                TileSpec(1, 2, 1),
+                TileSpec(6, 6, 6),  // poison pill
             )
-            /* Bitmaps inside the pool should be used */
+
             for (spec in locations2) {
                 visibleTileLocationsChannel.send(spec)
             }
-
-            tileCollectorJob.cancel()
-            tileConsumeJob.cancel()
-
-            advanceUntilIdle()
         }
         Unit
     }
