@@ -5,6 +5,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeUIViewController
 import cafe.adriel.voyager.navigator.CurrentScreen
 import cafe.adriel.voyager.navigator.Navigator
@@ -35,4 +36,10 @@ fun iOSApp() {
 }
 
 
-fun MainViewController() = ComposeUIViewController { iOSApp() }
+@OptIn(ExperimentalComposeUiApi::class)
+fun MainViewController() = ComposeUIViewController(
+    configure = {
+        /* Temporarily disable to avoid ui freeze */
+        parallelRendering = false
+    }
+) { iOSApp() }
