@@ -88,7 +88,9 @@ kotlin {
         }
         named("skiaMain").configure {
             dependencies {
-                implementation(libs.skiko)
+                // Place dependencies here if needed (none for now).
+                // This source set makes skiko visible as transitive dependency of compose.ui,
+                // because androidMain does not depend on skiaMain.
             }
         }
         getByName("desktopMain").dependencies {

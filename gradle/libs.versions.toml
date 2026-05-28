@@ -11,7 +11,6 @@ android-targetSdk = "36"
 # JetBrains Compose (KMP)
 jetbrains-compose = "1.11.0"
 jetbrains-compose-material3 = "1.9.0"
-skiko = "0.144.6"  # should be the exact same version compose.ui depends on. See https://mvnrepository.com/artifact/org.jetbrains.compose.ui/ui
 
 # AndroidX Compose (Android-only)
 compose = "1.11.2"
@@ -37,7 +36,6 @@ jetbrains-compose-ui-tooling-preview = { module = "org.jetbrains.compose.ui:ui-t
 components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "jetbrains-compose" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
-skiko = { module = "org.jetbrains.skiko:skiko", version.ref = "skiko" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 voyager-navigation = { module = "cafe.adriel.voyager:voyager-navigator", version.ref = "voyager" }
 voyager-screenmodel = { module = "cafe.adriel.voyager:voyager-screenmodel", version.ref = "voyager" }
