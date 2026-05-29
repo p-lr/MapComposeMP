@@ -2,7 +2,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -15,11 +14,12 @@ import androidx.navigation.compose.rememberNavController
 import ovh.plrapps.mapcompose.demo.ui.MapAlone
 import ovh.plrapps.mapcompose.demo.ui.demoDestinations
 import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreenCommonUi
+import ovh.plrapps.mapcompose.demo.ui.theme.DemoTheme
 
 @Composable
 @Preview
 fun desktopApp() {
-    MaterialTheme {
+    DemoTheme {
         val navController = rememberNavController()
         Row {
             Column(modifier = Modifier.width(250.dp)) {

@@ -1,8 +1,8 @@
 package ovh.plrapps.mapcompose.demo.utils
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.android.Android
+import io.ktor.client.engine.cio.CIO
 
 actual fun getKtorClient(): HttpClient {
-    return HttpClient(Android)
+    return HttpClient(CIO)
 }

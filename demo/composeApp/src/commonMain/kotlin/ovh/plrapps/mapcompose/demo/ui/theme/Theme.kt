@@ -71,7 +71,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun MapComposeTheme(
+fun DemoTheme(
   useDarkTheme: Boolean = isSystemInDarkTheme(),
   content: @Composable() () -> Unit
 ) {

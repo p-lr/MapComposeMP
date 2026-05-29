@@ -1,12 +1,12 @@
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeUIViewController
 import ovh.plrapps.mapcompose.demo.ui.DemoNavHost
+import ovh.plrapps.mapcompose.demo.ui.theme.DemoTheme
 
 @Composable
 fun iOSApp() {
-    MaterialTheme {
+    DemoTheme {
         DemoNavHost()
     }
 }

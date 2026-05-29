@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import ovh.plrapps.mapcompose.demo.ui.DemoNavHost
-import ovh.plrapps.mapcompose.demo.ui.theme.MapComposeTheme
+import ovh.plrapps.mapcompose.demo.ui.theme.DemoTheme
 import ovh.plrapps.mapcompose.demo.utils.AndroidInjector
 
 class MainActivity : ComponentActivity() {
@@ -14,7 +14,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AndroidInjector.init(this.application)
         setContent {
-            MapComposeTheme {
+            DemoTheme {
                 DemoNavHost()
             }
         }
