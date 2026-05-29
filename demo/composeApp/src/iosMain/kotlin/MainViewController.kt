@@ -37,9 +37,4 @@ fun iOSApp() {
 
 
 @OptIn(ExperimentalComposeUiApi::class)
-fun MainViewController() = ComposeUIViewController(
-    configure = {
-        /* Temporarily disable to avoid ui freeze */
-        parallelRendering = false
-    }
-) { iOSApp() }
+fun MainViewController() = ComposeUIViewController { iOSApp() }
