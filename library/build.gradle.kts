@@ -77,7 +77,6 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.ui.tooling)
-            implementation(libs.androidx.activity.compose)
         }
         commonMain.dependencies {
             implementation(libs.jetbrains.compose.runtime)

@@ -1,71 +1,73 @@
 [versions]
-# Build tools
+# ---- Build tools / Android SDK (global) ----
 agp = "9.2.1"
 kotlin = "2.3.21"
-
-# Android SDK
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
 
-# JetBrains Compose (KMP)
-jetbrains-compose = "1.11.0"
-jetbrains-compose-material3 = "1.9.0"
-
-# AndroidX Compose (Android-only)
-compose = "1.11.2"
-
-# KMP libraries
+# ---- Library ----
+jetbrains-compose = "1.11.0"      # JetBrains Compose (KMP)
+compose = "1.11.2"                # AndroidX Compose (Android-only)
 coroutines = "1.11.0"
-ktor = "3.4.3"
 kotlinx-io = "0.9.0"
+
+# ---- Demo ----
+jetbrains-compose-material3 = "1.9.0"
+ktor = "3.4.3"
 kotlinx-serialization = "1.11.0"
 jetbrains-navigation = "2.9.2"
 jetbrains-lifecycle = "2.11.0-beta01"
-
-# AndroidX libraries
 androidx-activityCompose = "1.13.0"
 
 [libraries]
-# ---- Common (KMP) ----
+# ============================== Library ==============================
+# Dependencies of the published `library` module. Entries here that are also
+# used by the demo (e.g. compose-runtime, coroutines) live here once, as shared.
+# -- Common --
 jetbrains-compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "jetbrains-compose" }
 jetbrains-compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "jetbrains-compose" }
 jetbrains-compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "jetbrains-compose" }
+kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+# -- Android --
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
+# -- Test --
+kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+
+# ============================== Demo ==============================
+# Dependencies the demo app adds on top of what the library already needs.
+# -- Common --
 jetbrains-compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "jetbrains-compose-material3" }
 jetbrains-compose-ui-tooling-preview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "jetbrains-compose" }
 components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "jetbrains-compose" }
-kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
-kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 jetbrains-navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "jetbrains-navigation" }
 jetbrains-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "jetbrains-lifecycle" }
 jetbrains-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "jetbrains-lifecycle" }
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
-
-# ---- Android ----
+# -- Android --
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose" }
-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
 ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
-
-# ---- iOS ----
+# -- iOS --
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
-
-# ---- Desktop ----
-kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+# -- Desktop --
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
-
-# ---- Test ----
-kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
-kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
 
 [plugins]
-androidApplication = { id = "com.android.application", version.ref = "agp" }
-androidLibrary = { id = "com.android.library", version.ref = "agp" }
+# ---- Library (+ shared build) ----
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 androidKotlinMultiplatform = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "jetbrains-compose" }
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
-kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
-kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 vanniktechPublish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }
+# Declared `apply false` in the root build but not applied by any module:
+androidLibrary = { id = "com.android.library", version.ref = "agp" }
+kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+
+# ---- Demo ----
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
