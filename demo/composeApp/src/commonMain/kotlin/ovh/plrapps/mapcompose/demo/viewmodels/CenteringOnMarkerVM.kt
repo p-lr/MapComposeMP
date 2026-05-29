@@ -5,8 +5,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.addLayer
@@ -18,7 +18,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.map_marker
 
-class CenteringOnMarkerVM: ScreenModel {
+class CenteringOnMarkerVM: ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 8192, 8192) {
@@ -37,7 +37,7 @@ class CenteringOnMarkerVM: ScreenModel {
     }
 
     fun onCenter() {
-        screenModelScope.launch {
+        viewModelScope.launch {
             state.centerOnMarker("parking", destScale = 1.0, destAngle = 0f)
         }
     }

@@ -1,7 +1,7 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import kotlinx.io.Buffer
 import org.jetbrains.compose.resources.ExperimentalResourceApi
@@ -14,7 +14,7 @@ import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 
-class LayersVM() : ScreenModel {
+class LayersVM() : ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider(imageExt = ".jpg")
     private val slopesLayerProvider = makeTileStreamProvider("ign-slopes-", imageExt = ".png")
     private val roadLayerProvider = makeTileStreamProvider("ign-road-", imageExt = ".png")
@@ -25,7 +25,7 @@ class LayersVM() : ScreenModel {
     val state = MapState(4, 8192, 8192).apply {
         shouldLoopScale = true
         enableRotation()
-        screenModelScope.launch {
+        viewModelScope.launch {
             scrollTo(0.4, 0.4, 1.0)
         }
 

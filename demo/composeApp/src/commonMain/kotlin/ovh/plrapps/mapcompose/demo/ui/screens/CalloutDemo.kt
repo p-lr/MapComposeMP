@@ -6,11 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.CalloutVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
-expect object CalloutDemo : Screen {
+expect object CalloutDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

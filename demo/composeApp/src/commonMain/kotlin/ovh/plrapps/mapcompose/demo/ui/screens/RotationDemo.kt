@@ -11,11 +11,10 @@ import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.api.rotation
 import ovh.plrapps.mapcompose.demo.viewmodels.RotationVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
-expect object RotationDemo : Screen {
+expect object RotationDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable
@@ -24,7 +23,7 @@ fun RotationCommonUi(screenModel: RotationVM) {
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
-            Modifier.weight(2f),
+            Modifier.weight(1f),
             state = screenModel.state
         )
         Row(

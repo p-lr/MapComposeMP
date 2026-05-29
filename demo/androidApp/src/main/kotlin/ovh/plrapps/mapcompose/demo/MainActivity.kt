@@ -4,8 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import cafe.adriel.voyager.navigator.Navigator
-import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreen
+import ovh.plrapps.mapcompose.demo.ui.DemoNavHost
 import ovh.plrapps.mapcompose.demo.ui.theme.MapComposeTheme
 import ovh.plrapps.mapcompose.demo.utils.AndroidInjector
 
@@ -16,7 +15,7 @@ class MainActivity : ComponentActivity() {
         AndroidInjector.init(this.application)
         setContent {
             MapComposeTheme {
-                Navigator(HomeScreen)
+                DemoNavHost()
             }
         }
     }

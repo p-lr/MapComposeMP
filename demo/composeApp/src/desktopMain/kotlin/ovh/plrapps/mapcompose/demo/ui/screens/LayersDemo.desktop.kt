@@ -1,15 +1,14 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 
-actual object LayersDemoSimple : Screen {
+actual object LayersDemoSimple {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { LayersVM() }
+    actual fun Content() {
+        val screenModel = viewModel { LayersVM() }
 
         MapWithZoomControl(state = screenModel.state) {
             LayersCommonUi(screenModel)

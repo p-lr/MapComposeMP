@@ -1,14 +1,13 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.MarkersClusteringVM
 
-actual object MarkersClusteringDemo : Screen {
+actual object MarkersClusteringDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { MarkersClusteringVM() }
+    actual fun Content() {
+        val screenModel = viewModel { MarkersClusteringVM() }
 
         MarkersClusteringCommonUi(screenModel)
     }

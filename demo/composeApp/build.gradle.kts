@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.androidKotlinMultiplatform)
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -63,8 +64,6 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.androidx.activity.compose)
-            implementation(libs.androidx.viewmodel.compose)
-            implementation(libs.androidx.navigation)
             implementation(libs.ktor.client.android)
         }
         commonMain.dependencies {
@@ -76,8 +75,10 @@ kotlin {
             implementation(libs.components.resources)
             implementation(libs.kotlinx.coroutines)
             implementation(libs.ktor.client.core)
-            implementation(libs.voyager.navigation)
-            implementation(libs.voyager.screenmodel)
+            implementation(libs.jetbrains.navigation.compose)
+            implementation(libs.jetbrains.lifecycle.viewmodel)
+            implementation(libs.jetbrains.lifecycle.viewmodel.compose)
+            implementation(libs.kotlinx.serialization.core)
             implementation(project(":library"))
         }
         desktopMain.dependencies {

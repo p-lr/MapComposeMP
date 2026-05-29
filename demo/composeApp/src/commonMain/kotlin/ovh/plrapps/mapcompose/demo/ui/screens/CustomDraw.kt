@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -29,14 +30,13 @@ import ovh.plrapps.mapcompose.ui.MapUI
 import ovh.plrapps.mapcompose.ui.state.MapState
 import kotlin.math.log10
 import kotlin.math.pow
-import cafe.adriel.voyager.core.screen.Screen
 
 /**
  * This demo shows how to embed custom drawings inside [MapUI].
  */
-expect object CustomDraw : Screen {
+expect object CustomDraw {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable
@@ -93,7 +93,10 @@ fun ScaleIndicator(
     controller: ScaleIndicatorController,
     lineColor: Color
 ) {
-    Box(Modifier.height(50.dp)) {
+    Box(Modifier
+        .safeDrawingPadding()
+        .height(50.dp)
+    ) {
         Canvas(
             modifier = Modifier
                 .alpha(0.8f)

@@ -1,14 +1,13 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.HttpTilesVM
 
-actual object HttpTilesDemo : Screen {
+actual object HttpTilesDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { HttpTilesVM() }
+    actual fun Content() {
+        val screenModel: HttpTilesVM = viewModel()
 
         HttpTilesCommonUi(screenModel)
     }

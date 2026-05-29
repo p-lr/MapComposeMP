@@ -1,14 +1,13 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 
-actual object PathsDemo : Screen {
+actual object PathsDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { PathsVM() }
+    actual fun Content() {
+        val screenModel: PathsVM = viewModel()
 
         PathsCommonUi(screenModel)
     }

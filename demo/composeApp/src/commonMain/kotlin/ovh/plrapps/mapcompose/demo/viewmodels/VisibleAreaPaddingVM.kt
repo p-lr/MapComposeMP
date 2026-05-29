@@ -1,6 +1,6 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
 import ovh.plrapps.mapcompose.api.enableRotation
@@ -8,7 +8,7 @@ import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
 import ovh.plrapps.mapcompose.demo.ui.widgets.Marker
 import ovh.plrapps.mapcompose.ui.state.MapState
 
-class VisibleAreaPaddingVM : ScreenModel {
+class VisibleAreaPaddingVM : ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 8192, 8192) {

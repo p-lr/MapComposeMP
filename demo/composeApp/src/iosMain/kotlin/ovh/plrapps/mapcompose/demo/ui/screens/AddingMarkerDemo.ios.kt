@@ -1,14 +1,15 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.AddingMarkerVM
 
-actual object AddingMarkerDemo : Screen {
+actual object AddingMarkerDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { AddingMarkerVM() }
+    actual fun Content() {
+        /* Non-Android targets have no reflective ViewModel factory, so the instance must be
+         * constructed explicitly here — unlike Android, which can use the no-arg viewModel(). */
+        val screenModel = viewModel { AddingMarkerVM() }
 
         AddingMarkerCommonUi(screenModel)
     }

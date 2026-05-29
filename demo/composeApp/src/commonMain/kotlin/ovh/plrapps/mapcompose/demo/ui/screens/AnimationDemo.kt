@@ -11,12 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.demo.viewmodels.AnimationDemoVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
 
-expect object AnimationDemo : Screen {
+expect object AnimationDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

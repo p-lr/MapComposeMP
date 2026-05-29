@@ -1,14 +1,13 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 
-actual object VisibleAreaPaddingDemo : Screen {
+actual object VisibleAreaPaddingDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { VisibleAreaPaddingVM() }
+    actual fun Content() {
+        val screenModel = viewModel { VisibleAreaPaddingVM() }
 
         VisibleAreaPaddingCommonUi(screenModel)
     }

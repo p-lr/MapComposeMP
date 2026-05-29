@@ -59,6 +59,5 @@ afterEvaluate {
 dependencies {
     implementation(project(":demo:composeApp"))
     implementation(libs.androidx.activity.compose)
-    implementation(libs.voyager.navigation)
     debugImplementation(libs.compose.ui.tooling)
 }

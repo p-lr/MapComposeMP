@@ -28,15 +28,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.api.centerOnMarker
 import ovh.plrapps.mapcompose.api.setVisibleAreaPadding
 import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object VisibleAreaPaddingDemo : Screen {
+expect object VisibleAreaPaddingDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

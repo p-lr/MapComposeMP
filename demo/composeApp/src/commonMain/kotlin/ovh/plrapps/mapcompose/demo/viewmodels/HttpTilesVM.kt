@@ -1,6 +1,6 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.api.shouldLoopScale
@@ -10,7 +10,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 /**
  * Shows how MapCompose behaves with remote HTTP tiles.
  */
-class HttpTilesVM : ScreenModel {
+class HttpTilesVM : ViewModel() {
     private val tileStreamProvider = makeHttpTileStreamProvider()
 
     val state = MapState(

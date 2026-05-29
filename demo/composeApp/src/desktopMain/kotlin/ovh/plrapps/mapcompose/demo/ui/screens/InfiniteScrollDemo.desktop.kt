@@ -1,15 +1,14 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
 import androidx.compose.runtime.Composable
-import cafe.adriel.voyager.core.model.rememberScreenModel
-import cafe.adriel.voyager.core.screen.Screen
+import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 import ovh.plrapps.mapcompose.demo.viewmodels.InfiniteScrollVM
 
-actual object InfiniteScrollDemo : Screen {
+actual object InfiniteScrollDemo {
     @Composable
-    actual override fun Content() {
-        val screenModel = rememberScreenModel { InfiniteScrollVM() }
+    actual fun Content() {
+        val screenModel = viewModel { InfiniteScrollVM() }
 
         MapWithZoomControl(state = screenModel.state) {
             InfiniteScrollDemoCommonUi(screenModel)

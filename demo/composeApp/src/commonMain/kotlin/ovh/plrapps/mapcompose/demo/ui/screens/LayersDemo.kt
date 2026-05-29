@@ -1,19 +1,29 @@
 package ovh.plrapps.mapcompose.demo.ui.screens
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 import ovh.plrapps.mapcompose.ui.MapUI
 
-expect object LayersDemoSimple : Screen {
+expect object LayersDemoSimple {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable
@@ -22,18 +32,19 @@ fun LayersCommonUi(screenModel: LayersVM) {
         mutableFloatStateOf(1f)
     }
 
-    var ignV2SliderValue by remember {
+    var roadSliderValue by remember {
         mutableFloatStateOf(0.5f)
     }
 
     Column(
-        Modifier.navigationBarsPadding()
+        Modifier
+            .background(MaterialTheme.colorScheme.surface)
+            .navigationBarsPadding()
     ) {
-        BoxWithConstraints {
-            MapUI(Modifier.size(maxWidth, maxHeight - 100.dp), state = screenModel.state)
-        }
+        MapUI(Modifier.weight(1f), state = screenModel.state)
+        Spacer(Modifier.height(16.dp))
         LayerSlider(
-            name = "Satellite",
+            name = "Slopes",
             value = satelliteSliderValue,
             onValueChange = {
                 satelliteSliderValue = it
@@ -41,10 +52,10 @@ fun LayersCommonUi(screenModel: LayersVM) {
             }
         )
         LayerSlider(
-            name = "IGN v2",
-            value = ignV2SliderValue,
+            name = "Roads",
+            value = roadSliderValue,
             onValueChange = {
-                ignV2SliderValue = it
+                roadSliderValue = it
                 screenModel.setRoadOpacity(it)
             }
         )

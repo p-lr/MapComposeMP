@@ -9,11 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.demo.viewmodels.AddingMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
-expect object AddingMarkerDemo : Screen {
+expect object AddingMarkerDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

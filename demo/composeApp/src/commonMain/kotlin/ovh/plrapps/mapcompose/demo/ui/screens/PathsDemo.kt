@@ -4,11 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
-expect object PathsDemo : Screen {
+expect object PathsDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

@@ -5,7 +5,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.addMarker
@@ -20,7 +20,7 @@ import kotlin.math.pow
 /**
  * Shows how to use WMTS tile servers with MapCompose, such as Open Street Map.
  */
-class OsmVM : ScreenModel {
+class OsmVM : ViewModel() {
     private val tileStreamProvider = makeOsmTileStreamProvider()
 
     private val maxLevel = 16

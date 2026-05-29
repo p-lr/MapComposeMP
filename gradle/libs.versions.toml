@@ -19,12 +19,12 @@ compose = "1.11.2"
 coroutines = "1.11.0"
 ktor = "3.4.3"
 kotlinx-io = "0.9.0"
-voyager = "1.0.1"
+kotlinx-serialization = "1.11.0"
+jetbrains-navigation = "2.9.2"
+jetbrains-lifecycle = "2.11.0-beta01"
 
 # AndroidX libraries
 androidx-activityCompose = "1.13.0"
-androidx-navigation = "2.9.8"
-androidx-viewmodel-compose = "2.10.0"
 
 [libraries]
 # ---- Common (KMP) ----
@@ -37,13 +37,13 @@ components-resources = { module = "org.jetbrains.compose.components:components-r
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
-voyager-navigation = { module = "cafe.adriel.voyager:voyager-navigator", version.ref = "voyager" }
-voyager-screenmodel = { module = "cafe.adriel.voyager:voyager-screenmodel", version.ref = "voyager" }
+jetbrains-navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "jetbrains-navigation" }
+jetbrains-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "jetbrains-lifecycle" }
+jetbrains-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "jetbrains-lifecycle" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
 
 # ---- Android ----
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
-androidx-navigation = { module = "androidx.navigation:navigation-compose", version.ref = "androidx-navigation" }
-androidx-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-viewmodel-compose" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
 ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
@@ -66,4 +66,5 @@ jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "jetbrains-comp
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 vanniktechPublish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }

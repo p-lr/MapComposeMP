@@ -1,6 +1,6 @@
 package ovh.plrapps.mapcompose.demo.viewmodels
 
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import ovh.plrapps.mapcompose.api.addLayer
 import ovh.plrapps.mapcompose.api.enableRotation
 import ovh.plrapps.mapcompose.api.shouldLoopScale
@@ -13,7 +13,7 @@ class InfiniteScrollVM(
      * Here, we pass the TileStreamProvider in the constructor so we can easily provide a
      * a platform specific implementation. This is useful for performance checks. */
     private val tileStreamProvider: TileStreamProvider = makeWorldTileStreamProvider()
-) : ScreenModel {
+) : ViewModel() {
     val state = MapState(5, 8192, 8192) {
         scale(0.1)
         infiniteScrollX(true)

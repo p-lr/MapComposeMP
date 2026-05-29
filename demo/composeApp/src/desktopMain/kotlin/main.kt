@@ -8,23 +8,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import cafe.adriel.voyager.navigator.CurrentScreen
-import cafe.adriel.voyager.navigator.Navigator
 import androidx.compose.ui.tooling.preview.Preview
-import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreen
-import ovh.plrapps.mapcompose.demo.ui.screens.MapDemoSimple
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import ovh.plrapps.mapcompose.demo.ui.MapAlone
+import ovh.plrapps.mapcompose.demo.ui.demoDestinations
+import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreenCommonUi
 
 @Composable
 @Preview
 fun desktopApp() {
     MaterialTheme {
-        Navigator(MapDemoSimple) { navigator ->
-            Row {
-                Column(modifier = Modifier.width(250.dp)) {
-                    HomeScreen.Content()
-                }
-                Column(modifier = Modifier.fillMaxSize()) {
-                    CurrentScreen()
+        val navController = rememberNavController()
+        Row {
+            Column(modifier = Modifier.width(250.dp)) {
+                HomeScreenCommonUi(
+                    onNavigate = { route ->
+                        navController.navigate(route) {
+                            /* Master-detail: replace the detail pane rather than stacking onto it,
+                             * popping back to the start destination (which is always the base). */
+                            popUpTo(MapAlone)
+                            launchSingleTop = true
+                        }
+                    }
+                )
+            }
+            Column(modifier = Modifier.fillMaxSize()) {
+                NavHost(navController, startDestination = MapAlone) {
+                    demoDestinations()
                 }
             }
         }

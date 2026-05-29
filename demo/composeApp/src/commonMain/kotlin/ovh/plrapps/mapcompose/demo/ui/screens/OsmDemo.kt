@@ -3,12 +3,11 @@ package ovh.plrapps.mapcompose.demo.ui.screens
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 import ovh.plrapps.mapcompose.demo.viewmodels.OsmVM
 
-expect object OsmDemo : Screen {
+expect object OsmDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable

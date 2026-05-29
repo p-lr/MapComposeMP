@@ -6,8 +6,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
-import cafe.adriel.voyager.core.model.screenModelScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.api.addCallout
@@ -30,7 +30,7 @@ import ovh.plrapps.mapcomposemp.demo.Res
 /**
  * In this sample, we add "tracks" to the map. The tracks are rendered as paths using MapCompose.
  */
-class PathsVM : ScreenModel {
+class PathsVM : ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider()
 
     val state = MapState(4, 8192, 8192).apply {
@@ -68,7 +68,7 @@ class PathsVM : ScreenModel {
             }
         }
 
-        screenModelScope.launch {
+        viewModelScope.launch {
             scrollTo(0.72, 0.3)
         }
     }
@@ -107,7 +107,7 @@ class PathsVM : ScreenModel {
         color: Color? = null,
         pattern: List<PatternItem>? = null
     ) {
-        screenModelScope.launch {
+        viewModelScope.launch {
             val lines = Res.readBytes("files/tracks/$trackName.txt").decodeToString().lineSequence()
             state.addPath(
                 id = trackName, color = color, clickable = true, pattern = pattern

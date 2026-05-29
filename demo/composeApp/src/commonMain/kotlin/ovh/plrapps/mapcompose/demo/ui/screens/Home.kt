@@ -17,21 +17,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.screen.Screen
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.stringResource
 import ovh.plrapps.mapcompose.demo.ui.MainDestinations
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.app_name
 
-expect object HomeScreen : Screen {
-    @Composable
-    override fun Content()
-}
-
 @Composable
 @OptIn(ExperimentalResourceApi::class, ExperimentalMaterial3Api::class)
-fun HomeScreenCommonUi(onNavigate: (screen: Screen) -> Unit) {
+fun HomeScreenCommonUi(onNavigate: (route: Any) -> Unit) {
     val demoListState = rememberLazyListState()
 
     Scaffold(
@@ -55,7 +49,7 @@ fun HomeScreenCommonUi(onNavigate: (screen: Screen) -> Unit) {
                         text = dest.title,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onNavigate(dest.screen) }
+                            .clickable { onNavigate(dest.route) }
                             .padding(16.dp),
                         textAlign = TextAlign.Center
                     )

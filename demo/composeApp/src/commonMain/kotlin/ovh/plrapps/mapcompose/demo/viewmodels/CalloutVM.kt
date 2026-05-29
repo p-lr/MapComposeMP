@@ -9,7 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.addCallout
@@ -25,7 +25,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.map_marker
 
-class CalloutVM: ScreenModel {
+class CalloutVM: ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider()
 
     /* Define the markers data (id and position) */

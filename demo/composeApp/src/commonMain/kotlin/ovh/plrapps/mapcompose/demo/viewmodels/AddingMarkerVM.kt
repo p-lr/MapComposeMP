@@ -5,7 +5,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import cafe.adriel.voyager.core.model.ScreenModel
+import androidx.lifecycle.ViewModel
 import org.jetbrains.compose.resources.painterResource
 import ovh.plrapps.mapcompose.api.*
 import ovh.plrapps.mapcompose.demo.providers.makeTileStreamProvider
@@ -13,7 +13,7 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcomposemp.demo.Res
 import ovh.plrapps.mapcomposemp.demo.map_marker
 
-class AddingMarkerVM : ScreenModel {
+class AddingMarkerVM : ViewModel() {
     private val tileStreamProvider = makeTileStreamProvider()
 
     private var markerCount = 0

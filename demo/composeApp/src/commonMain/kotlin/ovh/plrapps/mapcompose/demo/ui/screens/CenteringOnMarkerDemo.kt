@@ -11,11 +11,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.demo.viewmodels.CenteringOnMarkerVM
 import ovh.plrapps.mapcompose.ui.MapUI
-import cafe.adriel.voyager.core.screen.Screen
 
-expect object CenteringOnMarkerDemo : Screen {
+expect object CenteringOnMarkerDemo {
     @Composable
-    override fun Content()
+    fun Content()
 }
 
 @Composable
