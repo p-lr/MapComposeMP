@@ -9,12 +9,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -27,11 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import ovh.plrapps.mapcompose.api.centerOnMarker
 import ovh.plrapps.mapcompose.api.setVisibleAreaPadding
 import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 import ovh.plrapps.mapcompose.ui.MapUI
+import ovh.plrapps.mapcompose.ui.state.MapState
 
 expect object VisibleAreaPaddingDemo {
     @Composable
@@ -40,6 +43,19 @@ expect object VisibleAreaPaddingDemo {
 
 @Composable
 fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
+    Scaffold { paddings ->
+        VisibleAreaPaddingScreen(
+            modifier = Modifier.padding(paddings),
+            mapState = screenModel.state
+        )
+    }
+}
+
+@Composable
+fun VisibleAreaPaddingScreen(
+    modifier: Modifier = Modifier,
+    mapState: MapState
+) {
     val obstructionSize = 100.dp
     val obstructionColor = Color(0xA0000000)
     var leftObstructionEnabled by remember { mutableStateOf(true) }
@@ -48,47 +64,82 @@ fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
     var bottomObstructionEnabled by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.statusBarsPadding(),
+        modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
-            modifier = Modifier.padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    topObstructionEnabled = !topObstructionEnabled
+                },
+            horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Switch(topObstructionEnabled, onCheckedChange = null)
+            Text(
+                "Top   ", // Same width as "Bottom"
+                modifier = Modifier.padding(start = 4.dp),
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    topObstructionEnabled = !topObstructionEnabled
+                },
+            horizontalArrangement = Arrangement.SpaceAround
+        ) {
             Row(
-                modifier = Modifier.clickable { leftObstructionEnabled = !leftObstructionEnabled },
+                modifier = Modifier.clickable {
+                    leftObstructionEnabled = !leftObstructionEnabled
+                },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(leftObstructionEnabled, onCheckedChange = null)
-                Text("Left", modifier = Modifier.padding(start = 4.dp))
+                Text(
+                    "Left",
+                    modifier = Modifier.padding(start = 4.dp),
+                    fontFamily = FontFamily.Monospace
+                )
             }
             Row(
-                modifier = Modifier.clickable { rightObstructionEnabled = !rightObstructionEnabled },
+                modifier = Modifier.clickable {
+                    rightObstructionEnabled = !rightObstructionEnabled
+                },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Switch(rightObstructionEnabled, onCheckedChange = null)
-                Text("Right", modifier = Modifier.padding(start = 4.dp))
-            }
-            Row(
-                modifier = Modifier.clickable { topObstructionEnabled = !topObstructionEnabled },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Switch(topObstructionEnabled, onCheckedChange = null)
-                Text("Top", modifier = Modifier.padding(start = 4.dp))
-            }
-            Row(
-                modifier = Modifier.clickable { bottomObstructionEnabled = !bottomObstructionEnabled },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Switch(bottomObstructionEnabled, onCheckedChange = null)
-                Text("Bottom", modifier = Modifier.padding(start = 4.dp))
+                Text(
+                    "Right",
+                    modifier = Modifier.padding(start = 4.dp),
+                    fontFamily = FontFamily.Monospace
+                )
             }
         }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    bottomObstructionEnabled = !bottomObstructionEnabled
+                },
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Switch(bottomObstructionEnabled, onCheckedChange = null)
+            Text(
+                "Bottom",
+                modifier = Modifier.padding(start = 4.dp),
+                fontFamily = FontFamily.Monospace
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+
         Box {
             MapUI(
-                Modifier,
-                state = screenModel.state
+                state = mapState
             )
             androidx.compose.animation.AnimatedVisibility(
                 visible = leftObstructionEnabled,
@@ -145,13 +196,18 @@ fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
         }
     }
 
-    LaunchedEffect(leftObstructionEnabled, rightObstructionEnabled, topObstructionEnabled, bottomObstructionEnabled) {
-        screenModel.state.setVisibleAreaPadding(
+    LaunchedEffect(
+        leftObstructionEnabled,
+        rightObstructionEnabled,
+        topObstructionEnabled,
+        bottomObstructionEnabled
+    ) {
+        mapState.setVisibleAreaPadding(
             left = if (leftObstructionEnabled) obstructionSize else 0.dp,
             right = if (rightObstructionEnabled) obstructionSize else 0.dp,
             top = if (topObstructionEnabled) obstructionSize else 0.dp,
             bottom = if (bottomObstructionEnabled) obstructionSize else 0.dp
         )
-        screenModel.state.centerOnMarker("m0")
+        mapState.centerOnMarker("m0")
     }
 }

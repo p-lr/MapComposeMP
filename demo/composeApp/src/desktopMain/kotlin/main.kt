@@ -1,19 +1,26 @@
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import ovh.plrapps.mapcompose.demo.ui.MainDestinations
 import ovh.plrapps.mapcompose.demo.ui.MapAlone
 import ovh.plrapps.mapcompose.demo.ui.demoDestinations
-import ovh.plrapps.mapcompose.demo.ui.screens.HomeScreenCommonUi
 import ovh.plrapps.mapcompose.demo.ui.theme.DemoTheme
 
 @Composable
@@ -23,7 +30,7 @@ fun desktopApp() {
         val navController = rememberNavController()
         Row {
             Column(modifier = Modifier.width(250.dp)) {
-                HomeScreenCommonUi(
+                Menu(
                     onNavigate = { route ->
                         navController.navigate(route) {
                             /* Master-detail: replace the detail pane rather than stacking onto it,
@@ -43,9 +50,28 @@ fun desktopApp() {
     }
 }
 
+@Composable
+private fun Menu(onNavigate: (route: Any) -> Unit) {
+    LazyColumn {
+        MainDestinations.entries.forEach { dest ->
+            item {
+                Text(
+                    text = dest.title,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onNavigate(dest.route) }
+                        .padding(16.dp),
+                    textAlign = TextAlign.Center
+                )
+                HorizontalDivider(Modifier, thickness = 1.dp, color = DividerDefaults.color)
+            }
+        }
+    }
+}
+
 // To run the desktop demo run this command in terminal: ./gradlew :demo:composeApp:run
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "MapComposeKMP") {
+    Window(onCloseRequest = ::exitApplication, title = "MapComposeMP demo") {
         desktopApp()
     }
 }
