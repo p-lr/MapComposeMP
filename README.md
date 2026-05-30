@@ -8,11 +8,11 @@ Road to `v1.0.0`:
 - [x] Improve rendering of layers
 - [x] Support infinite scroll (tile looping)
 - [x] Backport apis and fixes from the android native library
-- [ ] Support subsampling on other platform than android
+- [x] Support subsampling on other platform than android
 
-# MapCompose-mp
+# MapCompose-MP
 
-MapCompose-mp is a fast, memory efficient compose multiplatform library to display tiled maps with minimal effort.
+MapCompose-MP is a fast, memory efficient compose multiplatform library to display tiled maps with minimal effort.
 It shows the visible part of a tiled map with support of markers and paths, and various gestures
 (flinging, dragging, scaling, and rotating).
 Target platforms are iOS, desktop (Windows, MacOs, Linux), Android, and WebAssembly.
@@ -78,7 +78,7 @@ Add this to your commonMain dependencies:
 ```kotlin
 sourceSets {
   commonMain.dependencies {
-      implementation("ovh.plrapps:mapcompose-mp:0.11.0")
+      implementation("ovh.plrapps:mapcompose-mp:0.13.2")
   }
 }
 ```
@@ -258,11 +258,7 @@ For a detailed example, see the "AnimationDemo".
 The api is mostly the same as the native library. There's one noticeable difference:
 `TileStreamProvider` returns `RawSource` instead of `InputStream`.
 
-Some apis expect `dp` values instead of pixels.
-
-Some optimizations are temporarily disabled, such as:
-- "Bitmap" pooling on ios and desktop
-- Subsampling
+All other apis are the same, so migration is straightforward.
 
 ## Contributors
 
