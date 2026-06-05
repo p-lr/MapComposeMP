@@ -2,9 +2,9 @@
 # ---- Build tools / Android SDK (global) ----
 agp = "9.2.1"
 kotlin = "2.4.0"
-android-compileSdk = "36"
+android-compileSdk = "37"
 android-minSdk = "24"
-android-targetSdk = "36"
+android-targetSdk = "37"
 
 # ---- Library ----
 jetbrains-compose = "1.11.1"      # JetBrains Compose (KMP)
