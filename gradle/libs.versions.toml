@@ -1,13 +1,13 @@
 [versions]
 # ---- Build tools / Android SDK (global) ----
 agp = "9.2.1"
-kotlin = "2.3.21"
+kotlin = "2.4.0"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
 
 # ---- Library ----
-jetbrains-compose = "1.11.0"      # JetBrains Compose (KMP)
+jetbrains-compose = "1.11.1"      # JetBrains Compose (KMP)
 compose = "1.11.2"                # AndroidX Compose (Android-only)
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
