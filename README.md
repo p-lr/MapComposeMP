@@ -3,12 +3,9 @@
 
 🎉 News
 
-Road to `v1.0.0`:
-- [x] Support for hardware bitmaps on android
-- [x] Improve rendering of layers
-- [x] Support infinite scroll (tile looping)
-- [x] Backport apis and fixes from the android native library
-- [x] Support subsampling on other platform than android
+Version `1.0.0` is finally released. The codebase has been entirely reviewed to ensure nothing is
+left behind compared to the Android native version.
+MapComposeMP provides the same apis and features the native library does.
 
 # MapCompose-MP
 
