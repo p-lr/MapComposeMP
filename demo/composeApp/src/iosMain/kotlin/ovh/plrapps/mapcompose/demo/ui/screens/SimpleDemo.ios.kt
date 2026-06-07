@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.SimpleDemoVM
 actual object MapDemoSimple {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { SimpleDemoVM() }
+        val viewModel = viewModel { SimpleDemoVM() }
 
-        MapSimpleCommonUi(screenModel)
+        MapSimpleCommonUi(viewModel)
     }
 }

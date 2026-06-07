@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.AnimationDemoVM
 actual object AnimationDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { AnimationDemoVM() }
+        val viewModel = viewModel { AnimationDemoVM() }
 
-        AnimationCommonUi(screenModel)
+        AnimationCommonUi(viewModel)
     }
 }

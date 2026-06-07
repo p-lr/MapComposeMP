@@ -5,13 +5,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import ovh.plrapps.mapcompose.demo.viewmodels.CustomDrawVM
 
 /**
- * This demo shows how to embed custom drawings inside [MapUI].
+ * This demo shows how to embed custom drawings.
  */
 actual object CustomDraw {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { CustomDrawVM() }
+        val viewModel = viewModel { CustomDrawVM() }
 
-        CustomDrawCommonUi(screenModel)
+        CustomDrawCommonUi(viewModel)
     }
 }

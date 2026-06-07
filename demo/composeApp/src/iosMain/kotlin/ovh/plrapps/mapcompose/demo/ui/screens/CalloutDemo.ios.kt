@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CalloutVM
 actual object CalloutDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { CalloutVM() }
+        val viewModel = viewModel { CalloutVM() }
 
-        CalloutCommonUi(screenModel)
+        CalloutCommonUi(viewModel)
     }
 }

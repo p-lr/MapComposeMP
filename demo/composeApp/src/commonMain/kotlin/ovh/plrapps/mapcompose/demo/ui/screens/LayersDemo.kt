@@ -27,13 +27,13 @@ expect object LayersDemoSimple {
 }
 
 @Composable
-fun LayersCommonUi(screenModel: LayersVM) {
-    var satelliteSliderValue by remember {
-        mutableFloatStateOf(1f)
+fun LayersCommonUi(viewModel: LayersVM) {
+    var slopesSliderValue by remember {
+        mutableFloatStateOf(0.6f)
     }
 
     var roadSliderValue by remember {
-        mutableFloatStateOf(0.5f)
+        mutableFloatStateOf(1f)
     }
 
     Column(
@@ -41,14 +41,14 @@ fun LayersCommonUi(screenModel: LayersVM) {
             .background(MaterialTheme.colorScheme.surface)
             .navigationBarsPadding()
     ) {
-        MapUI(Modifier.weight(1f), state = screenModel.state)
+        MapUI(Modifier.weight(1f), state = viewModel.state)
         Spacer(Modifier.height(16.dp))
         LayerSlider(
             name = "Slopes",
-            value = satelliteSliderValue,
+            value = slopesSliderValue,
             onValueChange = {
-                satelliteSliderValue = it
-                screenModel.setSlopesOpacity(it)
+                slopesSliderValue = it
+                viewModel.setSlopesOpacity(it)
             }
         )
         LayerSlider(
@@ -56,7 +56,7 @@ fun LayersCommonUi(screenModel: LayersVM) {
             value = roadSliderValue,
             onValueChange = {
                 roadSliderValue = it
-                screenModel.setRoadOpacity(it)
+                viewModel.setRoadOpacity(it)
             }
         )
     }

@@ -9,9 +9,9 @@ actual object AddingMarkerDemo {
     actual fun Content() {
         /* Non-Android targets have no reflective ViewModel factory, so the instance must be
          * constructed explicitly here — unlike Android, which can use the no-arg viewModel(). */
-        val screenModel = viewModel { AddingMarkerVM() }
+        val viewModel = viewModel { AddingMarkerVM() }
 
-        AddingMarkerCommonUi(screenModel)
+        AddingMarkerCommonUi(viewModel)
     }
 
 }

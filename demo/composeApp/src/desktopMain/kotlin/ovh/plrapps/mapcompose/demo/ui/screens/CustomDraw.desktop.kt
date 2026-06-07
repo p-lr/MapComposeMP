@@ -6,15 +6,15 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CustomDrawVM
 import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 
 /**
- * This demo shows how to embed custom drawings inside [MapUI].
+ * This demo shows how to embed custom drawings.
  */
 actual object CustomDraw {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { CustomDrawVM() }
+        val viewModel = viewModel { CustomDrawVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            CustomDrawCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            CustomDrawCommonUi(viewModel)
         }
     }
 }

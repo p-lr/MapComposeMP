@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -42,11 +43,11 @@ expect object VisibleAreaPaddingDemo {
 }
 
 @Composable
-fun VisibleAreaPaddingCommonUi(screenModel: VisibleAreaPaddingVM) {
+fun VisibleAreaPaddingCommonUi(viewModel: VisibleAreaPaddingVM) {
     Scaffold { paddings ->
         VisibleAreaPaddingScreen(
             modifier = Modifier.padding(paddings),
-            mapState = screenModel.state
+            mapState = viewModel.state
         )
     }
 }
@@ -64,7 +65,7 @@ fun VisibleAreaPaddingScreen(
     var bottomObstructionEnabled by remember { mutableStateOf(false) }
 
     Column(
-        modifier = modifier,
+        modifier = modifier.statusBarsPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(
@@ -78,7 +79,7 @@ fun VisibleAreaPaddingScreen(
         ) {
             Switch(topObstructionEnabled, onCheckedChange = null)
             Text(
-                "Top   ", // Same width as "Bottom"
+                "Top   ", // Whitespaces to have the same width as "Bottom"
                 modifier = Modifier.padding(start = 4.dp),
                 fontFamily = FontFamily.Monospace
             )
@@ -138,9 +139,7 @@ fun VisibleAreaPaddingScreen(
         Spacer(Modifier.height(8.dp))
 
         Box {
-            MapUI(
-                state = mapState
-            )
+            MapUI(state = mapState)
             androidx.compose.animation.AnimatedVisibility(
                 visible = leftObstructionEnabled,
                 enter = expandHorizontally(),

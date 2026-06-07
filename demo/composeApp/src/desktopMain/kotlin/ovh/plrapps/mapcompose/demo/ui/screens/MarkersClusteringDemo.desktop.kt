@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 actual object MarkersClusteringDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { MarkersClusteringVM() }
+        val viewModel = viewModel { MarkersClusteringVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            MarkersClusteringCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            MarkersClusteringCommonUi(viewModel)
         }
     }
 }

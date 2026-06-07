@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.RotationVM
 actual object RotationDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { RotationVM() }
+        val viewModel = viewModel { RotationVM() }
 
-        RotationCommonUi(screenModel)
+        RotationCommonUi(viewModel)
     }
 }

@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CenteringOnMarkerVM
 actual object CenteringOnMarkerDemo {
     @Composable
     actual fun Content() {
-        val screenModel: CenteringOnMarkerVM = viewModel()
+        val viewModel: CenteringOnMarkerVM = viewModel()
 
-        CenteringOnMarkerCommonUi(screenModel)
+        CenteringOnMarkerCommonUi(viewModel)
     }
 }

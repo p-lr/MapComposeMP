@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersClusteringVM
 actual object MarkersClusteringDemo {
     @Composable
     actual fun Content() {
-        val screenModel: MarkersClusteringVM = viewModel()
+        val viewModel: MarkersClusteringVM = viewModel()
 
-        MarkersClusteringCommonUi(screenModel)
+        MarkersClusteringCommonUi(viewModel)
     }
 }

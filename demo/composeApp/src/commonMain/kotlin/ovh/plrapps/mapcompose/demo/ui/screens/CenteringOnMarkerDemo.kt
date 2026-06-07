@@ -18,13 +18,13 @@ expect object CenteringOnMarkerDemo {
 }
 
 @Composable
-fun CenteringOnMarkerCommonUi(screenModel: CenteringOnMarkerVM) {
-    val onCenter: () -> Unit = screenModel::onCenter
+fun CenteringOnMarkerCommonUi(viewModel: CenteringOnMarkerVM) {
+    val onCenter: () -> Unit = viewModel::onCenter
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
-            Modifier.weight(2f),
-            state = screenModel.state
+            Modifier.weight(1f),
+            state = viewModel.state
         )
         Button(onClick = {
             onCenter()

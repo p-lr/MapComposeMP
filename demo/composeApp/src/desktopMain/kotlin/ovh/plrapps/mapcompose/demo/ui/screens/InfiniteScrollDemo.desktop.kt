@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.viewmodels.InfiniteScrollVM
 actual object InfiniteScrollDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { InfiniteScrollVM() }
+        val viewModel = viewModel { InfiniteScrollVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            InfiniteScrollDemoCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            InfiniteScrollDemoCommonUi(viewModel)
         }
     }
 }

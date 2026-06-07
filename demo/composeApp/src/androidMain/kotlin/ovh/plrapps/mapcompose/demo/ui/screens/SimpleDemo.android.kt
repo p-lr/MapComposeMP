@@ -10,13 +10,13 @@ actual object MapDemoSimple {
     @Composable
     actual fun Content() {
         val appContext = LocalContext.current.applicationContext
-        val screenModel = viewModel {
+        val viewModel = viewModel {
             /* For best performance, use a platform specific impl which return streams of tiles
              * The difference can be seen when profiling memory usage from AS with low overhead,
              * when comparing with SimpleDemoVM() */
             SimpleDemoVM(makeResTileStreamProvider(appContext, "mont_blanc_layered"))
         }
 
-        MapSimpleCommonUi(screenModel)
+        MapSimpleCommonUi(viewModel)
     }
 }

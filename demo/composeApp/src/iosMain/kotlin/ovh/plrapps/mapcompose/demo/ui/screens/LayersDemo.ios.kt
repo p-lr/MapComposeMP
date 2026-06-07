@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.LayersVM
 actual object LayersDemoSimple {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { LayersVM() }
+        val viewModel = viewModel { LayersVM() }
 
-        LayersCommonUi(screenModel)
+        LayersCommonUi(viewModel)
     }
 }

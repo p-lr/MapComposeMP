@@ -19,13 +19,13 @@ expect object AnimationDemo {
 }
 
 @Composable
-fun AnimationCommonUi(screenModel: AnimationDemoVM) {
-    val onRestart: () -> Unit = screenModel::startAnimation
+fun AnimationCommonUi(viewModel: AnimationDemoVM) {
+    val onRestart: () -> Unit = viewModel::startAnimation
 
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
-            Modifier.weight(2f),
-            state = screenModel.state
+            Modifier.weight(1f),
+            state = viewModel.state
         )
         Button(onClick = {
             onRestart()

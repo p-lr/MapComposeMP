@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.MarkersLazyLoadingVM
 actual object MarkersLazyLoadingDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { MarkersLazyLoadingVM() }
+        val viewModel = viewModel { MarkersLazyLoadingVM() }
 
-        MarkersLazyLoadingCommonUi(screenModel)
+        MarkersLazyLoadingCommonUi(viewModel)
     }
 }

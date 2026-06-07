@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 actual object HttpTilesDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { HttpTilesVM() }
+        val viewModel = viewModel { HttpTilesVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            HttpTilesCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            HttpTilesCommonUi(viewModel)
         }
     }
 }

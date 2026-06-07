@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.HttpTilesVM
 actual object HttpTilesDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { HttpTilesVM() }
+        val viewModel = viewModel { HttpTilesVM() }
 
-        HttpTilesCommonUi(screenModel)
+        HttpTilesCommonUi(viewModel)
     }
 }

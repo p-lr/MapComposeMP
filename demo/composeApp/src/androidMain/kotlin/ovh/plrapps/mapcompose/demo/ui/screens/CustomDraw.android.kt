@@ -10,8 +10,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.CustomDrawVM
 actual object CustomDraw {
     @Composable
     actual fun Content() {
-        val screenModel: CustomDrawVM = viewModel()
+        val viewModel: CustomDrawVM = viewModel()
 
-        CustomDrawCommonUi(screenModel)
+        CustomDrawCommonUi(viewModel)
     }
 }

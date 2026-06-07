@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 actual object MarkersLazyLoadingDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { MarkersLazyLoadingVM() }
+        val viewModel = viewModel { MarkersLazyLoadingVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            MarkersLazyLoadingCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            MarkersLazyLoadingCommonUi(viewModel)
         }
     }
 }

@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 actual object CalloutDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { CalloutVM() }
+        val viewModel = viewModel { CalloutVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            CalloutCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            CalloutCommonUi(viewModel)
         }
     }
 }

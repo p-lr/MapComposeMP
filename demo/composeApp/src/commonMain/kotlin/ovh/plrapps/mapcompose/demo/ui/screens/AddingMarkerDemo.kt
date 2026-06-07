@@ -16,15 +16,15 @@ expect object AddingMarkerDemo {
 }
 
 @Composable
-fun AddingMarkerCommonUi(screenModel: AddingMarkerVM) {
+fun AddingMarkerCommonUi(viewModel: AddingMarkerVM) {
     Column(Modifier.fillMaxSize().navigationBarsPadding()) {
         MapUI(
-            Modifier.weight(2f),
-            state = screenModel.state
+            Modifier.weight(1f),
+            state = viewModel.state
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = {
-                screenModel.addMarker()
+                viewModel.addMarker()
             }, Modifier.padding(8.dp)) {
                 Text(text = "Add marker")
             }

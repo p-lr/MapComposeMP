@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.VisibleAreaPaddingVM
 actual object VisibleAreaPaddingDemo {
     @Composable
     actual fun Content() {
-        val screenModel: VisibleAreaPaddingVM = viewModel()
+        val viewModel: VisibleAreaPaddingVM = viewModel()
 
-        VisibleAreaPaddingCommonUi(screenModel)
+        VisibleAreaPaddingCommonUi(viewModel)
     }
 }

@@ -8,10 +8,10 @@ import ovh.plrapps.mapcompose.demo.ui.MapWithZoomControl
 actual object CenteringOnMarkerDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { CenteringOnMarkerVM() }
+        val viewModel = viewModel { CenteringOnMarkerVM() }
 
-        MapWithZoomControl(state = screenModel.state) {
-            CenteringOnMarkerCommonUi(screenModel)
+        MapWithZoomControl(state = viewModel.state) {
+            CenteringOnMarkerCommonUi(viewModel)
         }
     }
 }

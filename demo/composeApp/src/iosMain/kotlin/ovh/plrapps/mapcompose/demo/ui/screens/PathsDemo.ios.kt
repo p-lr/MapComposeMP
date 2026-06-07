@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.PathsVM
 actual object PathsDemo {
     @Composable
     actual fun Content() {
-        val screenModel = viewModel { PathsVM() }
+        val viewModel = viewModel { PathsVM() }
 
-        PathsCommonUi(screenModel)
+        PathsCommonUi(viewModel)
     }
 }

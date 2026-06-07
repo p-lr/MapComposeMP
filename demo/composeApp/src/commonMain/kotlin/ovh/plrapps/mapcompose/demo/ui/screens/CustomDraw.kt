@@ -40,40 +40,40 @@ expect object CustomDraw {
 }
 
 @Composable
-fun CustomDrawCommonUi(screenModel: CustomDrawVM) {
+fun CustomDrawCommonUi(viewModel: CustomDrawVM) {
     Box {
-        MapUI(Modifier, state = screenModel.state) {
+        MapUI(Modifier, state = viewModel.state) {
             Square(
                 modifier = Modifier,
-                mapState = screenModel.state,
+                mapState = viewModel.state,
                 position = Offset(
-                    screenModel.state.fullSize.width / 2f - 300f,
-                    screenModel.state.fullSize.height / 2f - 300f
+                    viewModel.state.fullSize.width / 2f - 300f,
+                    viewModel.state.fullSize.height / 2f - 300f
                 ),
                 color = Color(0xff5c6bc0),
                 isScaling = true
             )
             Square(
                 modifier = Modifier,
-                mapState = screenModel.state,
+                mapState = viewModel.state,
                 position = Offset(
-                    screenModel.state.fullSize.width / 2f,
-                    screenModel.state.fullSize.height / 2f
+                    viewModel.state.fullSize.width / 2f,
+                    viewModel.state.fullSize.height / 2f
                 ),
                 color = Color(0xff087f23),
                 isScaling = false
             )
             Line(
                 modifier = Modifier,
-                mapState = screenModel.state,
+                mapState = viewModel.state,
                 color = Color(0xAAF44336),
-                p1 = with(screenModel) {
+                p1 = with(viewModel) {
                     Offset(
                         (p1x * state.fullSize.width).toFloat(),
                         (p1y * state.fullSize.height).toFloat()
                     )
                 },
-                p2 = with(screenModel) {
+                p2 = with(viewModel) {
                     Offset(
                         (p2x * state.fullSize.width).toFloat(),
                         (p2y * state.fullSize.height).toFloat()
@@ -82,7 +82,7 @@ fun CustomDrawCommonUi(screenModel: CustomDrawVM) {
             )
         }
         ScaleIndicator(
-            controller = screenModel.scaleIndicatorController,
+            controller = viewModel.scaleIndicatorController,
             lineColor = Color.Black
         )
     }
@@ -93,9 +93,10 @@ fun ScaleIndicator(
     controller: ScaleIndicatorController,
     lineColor: Color
 ) {
-    Box(Modifier
-        .safeDrawingPadding()
-        .height(50.dp)
+    Box(
+        Modifier
+            .safeDrawingPadding()
+            .height(50.dp)
     ) {
         Canvas(
             modifier = Modifier
@@ -165,7 +166,7 @@ class ScaleIndicatorController(val widthPx: Int, initScale: Double) {
      * Computes the distance in meters, given a size in pixels.
      */
     private fun distanceForPx(nPx: Int, scale: Double): Int {
-        // TODO: This a simplified calculation
+        // This a simplified calculation for demo purpose
         return (widthPx * 5 / scale).toInt()
     }
 

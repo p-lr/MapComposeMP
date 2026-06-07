@@ -10,9 +10,8 @@ actual object AddingMarkerDemo {
         /* On Android the default factory can instantiate the ViewModel reflectively, so the
          * no-arg viewModel() works. Non-Android targets (iOS/desktop) have no such factory and
          * must build the instance explicitly via viewModel { AddingMarkerVM() }. */
-        val screenModel: AddingMarkerVM = viewModel()
+        val viewModel: AddingMarkerVM = viewModel()
 
-        AddingMarkerCommonUi(screenModel)
+        AddingMarkerCommonUi(viewModel)
     }
-
 }

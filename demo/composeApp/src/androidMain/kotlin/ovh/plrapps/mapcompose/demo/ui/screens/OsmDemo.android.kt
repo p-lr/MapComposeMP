@@ -7,8 +7,8 @@ import ovh.plrapps.mapcompose.demo.viewmodels.OsmVM
 actual object OsmDemo {
     @Composable
     actual fun Content() {
-        val screenModel: OsmVM = viewModel()
+        val viewModel: OsmVM = viewModel()
 
-        OsmCommonUi(screenModel)
+        OsmCommonUi(viewModel)
     }
 }

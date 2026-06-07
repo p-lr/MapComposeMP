@@ -13,11 +13,8 @@ expect object CalloutDemo {
 }
 
 @Composable
-fun CalloutCommonUi(screenModel: CalloutVM) {
+fun CalloutCommonUi(viewModel: CalloutVM) {
     Column(Modifier.fillMaxSize()) {
-        MapUI(
-            Modifier.weight(2f),
-            state = screenModel.state
-        )
+        MapUI(state = viewModel.state)
     }
 }
