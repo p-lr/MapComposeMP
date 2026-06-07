@@ -101,7 +101,6 @@ class TileCollectorTest {
                 visibleTileLocationsChannel.send(spec)
             }
         }
-        Unit
     }
 
     private fun makeTile(): Buffer {

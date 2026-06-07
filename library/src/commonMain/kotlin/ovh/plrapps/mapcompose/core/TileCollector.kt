@@ -201,7 +201,7 @@ internal class TileCollector(
         }
     }
 
-    private val workerDispatcher = IODispatcher.limitedParallelism(workerCount)
+    private val workerDispatcher = IODispatcher.limitedParallelism(workerCount, "tileCollector")
 }
 
 internal expect fun makeWorkerData(): WorkerData

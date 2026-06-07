@@ -28,6 +28,8 @@ kotlin {
             compileTaskProvider.get().compilerOptions {
                 freeCompilerArgs.addAll(
                     "-Xexpect-actual-classes",
+                    "-opt-in=kotlinx.coroutines.FlowPreview",
+                    "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
                 )
             }
         }
@@ -63,8 +65,6 @@ kotlin {
 
     wasmJs {
         browser()
-        nodejs()
-        d8()
     }
 
     sourceSets {

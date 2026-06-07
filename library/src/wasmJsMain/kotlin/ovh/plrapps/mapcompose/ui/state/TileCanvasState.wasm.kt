@@ -22,7 +22,7 @@ internal actual fun performRecycle(bitmap: ImageBitmap) {
  */
 internal actual fun tileCanvasDispatcher(): CloseableCoroutineDispatcher =
     object : CloseableCoroutineDispatcher() {
-        private val delegate = Dispatchers.Default.limitedParallelism(1)
+        private val delegate = Dispatchers.Default.limitedParallelism(1, "tileCanvas")
         override fun dispatch(context: CoroutineContext, block: Runnable) {
             delegate.dispatch(context, block)
         }
