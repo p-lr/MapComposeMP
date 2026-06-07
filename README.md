@@ -253,12 +253,20 @@ viewModelScope.launch {
 
 For a detailed example, see the "AnimationDemo".
 
-## Differences with Android native MapCompose
+## Migrating from Android native MapCompose
 
-The api is mostly the same as the native library. There's one noticeable difference:
+Migrating is straightforward because the package name and apis are the same, except for one:
 `TileStreamProvider` returns `RawSource` instead of `InputStream`.
 
-All other apis are the same, so migration is straightforward.
+To convert a java's InputStream to a `RawSource`, use `asSource()` as shown in the example at the
+beginning of the readme.
+If you're using Okio's FileSystem, then you can use bridge methods by adding this to your dependencies:
+
+```gradle
+implementation("org.jetbrains.kotlinx:kotlinx-io-okio")
+```
+
+You can then convert an Okio's `Source` to a `RawSource` using `asKotlinxIoRawSource()`.
 
 ## Contributors
 
