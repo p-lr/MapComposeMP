@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Velocity
 import kotlinx.coroutines.CoroutineScope
+import ovh.plrapps.mapcompose.ui.gestures.detectMouseWheelGesture
 import ovh.plrapps.mapcompose.ui.gestures.detectTransformGestures
 import ovh.plrapps.mapcompose.ui.gestures.detectTapGestures
 
@@ -64,6 +65,12 @@ internal fun ZoomPanRotate(
                     }
                 )
             }
+            .pointerInput(gestureListener.isListeningForGestures()) {
+                if (!gestureListener.isListeningForGestures()) return@pointerInput
+                detectMouseWheelGesture { scaleRatio, centroid ->
+                    gestureListener.onMouseWheelZoom(scaleRatio, centroid)
+                }
+            }
             .onSizeChanged {
                 layoutSizeChangeListener.onSizeChanged(scope, it)
             }
@@ -86,6 +93,7 @@ internal fun ZoomPanRotate(
 
 internal interface GestureListener {
     fun onScaleRatio(scaleRatio: Double, centroid: Offset)
+    fun onMouseWheelZoom(scaleRatio: Double, centroid: Offset)
     fun onRotationDelta(rotationDelta: Float)
     fun onScrollDelta(scrollDelta: Offset)
     fun onFling(flingSpec: DecayAnimationSpec<Offset>, velocity: Velocity)

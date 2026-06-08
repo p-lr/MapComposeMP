@@ -105,6 +105,8 @@ internal class ZoomPanRotateState(
 
     private val doubleTapSpec =
         TweenSpec<Float>(durationMillis = 300, easing = LinearOutSlowInEasing)
+    private val wheelZoomSpec =
+        TweenSpec<Float>(durationMillis = 300, easing = LinearOutSlowInEasing)
     private val flingZoomSpec =
         FloatExponentialDecaySpec(
             frictionMultiplier = gestureConfiguration.flingZoomFriction
@@ -285,13 +287,13 @@ internal class ZoomPanRotateState(
     ): Boolean {
         val destScaleCst = constrainScale(destScale)
         val startScale = scale
-        if (startScale == destScale) return true
+        if (startScale == destScaleCst) return true
         val startScrollX = scrollX
         val startScrollY = scrollY
         val destScrollX = getScrollAtOffsetAndScale(startScrollX, focusX, destScaleCst / startScale)
         val destScrollY = getScrollAtOffsetAndScale(startScrollY, focusY, destScaleCst / startScale)
 
-        return smoothScrollScaleRotate(destScrollX, destScrollY, destScale, animationSpec)
+        return smoothScrollScaleRotate(destScrollX, destScrollY, destScaleCst, animationSpec)
     }
 
     /**
@@ -331,6 +333,23 @@ internal class ZoomPanRotateState(
             scrollX = getScrollAtOffsetAndScale(scrollX, centroidRotated.x, effectiveScaleRatio),
             scrollY = getScrollAtOffsetAndScale(scrollY, centroidRotated.y, effectiveScaleRatio)
         )
+    }
+
+    override fun onMouseWheelZoom(scaleRatio: Double, centroid: Offset) {
+        if (!isZoomingEnabled) return
+
+        val destScale = scale * scaleRatio
+        val angleRad = -rotation.toRad()
+        val focalPtRotated = rotateFocalPoint(centroid, angleRad)
+
+        scope?.launch {
+            smoothScaleWithFocalPoint(
+                focalPtRotated.x,
+                focalPtRotated.y,
+                destScale,
+                wheelZoomSpec
+            )
+        }
     }
 
     private fun getScrollAtOffsetAndScale(scroll: Double, offSet: Float, scaleRatio: Double): Double {
