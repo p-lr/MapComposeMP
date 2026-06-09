@@ -27,7 +27,7 @@ fun MapWithZoomControl(state: MapState, content: @Composable () -> Unit) {
         content()
         Column(modifier = Modifier
             .align(Alignment.TopEnd)
-            .padding(top = 10.dp, end = 10.dp),
+            .padding(top = 50.dp, end = 50.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             FloatingActionButton(

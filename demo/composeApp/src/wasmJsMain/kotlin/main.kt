@@ -12,12 +12,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.window.ComposeViewport
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.rememberNavController
 import ovh.plrapps.mapcompose.demo.ui.MainDestinations
@@ -26,9 +25,8 @@ import ovh.plrapps.mapcompose.demo.ui.demoDestinations
 import ovh.plrapps.mapcompose.demo.ui.theme.DemoTheme
 
 @Composable
-@Preview
-fun desktopApp() {
-    DemoTheme {
+fun WasmApp() {
+    DemoTheme(false) {
         val navController = rememberNavController()
         Row {
             Column(modifier = Modifier.width(250.dp)) {
@@ -72,9 +70,11 @@ private fun Menu(onNavigate: (route: Any) -> Unit) {
     }
 }
 
-// To run the desktop demo run this command in terminal: ./gradlew :demo:composeApp:run
-fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "MapComposeMP demo") {
-        desktopApp()
+// To run the wasmJs demo in a browser:
+// ./gradlew :demo:composeApp:wasmJsBrowserDevelopmentRun
+@OptIn(ExperimentalComposeUiApi::class)
+fun main() {
+    ComposeViewport(viewportContainerId = "composeApplication") {
+        WasmApp()
     }
 }
