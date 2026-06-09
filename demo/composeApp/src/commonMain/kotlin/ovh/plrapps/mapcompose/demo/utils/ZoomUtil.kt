@@ -12,8 +12,8 @@ suspend fun zoomIn(state: MapState)  {
     state.scrollTo(
         state.centroidX,
         state.centroidY,
-        state.scale * 1.5f,
-        TweenSpec(800, easing = FastOutSlowInEasing)
+        state.scale * 2f,
+        TweenSpec(ANIM_DURATION, easing = FastOutSlowInEasing)
     )
 }
 
@@ -21,7 +21,9 @@ suspend fun zoomOut(state: MapState)  {
     state.scrollTo(
         state.centroidX,
         state.centroidY,
-        state.scale / 1.5f,
-        TweenSpec(800, easing = FastOutSlowInEasing)
+        state.scale / 2f,
+        TweenSpec(ANIM_DURATION, easing = FastOutSlowInEasing)
     )
 }
+
+private const val ANIM_DURATION = 300
