@@ -119,7 +119,7 @@ The `MapState` class expects three parameters for its construction:
 
 ### Layers
 
-MapCompose supports layers - e.g it's possible to add several tile pyramids. Each level is made of
+MapCompose supports layers - i.e. it's possible to add several tile pyramids. Each level is made of
 the superposition of tiles from all pyramids at the given level. For example, at the second level
 (starting from the lowest scale), tiles would look like the image below when three layers are added.
 
@@ -216,14 +216,13 @@ The demo app shows a complete example.
 
 ## Animate state change
 
-It's pretty common to programmatically animate the scroll and/or the scale, or even the rotation of
+It's possible to programmatically animate the scroll and/or the scale, or even the rotation of
 the map.
 
 *scroll and/or scale animation*
 
-When animating the scale, we generally do so while maintaining the center of the screen at
-a specific position. Likewise, when animating the scroll position, we can do so with or without
-animating the scale altogether, using [scrollTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L299)
+When animating the scale, the screen center is generally held at a fixed position. The scroll 
+position can likewise be animated, with or without also animating the scale, using [scrollTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L299)
 and [snapScrollTo](https://github.com/p-lr/MapComposeMP/blob/c5480ef10d0d8506ab55e58c3069877865c14aaa/library/src/commonMain/kotlin/ovh/plrapps/mapcompose/api/LayoutApi.kt#L269).
 
 *rotation animation*
