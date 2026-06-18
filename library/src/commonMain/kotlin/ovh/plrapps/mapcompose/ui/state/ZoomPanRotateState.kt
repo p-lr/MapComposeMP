@@ -1,18 +1,53 @@
 package ovh.plrapps.mapcompose.ui.state
 
-import androidx.compose.animation.core.*
-import androidx.compose.runtime.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.AnimationVector2D
+import androidx.compose.animation.core.DecayAnimationSpec
+import androidx.compose.animation.core.FloatExponentialDecaySpec
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.TweenSpec
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.generateDecayAnimationSpec
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.Velocity
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import ovh.plrapps.mapcompose.core.GestureConfiguration
-import ovh.plrapps.mapcompose.ui.layout.*
-import ovh.plrapps.mapcompose.utils.*
+import ovh.plrapps.mapcompose.ui.layout.Fill
+import ovh.plrapps.mapcompose.ui.layout.Fit
+import ovh.plrapps.mapcompose.ui.layout.Forced
+import ovh.plrapps.mapcompose.ui.layout.GestureListener
+import ovh.plrapps.mapcompose.ui.layout.LayoutSizeChangeListener
+import ovh.plrapps.mapcompose.ui.layout.MinimumScaleMode
+import ovh.plrapps.mapcompose.utils.AngleDegree
+import ovh.plrapps.mapcompose.utils.AngleRad
+import ovh.plrapps.mapcompose.utils.lerp
+import ovh.plrapps.mapcompose.utils.modulo
+import ovh.plrapps.mapcompose.utils.rotateCenteredX
+import ovh.plrapps.mapcompose.utils.rotateCenteredY
+import ovh.plrapps.mapcompose.utils.toRad
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import kotlin.math.*
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.ln
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.time.TimeSource
 
 internal class ZoomPanRotateState(
@@ -54,6 +89,8 @@ internal class ZoomPanRotateState(
     internal var isScrollingEnabled by mutableStateOf(true)
     internal var isZoomingEnabled by mutableStateOf(true)
     internal var isFlingZoomEnabled by mutableStateOf(true)
+    internal var isMouseWheelZoomEnabled by mutableStateOf(true)
+    internal var mouseWheelZoomFactor by mutableStateOf(1.5)
 
     /* Single source of truth. Don't mutate directly, use appropriate setScale(), setRotation(), etc. */
     internal var scale by mutableDoubleStateOf(scale)

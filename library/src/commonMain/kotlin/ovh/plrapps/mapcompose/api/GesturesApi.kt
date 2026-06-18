@@ -76,6 +76,28 @@ fun MapState.disableFlingZoom() {
 }
 
 /**
+ * Enables mouse wheel zoom. Enabled by default.
+ */
+fun MapState.enableMouseWheelZoom() {
+    zoomPanRotateState.isMouseWheelZoomEnabled = true
+}
+
+/**
+ * Disables mouse wheel zoom/
+ */
+fun MapState.disableMouseWheelZoom() {
+    zoomPanRotateState.isMouseWheelZoomEnabled = false
+}
+
+/**
+ * Set the mouse wheel sensitivity.
+ * This should be greater than 1.0, with a default value of 1.5
+ */
+fun MapState.setMouseWheelZoomFactor(factor: Double) {
+    zoomPanRotateState.mouseWheelZoomFactor = factor
+}
+
+/**
  * Registers a tap callback for tap gestures. The callback is invoked with the relative coordinates
  * of the tapped point on the map.
  * Note: the tap gesture is detected only after the [ViewConfiguration.doubleTapMinTimeMillis] has

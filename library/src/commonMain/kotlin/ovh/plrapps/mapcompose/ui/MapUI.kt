@@ -9,6 +9,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotate
+import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotateConfig
 import ovh.plrapps.mapcompose.ui.markers.MarkerComposer
 import ovh.plrapps.mapcompose.ui.paths.PathComposer
 import ovh.plrapps.mapcompose.ui.state.MapState
@@ -34,6 +35,12 @@ fun MapUI(
             modifier = modifier
                 .clipToBounds()
                 .background(state.mapBackground),
+            config = object : ZoomPanRotateConfig {
+                override val mouseWheelZoomFactor: Double
+                    get() = state.zoomPanRotateState.mouseWheelZoomFactor
+                override val isListeningForMouseWheel: Boolean
+                    get() = state.zoomPanRotateState.isMouseWheelZoomEnabled
+            },
             gestureListener = zoomPRState,
             layoutSizeChangeListener = zoomPRState,
         ) {

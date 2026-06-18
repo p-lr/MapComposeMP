@@ -22,6 +22,7 @@ internal fun ZoomPanRotate(
     modifier: Modifier = Modifier,
     gestureListener: GestureListener,
     layoutSizeChangeListener: LayoutSizeChangeListener,
+    config: ZoomPanRotateConfig,
     content: @Composable () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -65,9 +66,12 @@ internal fun ZoomPanRotate(
                     }
                 )
             }
-            .pointerInput(gestureListener.isListeningForGestures()) {
-                if (!gestureListener.isListeningForGestures()) return@pointerInput
-                detectMouseWheelGesture { scaleRatio, centroid ->
+            .pointerInput(
+                key1 = config.isListeningForMouseWheel,
+                key2 = config.mouseWheelZoomFactor
+            ) {
+                if (!config.isListeningForMouseWheel) return@pointerInput
+                detectMouseWheelGesture(config.mouseWheelZoomFactor) { scaleRatio, centroid ->
                     gestureListener.onMouseWheelZoom(scaleRatio, centroid)
                 }
             }
@@ -89,6 +93,11 @@ internal fun ZoomPanRotate(
             }
         }
     }
+}
+
+internal interface ZoomPanRotateConfig {
+    val isListeningForMouseWheel: Boolean
+    val mouseWheelZoomFactor: Double
 }
 
 internal interface GestureListener {
