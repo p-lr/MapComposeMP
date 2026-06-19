@@ -90,7 +90,7 @@ internal class ZoomPanRotateState(
     internal var isZoomingEnabled by mutableStateOf(true)
     internal var isFlingZoomEnabled by mutableStateOf(true)
     internal var isMouseWheelZoomEnabled by mutableStateOf(true)
-    internal var mouseWheelZoomFactor by mutableStateOf(1.5)
+    internal var mouseWheelZoomFactor by mutableStateOf(2.0)
 
     /* Single source of truth. Don't mutate directly, use appropriate setScale(), setRotation(), etc. */
     internal var scale by mutableDoubleStateOf(scale)

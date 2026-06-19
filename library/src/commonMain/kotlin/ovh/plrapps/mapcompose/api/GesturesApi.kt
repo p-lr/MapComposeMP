@@ -91,7 +91,8 @@ fun MapState.disableMouseWheelZoom() {
 
 /**
  * Set the mouse wheel sensitivity.
- * This should be greater than 1.0, with a default value of 1.5
+ * Each mouse wheel tick multiplies or divides the current scale by the provided [factor].
+ * This should be greater than 1.0, with a default value of 2.0
  */
 fun MapState.setMouseWheelZoomFactor(factor: Double) {
     zoomPanRotateState.mouseWheelZoomFactor = factor
