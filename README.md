@@ -3,7 +3,7 @@
 
 🎉 News
 
-Version `1.0.0` is finally released. The codebase has been entirely reviewed to ensure nothing is
+The library is finally stable. The codebase has been entirely reviewed to ensure nothing is
 left behind compared to the Android native version.
 MapComposeMP provides the same apis and features the native library does.
 
@@ -75,7 +75,7 @@ Add this to your commonMain dependencies:
 ```kotlin
 sourceSets {
   commonMain.dependencies {
-      implementation("ovh.plrapps:mapcompose-mp:0.13.2")
+      implementation("ovh.plrapps:mapcompose-mp:1.1.1")
   }
 }
 ```
