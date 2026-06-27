@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ovh.plrapps.mapcompose.core.ColorFilterProvider
@@ -65,6 +66,10 @@ internal class TileCanvasState(
     private val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
     private val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
     private val visibleStateFlow = MutableStateFlow<VisibleState?>(null)
+    internal val visibleTiles = visibleStateFlow.asStateFlow().map {
+        it?.visibleTiles
+    }
+
     internal var alphaTick = 0.07f
         set(value) {
             field = value.coerceIn(0.01f, 1f)

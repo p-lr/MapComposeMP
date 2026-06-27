@@ -11,11 +11,13 @@ jetbrains-compose = "1.11.1"      # JetBrains Compose (KMP)
 compose = "1.11.2"                # AndroidX Compose (Android-only)
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
+pbandk = "0.16.0"
+kotlinx-datetime = "0.6.2"
+kotlinx-serialization = "1.11.0"
 
 # ---- Demo ----
 jetbrains-compose-material3 = "1.9.0"
 ktor = "3.4.3"
-kotlinx-serialization = "1.11.0"
 jetbrains-navigation = "2.9.2"
 jetbrains-lifecycle = "2.11.0-beta01"
 androidx-activityCompose = "1.13.0"
@@ -30,12 +32,16 @@ jetbrains-compose-foundation = { module = "org.jetbrains.compose.foundation:foun
 jetbrains-compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "jetbrains-compose" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+pbandk-runtime = { group = "pro.streem.pbandk", name = "pbandk-runtime", version.ref = "pbandk" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 # -- Android --
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling", version.ref = "compose" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview", version.ref = "compose" }
 # -- Test --
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "jetbrains-compose" }
 
 # ============================== Demo ==============================
 # Dependencies the demo app adds on top of what the library already needs.
@@ -50,6 +56,7 @@ jetbrains-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifec
 kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
 # -- Android --
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
+androidx-core = { module = "androidx.core:core-ktx", version = "1.19.0" }
 ktor-client-android = { module = "io.ktor:ktor-client-android", version.ref = "ktor" }
 # -- iOS --
 ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
@@ -69,7 +76,7 @@ vanniktechPublish = { id = "com.vanniktech.maven.publish", version = "0.36.0" }
 # Declared `apply false` in the root build but not applied by any module:
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
 kotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 
 # ---- Demo ----
 androidApplication = { id = "com.android.application", version.ref = "agp" }
-kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
