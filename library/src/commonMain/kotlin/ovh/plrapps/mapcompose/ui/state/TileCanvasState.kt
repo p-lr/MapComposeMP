@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ovh.plrapps.mapcompose.core.ColorFilterProvider
@@ -84,6 +85,10 @@ internal class TileCanvasState(
 
     internal fun setFadeInDuration(value: Int) {
         fadeInDuration = value.coerceAtLeast(0)
+    }
+
+    internal val visibleTiles = visibleStateFlow.asStateFlow().map {
+        it?.visibleTiles
     }
     internal var colorFilterProvider: ColorFilterProvider? by mutableStateOf(null)
     private val recycleChannel = Channel<Tile>(Channel.UNLIMITED)
