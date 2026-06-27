@@ -7,12 +7,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.zIndex
 import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotate
 import ovh.plrapps.mapcompose.ui.layout.ZoomPanRotateConfig
 import ovh.plrapps.mapcompose.ui.markers.MarkerComposer
 import ovh.plrapps.mapcompose.ui.paths.PathComposer
 import ovh.plrapps.mapcompose.ui.state.MapState
+import ovh.plrapps.mapcompose.vector.ui.symbols.SymbolComposer
 import ovh.plrapps.mapcompose.ui.view.TileCanvas
 
 @Composable
@@ -22,12 +25,21 @@ fun MapUI(
     content: @Composable () -> Unit = {}
 ) {
     val zoomPRState = state.zoomPanRotateState
+    val symbolState = state.symbolState
     val markerState = state.markerRenderState
     val pathState = state.pathState
 
     val density = LocalDensity.current
     remember(density) {
         state.densityState.value = density
+    }
+    val fontFamilyResolver = LocalFontFamilyResolver.current
+    remember(fontFamilyResolver) {
+        state.fontFamilyResolverState.value = fontFamilyResolver
+    }
+    val textMeasurer = rememberTextMeasurer()
+    remember(textMeasurer) {
+        state.textMeasurerState.value = textMeasurer
     }
 
     key(state) {
@@ -53,6 +65,12 @@ fun MapUI(
                 colorFilterProvider = state.tileCanvasState.colorFilterProvider,
                 tilesToRender = state.tileCanvasState.tilesToRender,
                 isFilteringBitmap = state.isFilteringBitmap,
+            )
+
+            SymbolComposer(
+                modifier = Modifier,
+                zoomPRState = zoomPRState,
+                symbolState = symbolState
             )
 
             MarkerComposer(

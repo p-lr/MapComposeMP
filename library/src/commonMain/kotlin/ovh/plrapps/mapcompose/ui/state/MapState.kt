@@ -6,6 +6,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +25,7 @@ import ovh.plrapps.mapcompose.ui.state.markers.MarkerRenderState
 import ovh.plrapps.mapcompose.ui.state.markers.MarkerState
 import ovh.plrapps.mapcompose.utils.AngleDegree
 import ovh.plrapps.mapcompose.utils.toRad
+import ovh.plrapps.mapcompose.vector.ui.state.SymbolState
 
 /**
  * The state of the map. All public APIs are extensions functions or extension properties of this
@@ -62,6 +65,7 @@ class MapState(
     internal val markerRenderState = MarkerRenderState()
     internal val markerState = MarkerState(scope, markerRenderState)
     internal val pathState = PathState(fullWidth, fullHeight)
+    internal val symbolState = SymbolState()
     internal val visibleTilesResolver =
         VisibleTilesResolver(
             levelCount = levelCount,
@@ -73,6 +77,7 @@ class MapState(
         ) {
             zoomPanRotateState.scale
         }
+
     internal val tileCanvasState = TileCanvasState(
         scope,
         tileSize,
@@ -100,6 +105,8 @@ class MapState(
         applyLateInitialValues(initialValues)
     }
     internal val densityState = MutableStateFlow<Density?>(null)
+    internal val fontFamilyResolverState = MutableStateFlow<FontFamily.Resolver?>(null)
+    internal val textMeasurerState = MutableStateFlow<TextMeasurer?>(null)
 
     /**
      * Cancels all internal tasks.
@@ -167,6 +174,14 @@ class MapState(
     private suspend fun renderVisibleTiles() {
         val viewport = updateViewport()
         tileCanvasState.setViewport(viewport)
+        for (listener in viewportListeners) {
+            listener.onViewportChanged(viewport)
+        }
+    }
+
+    private var viewportListeners = mutableListOf<ViewportListener>()
+    internal fun addViewportChangeListener(listener: ViewportListener) {
+        viewportListeners.add(listener)
     }
 
     private fun updateViewport(): Viewport {
@@ -336,5 +351,9 @@ class InitialValues internal constructor() {
 }
 
 internal typealias LayoutTapCb = (x: Double, y: Double) -> Unit
+
+internal fun interface ViewportListener {
+    fun onViewportChanged(viewport: Viewport)
+}
 
 expect fun getProcessorCount(): Int
