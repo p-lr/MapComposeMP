@@ -1,0 +1,42 @@
+package ovh.plrapps.mapcompose.vector.renderer
+
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.spec.style.Layer
+
+abstract class BaseLayerPainter<T : Layer> {
+    protected val geometryDecoders = GeometryDecoders()
+
+    abstract suspend fun paint(
+        canvas: DrawScope,
+        feature: Tile.Feature,
+        style: T,
+        canvasSize: Int,
+        extent: Int,
+        zoom: Double,
+        featureProperties: Map<String, Any?>?,
+        actualZoom: Double,
+        featureKey: String? = null
+    )
+
+    protected fun createPath(
+        feature: Tile.Feature,
+        canvasSize: Int,
+        extent: Int
+    ): Path? {
+        return when (feature.type) {
+            Tile.GeomType.POLYGON -> {
+                val rings = geometryDecoders.decodePolygon(feature.geometry, canvasSize = canvasSize, extent = extent)
+                if (rings.isNotEmpty()) {
+                    geometryDecoders.createPolygonPath(rings)
+                } else null
+            }
+            Tile.GeomType.LINESTRING -> geometryDecoders.createLineStringPath(
+                geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent).flatten()
+            )
+            Tile.GeomType.POINT -> null // TODO: Implement point rendering
+            else -> null
+        }
+    }
+} 
