@@ -2,9 +2,18 @@
 
 package ovh.plrapps.mapcompose.api
 
-import ovh.plrapps.mapcompose.core.*
+import ovh.plrapps.mapcompose.core.AboveAll
+import ovh.plrapps.mapcompose.core.AboveLayer
+import ovh.plrapps.mapcompose.core.BelowAll
+import ovh.plrapps.mapcompose.core.BelowLayer
+import ovh.plrapps.mapcompose.core.Layer
+import ovh.plrapps.mapcompose.core.LayerPlacement
+import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.vector.core.VectorTileStreamProvider
+import ovh.plrapps.mapcompose.core.makeLayerId
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.swap
+import ovh.plrapps.mapcompose.vector.core.VectorLayer
 
 
 /**
@@ -53,6 +62,17 @@ fun MapState.addLayer(
     setLayers(newLayers)
 
     return id
+}
+
+suspend fun MapState.addVectorLayer(
+    vectorTileStreamProvider: VectorTileStreamProvider,
+    initialOpacity: Float = 1f,
+    placement: LayerPlacement = AboveAll
+): String {
+    val vectorLayer = VectorLayer(mapState = this, vectorTileStreamProvider)
+    val tileStreamProvider = vectorLayer.makeTileStreamProvider()
+    // TODO: honor placement parameter
+    return addLayer(tileStreamProvider)
 }
 
 /**

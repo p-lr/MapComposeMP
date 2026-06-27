@@ -23,6 +23,8 @@ import ovh.plrapps.mapcompose.demo.ui.screens.MarkersLazyLoadingDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.OsmDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.PathsDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.RotationDemo
+import ovh.plrapps.mapcompose.demo.ui.screens.SwissMapVectorDemo
+import ovh.plrapps.mapcompose.demo.ui.screens.VectorDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.VisibleAreaPaddingDemo
 
 /* Type-safe navigation routes. Each demo screen and the home list has its own route object. */
@@ -42,6 +44,8 @@ import ovh.plrapps.mapcompose.demo.ui.screens.VisibleAreaPaddingDemo
 @Serializable object VisibleAreaPaddingRoute
 @Serializable object MarkersClusteringRoute
 @Serializable object MarkersLazyLoadingRoute
+@Serializable object VectorRoute
+@Serializable object SwissMapVectorRoute
 
 enum class MainDestinations(val title: String, val route: Any) {
     MAP_ALONE("Simple map", MapAlone),
@@ -58,7 +62,9 @@ enum class MainDestinations(val title: String, val route: Any) {
     HTTP_TILES_DEMO("Remote HTTP tiles", HttpTilesRoute),
     VISIBLE_AREA_PADDING("Visible area padding", VisibleAreaPaddingRoute),
     MARKERS_CLUSTERING("Markers clustering", MarkersClusteringRoute),
-    MARKERS_LAZY_LOADING("Markers lazy loading", MarkersLazyLoadingRoute);
+    MARKERS_LAZY_LOADING("Markers lazy loading", MarkersLazyLoadingRoute),
+    VECTOR_TILE("Vector tile ", VectorRoute),
+    SWISS_VECTOR_TILE("Swiss map vector tile", SwissMapVectorRoute);
 }
 
 /**
@@ -82,6 +88,8 @@ fun NavGraphBuilder.demoDestinations() {
     composable<VisibleAreaPaddingRoute> { VisibleAreaPaddingDemo.Content() }
     composable<MarkersClusteringRoute> { MarkersClusteringDemo.Content() }
     composable<MarkersLazyLoadingRoute> { MarkersLazyLoadingDemo.Content() }
+    composable<VectorRoute> { VectorDemo.Content() }
+    composable<SwissMapVectorRoute> { SwissMapVectorDemo.Content() }
 }
 
 /**

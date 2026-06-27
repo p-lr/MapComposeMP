@@ -10,6 +10,7 @@ plugins {
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.vanniktechPublish)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -72,13 +73,17 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.ui.tooling)
+            implementation(libs.androidx.core)
         }
         commonMain.dependencies {
             implementation(libs.jetbrains.compose.runtime)
             implementation(libs.jetbrains.compose.foundation)
             implementation(libs.jetbrains.compose.ui)
+            implementation(libs.components.resources)
             implementation(libs.kotlinx.coroutines)
             api(libs.kotlinx.io.core)
+            implementation(libs.pbandk.runtime)
+            implementation(libs.kotlinx.serialization.json)
         }
         named("skiaMain").configure {
             dependencies {
@@ -93,6 +98,9 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.kotlinx.datetime)
+
+            implementation(libs.compose.ui.test)
         }
     }
 }
