@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -27,7 +29,7 @@ class FillLayerPainter(
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         featureKey: String?
     ) {

@@ -1,5 +1,8 @@
 package ovh.plrapps.mapcompose.vector.spec.style
 
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
@@ -11,7 +14,6 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 import mapcompose_mp.library.generated.resources.Res
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
-import ovh.plrapps.mapcompose.vector.spec.style.props.Expr
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -105,12 +107,10 @@ class TestParseStyleBright {
         val landuseColor = landuseLayer.paint?.fillColor
         assertNotNull(landuseColor)
         assertTrue(landuseColor is ExpressionOrValue.Expression)
-        val interpolateExpr = landuseColor
-        assertTrue(interpolateExpr.expr is Expr.Interpolate)
-        val landuseStops = interpolateExpr.expr.stops
-        assertEquals(2, landuseStops.size)
-        assertEquals(Pair(12.0, Expr.Constant(Color.hsl(30f, 0.19f, 0.9f, 0.4f))), landuseStops[0])
-        assertEquals(Pair(16.0, Expr.Constant(Color.hsl(30f, 0.19f, 0.9f, 0.2f))), landuseStops[1])
+        // A zoom-driven interpolate: assert the values it produces at its own stops.
+        assertEquals(listOf(12.0, 16.0), landuseColor.expression.zoomStops)
+        assertEquals(Color.hsl(30f, 0.19f, 0.9f, 0.4f), landuseColor.processAsColor(zoom = 12.0))
+        assertEquals(Color.hsl(30f, 0.19f, 0.9f, 0.2f), landuseColor.processAsColor(zoom = 16.0))
 
         val waterwayLayer = layers.find { it.id == "waterway_tunnel" } as LineLayer
         assertNotNull(waterwayLayer)
@@ -121,12 +121,9 @@ class TestParseStyleBright {
         val lineWidth = waterwayLayer.paint?.lineWidth
         assertNotNull(lineWidth)
         assertTrue(lineWidth is ExpressionOrValue.Expression)
-        val lineWidthExpr = lineWidth
-        assertTrue(lineWidthExpr.expr is Expr.Interpolate)
-        val waterwayStops = lineWidthExpr.expr.stops
-        assertEquals(2, waterwayStops.size)
-        assertEquals(Pair(13.0, Expr.Constant(0.5)), waterwayStops[0])
-        assertEquals(Pair(20.0, Expr.Constant(6.0)), waterwayStops[1])
+        assertEquals(listOf(13.0, 20.0), lineWidth.expression.zoomStops)
+        assertEquals(0.5, lineWidth.processAsDouble(zoom = 13.0))
+        assertEquals(6.0, lineWidth.processAsDouble(zoom = 20.0))
 
         val lineColor = waterwayLayer.paint.lineColor?.process()
         assertEquals(Color(0xFFA0C8F0), lineColor)
