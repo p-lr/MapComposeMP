@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -29,7 +31,7 @@ class LineLayerPainter(
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         featureKey: String?
     ) {
@@ -53,7 +55,7 @@ class LineLayerPainter(
         if (path == null) return
 
         val lineColor =
-            paint.lineColor?.processAsColor(featureProperties = featureProperties, zoom = actualZoom) ?: Color.Black
+            paint.lineColor?.processAsColor(feature = featureProperties, zoom = actualZoom) ?: Color.Black
         val lineOpacity = paint.lineOpacity.processAsFloat(featureProperties, actualZoom) ?: 1f
         val lineWidth = paint.lineWidth.processAsFloat(featureProperties, actualZoom)?.let { it * canvas.density } ?: 1f
         val lineGapWidth = paint.lineGapWidth.processAsFloat(featureProperties, actualZoom) ?: 0f
@@ -309,8 +311,8 @@ class LineLayerPainter(
         )
     }
 
-    private fun getLineCap(layout: LineLayout?, actualZoom: Double, featureProperties: Map<String, Any?>?): StrokeCap {
-        return when (layout?.lineCap?.processAsString(featureProperties = featureProperties, zoom = actualZoom) ?: "butt") {
+    private fun getLineCap(layout: LineLayout?, actualZoom: Double, featureProperties: EvalFeature?): StrokeCap {
+        return when (layout?.lineCap?.processAsString(feature = featureProperties, zoom = actualZoom) ?: "butt") {
             "butt" -> StrokeCap.Butt
             "round" -> StrokeCap.Round
             "square" -> StrokeCap.Square
@@ -321,9 +323,9 @@ class LineLayerPainter(
     private fun getLineJoin(
         layout: LineLayout?,
         actualZoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: EvalFeature?
     ): StrokeJoin {
-        return when (layout?.lineJoin?.processAsString(featureProperties = featureProperties, zoom = actualZoom) ?: "miter") {
+        return when (layout?.lineJoin?.processAsString(feature = featureProperties, zoom = actualZoom) ?: "miter") {
             "bevel" -> StrokeJoin.Bevel
             "round" -> StrokeJoin.Round
             "miter" -> StrokeJoin.Miter
@@ -334,8 +336,8 @@ class LineLayerPainter(
     private fun getLineDashArray(
         paint: LinePaint,
         actualZoom: Double,
-        featureProperties: Map<String, Any?>?
+        featureProperties: EvalFeature?
     ): DoubleArray? {
-        return paint.lineDasharray.processAsDoubleList(featureProperties = featureProperties, zoom = actualZoom)?.toDoubleArray()
+        return paint.lineDasharray.processAsDoubleList(feature = featureProperties, zoom = actualZoom)?.toDoubleArray()
     }
 } 

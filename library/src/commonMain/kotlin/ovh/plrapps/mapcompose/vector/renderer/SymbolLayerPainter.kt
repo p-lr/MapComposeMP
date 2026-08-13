@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -216,7 +218,7 @@ class SymbolLayerPainter(
 
     private fun resolveIconOverlapMode(
         layout: SymbolLayout,
-        props: Map<String, Any?>?,
+        props: EvalFeature?,
         zoom: Double
     ): OverlapMode =
         layout.iconOverlap?.processAsString(props, zoom)?.let { v ->
@@ -229,7 +231,7 @@ class SymbolLayerPainter(
 
     private fun resolveTextOverlapMode(
         layout: SymbolLayout,
-        props: Map<String, Any?>?,
+        props: EvalFeature?,
         zoom: Double
     ): OverlapMode =
         layout.textOverlap?.processAsString(props, zoom)?.let { v ->
@@ -305,13 +307,13 @@ class SymbolLayerPainter(
 
     private fun subProcess(
         input: String,
-        featureProperties: Map<String, Any?>?
+        featureProperties: EvalFeature?
     ): String {
         return if (input.firstOrNull() == '{') {
             val matchResult = regexForSubProcess.find(input)
             if (matchResult != null) {
                 val key = matchResult.groupValues[1]
-                val propValue = featureProperties?.get(key)?.toString() ?: ""
+                val propValue = featureProperties?.properties?.get(key)?.toString() ?: ""
                 input.replace("{$key}", propValue)
             } else {
                 input
@@ -324,7 +326,7 @@ class SymbolLayerPainter(
     private fun produceSprite(
         placement: SymbolPlacement,
         style: SymbolLayer,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         zoom: Double,
         id: String,
@@ -455,7 +457,7 @@ class SymbolLayerPainter(
         id: String,
         placement: SymbolPlacement,
         style: SymbolLayer,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         zoom: Double,
         canvasSize: Int,
@@ -503,7 +505,7 @@ class SymbolLayerPainter(
 
         // We receive the text
         val templateTextField = layout.textField?.processAsString(featureProperties, actualZoom) ?: return null
-        val textField = substituteTemplate(templateTextField, featureProperties)
+        val textField = substituteTemplate(templateTextField, featureProperties?.properties)
         if (textField.isBlank() || textField.length > 256) return null
 
         val fontSize = (layout.textSize.processAsFloat(featureProperties, actualZoom) ?: 16f)
@@ -714,7 +716,7 @@ class SymbolLayerPainter(
     private suspend fun produceText(
         placement: SymbolPlacement,
         style: SymbolLayer,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         zoom: Double,
         lineStrings: List<List<Pair<Float, Float>>>? = null,
@@ -731,7 +733,7 @@ class SymbolLayerPainter(
         val paint = style.paint ?: return null
 
         val templateTextField = layout.textField?.processAsString(featureProperties, actualZoom) ?: return null
-        val textField = substituteTemplate(templateTextField, featureProperties)
+        val textField = substituteTemplate(templateTextField, featureProperties?.properties)
         if (textField.isBlank() || textField.length > 256) {
             return null
         }
@@ -835,7 +837,7 @@ class SymbolLayerPainter(
         id: String,
         lineStrings: List<List<Pair<Float, Float>>>,
         layout: SymbolLayout,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         textWidth: Float,
         dx: Float,
@@ -1030,7 +1032,7 @@ class SymbolLayerPainter(
         zoom: Double,
         canvasSize: Int,
         layout: SymbolLayout,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         textLayoutResult: TextLayoutResult,
         textField: String,
@@ -1125,7 +1127,7 @@ class SymbolLayerPainter(
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         id: String,
         tileX: Int = 0,

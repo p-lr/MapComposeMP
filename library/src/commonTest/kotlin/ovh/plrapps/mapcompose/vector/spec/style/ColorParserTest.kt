@@ -41,7 +41,8 @@ class ColorParserTest {
         assertNull(parser.parseColorStringOrNull("rgb()"))
         assertNull(parser.parseColorStringOrNull("rgb(255)"))
         assertNull(parser.parseColorStringOrNull("rgb(255, 0)"))
-        assertNull(parser.parseColorStringOrNull("rgb(255, 0, 0, 0)"))
+        // CSS Color 4 allows an alpha argument on rgb(); the old hand-rolled parser did not.
+        assertEquals(Color(255, 0, 0, 0), parser.parseColorStringOrNull("rgb(255, 0, 0, 0)"))
     }
 
     @Test
@@ -54,7 +55,8 @@ class ColorParserTest {
         assertNull(parser.parseColorStringOrNull("rgba()"))
         assertNull(parser.parseColorStringOrNull("rgba(255)"))
         assertNull(parser.parseColorStringOrNull("rgba(255, 0)"))
-        assertNull(parser.parseColorStringOrNull("rgba(255, 0, 0)"))
+        // rgba() has the same grammar as rgb() in CSS Color 4, so alpha may be omitted.
+        assertEquals(Color(255, 0, 0), parser.parseColorStringOrNull("rgba(255, 0, 0)"))
     }
 
     @Test
@@ -66,7 +68,8 @@ class ColorParserTest {
         assertNull(parser.parseColorStringOrNull("hsl()"))
         assertNull(parser.parseColorStringOrNull("hsl(0)"))
         assertNull(parser.parseColorStringOrNull("hsl(0, 100%)"))
-        assertNull(parser.parseColorStringOrNull("hsl(0, 100%, 50%, 0.5)"))
+        // CSS Color 4 allows an alpha argument on hsl().
+        assertEquals(Color(255, 0, 0, 128), parser.parseColorStringOrNull("hsl(0, 100%, 50%, 0.5)"))
     }
 
     @Test
@@ -78,7 +81,8 @@ class ColorParserTest {
         assertNull(parser.parseColorStringOrNull("hsla()"))
         assertNull(parser.parseColorStringOrNull("hsla(0)"))
         assertNull(parser.parseColorStringOrNull("hsla(0, 100%)"))
-        assertNull(parser.parseColorStringOrNull("hsla(0, 100%, 50%)"))
+        // hsla() has the same grammar as hsl() in CSS Color 4, so alpha may be omitted.
+        assertEquals(Color(255, 0, 0), parser.parseColorStringOrNull("hsla(0, 100%, 50%)"))
     }
 
     @Test

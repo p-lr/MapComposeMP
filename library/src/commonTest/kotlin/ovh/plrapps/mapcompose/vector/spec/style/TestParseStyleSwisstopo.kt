@@ -1,5 +1,8 @@
 package ovh.plrapps.mapcompose.vector.spec.style
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -33,7 +36,7 @@ class TestParseStyleSwisstopo {
 
         // Exercise every filter: verifies both deserialization and evaluation don't throw
         for (layer in layers) {
-            layer.filter?.process(emptyMap(), 10.0)
+            layer.filter?.filter?.filter(GlobalProperties(zoom = 10.0), EvalFeature(type = "LineString"))
         }
     }
 }

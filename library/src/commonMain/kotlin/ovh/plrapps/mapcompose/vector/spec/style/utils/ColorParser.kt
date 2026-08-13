@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.spec.style.utils
 
 import androidx.compose.ui.graphics.Color
+import ovh.plrapps.mapcompose.vector.spec.style.expression.colorspaces.CssColorParser
 import androidx.compose.ui.graphics.toArgb
 import kotlin.math.roundToInt
 
@@ -155,7 +156,17 @@ object ColorParser {
         "yellowgreen" to Color(0xFF9ACD32)
     )
 
+    /**
+     * Parses a CSS color string.
+     *
+     * Delegates to [CssColorParser], a port of MapLibre's CSS Color 4 parser, so the space-separated
+     * grammar (`rgb(255 0 0 / 60%)`), percentage components and 4/8-digit hex all work. The legacy
+     * hand-rolled branches below are kept only as a fallback for inputs that parser rejects.
+     */
     fun parseColorString(color: String): Color {
+        CssColorParser.parse(color)?.let { (r, g, b, a) ->
+            return Color(r.toFloat(), g.toFloat(), b.toFloat(), a.toFloat())
+        }
         return when {
             color.startsWith("#") -> parseHex(color)
             color.startsWith("rgb(") -> parseRgb(color)

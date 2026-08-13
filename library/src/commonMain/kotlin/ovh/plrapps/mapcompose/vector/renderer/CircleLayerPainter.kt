@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -16,7 +18,7 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         featureKey: String?
     ) {

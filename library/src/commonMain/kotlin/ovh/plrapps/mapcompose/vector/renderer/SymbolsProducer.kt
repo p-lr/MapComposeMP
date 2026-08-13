@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,7 +36,7 @@ class SymbolsProducer(
         tileX: Int = 0,
         tileY: Int = 0,
         density: Density,
-        localPropCache: MutableMap<String, Map<String, Any?>>
+        localPropCache: MutableMap<String, EvalFeature>
     ): List<Symbol> {
         if (!isZoomInRange(styleLayer, zoom)) {
 //            println("  missed by zoom")
@@ -54,13 +56,16 @@ class SymbolsProducer(
         // we do not know. Therefore, if the points match, then the text should be placed under the sprite, and if it is a sprite, then draw it above the text
         val symbols = mutableListOf<Symbol>()
 
+        // Feature geometry is only decoded when a `within`/`distance` expression reads it.
+        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
+
         for (feature in tileLayer.features) {
             val featureIdKey = feature.id?.toString() ?: feature.hashCode().toString()
             val propertyKey = if (tileX != 0 || tileY != 0) "T-$tileX-$tileY-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) { extractFeatureProperties(feature, tileLayer) }
+                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
             } else {
-                extractFeatureProperties(feature, tileLayer)
+                buildEvalFeature(feature, tileLayer, needGeometry)
             }
 
             val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)

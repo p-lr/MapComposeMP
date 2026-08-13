@@ -1,420 +1,194 @@
 package ovh.plrapps.mapcompose.vector.spec.style.props
 
 import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+import ovh.plrapps.mapcompose.vector.data.json
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.serializers.ExpressionOrValueSerializer
-import kotlinx.serialization.json.*
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.assertFalse
-import kotlinx.serialization.builtins.serializer
-import ovh.plrapps.mapcompose.vector.data.json
 
+/**
+ * The public façade over the expression engine: constants, expressions and the typed `processAs*`
+ * accessors the painters use. Operator semantics are covered exhaustively by
+ * `ExpressionConformanceTest`; this file covers the MapCompose-specific wrapper.
+ */
 class ExpressionOrValueTest {
+
+    private val bare = Json { ignoreUnknownKeys = true }
+
+    private fun feature(vararg properties: Pair<String, Any?>, type: String = "Point") =
+        EvalFeature(type = type, properties = properties.toMap())
+
     @Test
-    fun `Value should return its value`() {
-        val value: ExpressionOrValue<Int> = ExpressionOrValue.Value(42)
-        assertEquals(42, value.process())
+    fun constantValueIsReturnedAsIs() {
+        val value = ExpressionOrValue.Value(42.0)
+        assertEquals(42.0, value.process())
+        assertEquals(42.0, value.processAsDouble())
+        assertEquals(42f, value.processAsFloat())
     }
 
     @Test
-    fun `Expression with Get should return property value`() {
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(Expr.Get(Expr.Constant("name")))
-        val properties = mapOf("name" to "test")
-        assertEquals("test", expr.process(featureProperties = properties))
+    fun getReadsAFeatureProperty() {
+        val expr = bare.decodeFromString(ExpressionOrValueSerializer(String.serializer()), """["get","name"]""")
+        assertTrue(expr is ExpressionOrValue.Expression)
+        assertEquals("test", expr.processAsString(feature("name" to "test")))
+        // String-valued properties are *coerced* at the top level rather than asserted, so a
+        // missing property yields "" — this is MapLibre's behaviour, see createExpression.
+        assertEquals("", expr.processAsString(feature()))
     }
 
     @Test
-    fun `Expression with Match should return correct value`() {
-        val matchExpr = Expr.Match(
-            input = Expr.Get<String>(Expr.Constant("type")),
-            branches = listOf(
-                listOf("residential") to Expr.Constant("local")
-            ),
-            elseExpr = Expr.Constant("other")
+    fun zoomDrivenStepSelectsTheRightBranch() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(String.serializer()),
+            """["step",["zoom"],"small",10,"medium",15,"large"]""",
         )
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(matchExpr)
-
-        val matchingProps = mapOf("type" to "residential")
-        assertEquals("local", expr.process(featureProperties = matchingProps))
-
-        val nonMatchingProps = mapOf("type" to "commercial")
-        assertEquals("other", expr.process(featureProperties = nonMatchingProps))
+        assertEquals("small", expr.processAsString(zoom = 8.0))
+        assertEquals("medium", expr.processAsString(zoom = 10.0))
+        assertEquals("medium", expr.processAsString(zoom = 14.9))
+        assertEquals("large", expr.processAsString(zoom = 15.0))
     }
 
     @Test
-    fun `Expression with ZoomStops should return correct value`() {
-        val stops = listOf(
-            10.0 to Expr.Constant("small"),
-            14.0 to Expr.Constant("medium"),
-            18.0 to Expr.Constant("large")
+    fun matchFallsBackToItsDefault() {
+        val expr = json.decodeFromString<ExpressionOrValue<String>>(
+            """["match",["get","class"],["school","university"],["get","class"],["case",["has","class"],"","dot"]]"""
         )
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(Expr.ZoomStops(stops))
+        assertEquals("school", expr.processAsString(feature("class" to "school")))
+        assertEquals("", expr.processAsString(feature("class" to "park")))
+        assertEquals("dot", expr.processAsString(feature()))
+    }
 
-        assertEquals("small", expr.process(zoom = 8.0))
-        assertEquals("small", expr.process(zoom = 12.0))
-        assertEquals("medium", expr.process(zoom = 16.0))
-        assertEquals("large", expr.process(zoom = 20.0))
+    /**
+     * MVT decodes numeric properties as Int/Float/Long; the engine normalizes them to Double so a
+     * numeric literal in the style still matches. This is the regression for the two engines
+     * previously disagreeing on numeric equality.
+     */
+    @Test
+    fun numericPropertiesCompareByValueNotByBoxedType() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(Boolean.serializer()),
+            """["==",["get","rank"],1]""",
+        )
+        assertEquals(true, expr.processAsBoolean(feature("rank" to 1.0)))
+        assertEquals(true, expr.processAsBoolean(feature("rank" to 1)))
+        assertEquals(true, expr.processAsBoolean(feature("rank" to 1L)))
+        assertEquals(false, expr.processAsBoolean(feature("rank" to 2.0)))
     }
 
     @Test
-    fun `Expression with Interpolate Linear should interpolate numbers`() {
-        val interpolateExpr = Expr.Interpolate<Double>(
-            interpolation = InterpolationType.Linear,
-            input = Expr.Zoom,
-            stops = listOf(
-                0.0 to Expr.Constant(0.0),
-                10.0 to Expr.Constant(100.0)
-            )
+    fun colorExpressionsEvaluateToColors() {
+        val expr = json.decodeFromString<ExpressionOrValue<Color>>(
+            """["case",["==",["get","kind"],"water"],"#0000FF","#FF0000"]"""
         )
-        val expr: ExpressionOrValue<Double> = ExpressionOrValue.Expression(interpolateExpr)
-
-        // value Interpolated
-        assertEquals(50.0, expr.process(zoom = 5.0))
+        assertEquals(Color(0xFF0000FF), expr.processAsColor(feature("kind" to "water")))
+        assertEquals(Color(0xFFFF0000), expr.processAsColor(feature("kind" to "land")))
     }
 
     @Test
-    fun `Expression with Constant should return its value`() {
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(Expr.Constant("test"))
-        assertEquals("test", expr.process())
+    fun listAccessorsCoerceElementTypes() {
+        val dashes = bare.decodeFromString(
+            ExpressionOrValueSerializer(kotlinx.serialization.builtins.ListSerializer(Double.serializer())),
+            """["literal",[2,4]]""",
+        )
+        assertEquals(listOf(2.0, 4.0), dashes.processAsDoubleList())
+
+        val fonts = bare.decodeFromString(
+            ExpressionOrValueSerializer(kotlinx.serialization.builtins.ListSerializer(String.serializer())),
+            """["literal",["Roboto","Noto"]]""",
+        )
+        assertEquals(listOf("Roboto", "Noto"), fonts.processAsStringList())
     }
 
     @Test
-    fun `Expression with Raw should return null`() {
-        val expr: ExpressionOrValue<String> =
-            ExpressionOrValue.Expression(Expr.Raw(JsonNull))
-        assertNull(expr.process())
+    fun concatBuildsAStringFromProperties() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(String.serializer()),
+            """["concat",["get","a"]," - ",["get","b"]]""",
+        )
+        assertEquals("x - y", expr.processAsString(feature("a" to "x", "b" to "y")))
     }
 
     @Test
-    fun `process should handle null properties and zoom`() {
-        val expr: ExpressionOrValue<String> = ExpressionOrValue.Expression(Expr.Get(Expr.Constant("name")))
-        assertNull(expr.process())
-        assertNull(expr.process(featureProperties = emptyMap()))
+    fun caseAndUpcaseCombine() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(String.serializer()),
+            """["upcase",["downcase",["get","name"]]]""",
+        )
+        assertEquals("HELLO WORLD", expr.processAsString(feature("name" to "Hello World")))
     }
 
     @Test
-    fun testNotEqualsExpressionWithConstants() {
-        val expr = Expr.NotEquals(
-            left = Expr.Constant("value1"),
-            right = Expr.Constant("value2")
+    fun indexOfAndSliceOperateOnStrings() {
+        val indexOf = bare.decodeFromString(
+            ExpressionOrValueSerializer(Double.serializer()),
+            """["index-of","c","abcdef"]""",
         )
+        assertEquals(2.0, indexOf.processAsDouble())
 
-        val result = expr.evaluate(emptyMap(), 0.0)
-        assertTrue(result == true)
-
-        val expr2 = Expr.NotEquals(
-            left = Expr.Constant("same"),
-            right = Expr.Constant("same")
+        val slice = bare.decodeFromString(
+            ExpressionOrValueSerializer(String.serializer()),
+            """["slice","abcdef",1,3]""",
         )
-
-        val result2 = expr2.evaluate(emptyMap(), 0.0)
-        assertTrue(result2 == false)
+        assertEquals("bc", slice.processAsString())
     }
 
     @Test
-    fun testNotEqualsExpressionWithGet() {
-        val properties = mapOf(
-            "prop1" to "value1",
-            "prop2" to "value2",
-            "prop3" to "value1"
+    fun letAndVarBindIntermediateValues() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(Double.serializer()),
+            """["let","r",["get","rank"],["*",["var","r"],2]]""",
         )
-
-        val expr1 = Expr.NotEquals(
-            left = Expr.Get<String>(Expr.Constant("prop1")),
-            right = Expr.Get<String>(Expr.Constant("prop2"))
-        )
-        assertTrue(expr1.evaluate(properties, 0.0) == true)
-
-        val expr2 = Expr.NotEquals(
-            left = Expr.Get<String>(Expr.Constant("prop1")),
-            right = Expr.Get<String>(Expr.Constant("prop3"))
-        )
-        assertTrue(expr2.evaluate(properties, 0.0) == false)
+        assertEquals(8.0, expr.processAsDouble(feature("rank" to 4.0)))
     }
 
     @Test
-    fun testNotEqualsExpressionWithMixedTypes() {
-        val properties = mapOf(
-            "number" to 42,
-            "text" to "42"
-        )
+    fun arithmeticOperatorsEvaluate() {
+        fun number(source: String) =
+            bare.decodeFromString(ExpressionOrValueSerializer(Double.serializer()), source).processAsDouble()
 
-        val expr = Expr.NotEquals(
-            left = Expr.Get<Any>(Expr.Constant("number")),
-            right = Expr.Get<Any>(Expr.Constant("text"))
-        )
-        assertTrue(expr.evaluate(properties, 0.0) == true)
+        assertEquals(7.0, number("""["+",3,4]"""))
+        assertEquals(-1.0, number("""["-",3,4]"""))
+        assertEquals(12.0, number("""["*",3,4]"""))
+        assertEquals(0.75, number("""["/",3,4]"""))
+        assertEquals(3.0, number("""["%",7,4]"""))
+        assertEquals(81.0, number("""["^",3,4]"""))
     }
 
     @Test
-    fun testNotEqualsExpressionWithNullValues() {
-        val properties = mapOf(
-            "existing" to "value",
-            "nullValue" to null
-        )
-
-        val expr1 = Expr.NotEquals(
-            left = Expr.Get<Any>(Expr.Constant("existing")),
-            right = Expr.Get<Any>(Expr.Constant("nonexistent"))
-        )
-        assertTrue(expr1.evaluate(properties, 0.0) == true)
-
-        val expr2 = Expr.NotEquals(
-            left = Expr.Get<Any>(Expr.Constant("nullValue")),
-            right = Expr.Get<Any>(Expr.Constant("nonexistent"))
-        )
-        assertTrue(expr2.evaluate(properties, 0.0) == false)
+    fun rgbBuildsAColor() {
+        val expr = json.decodeFromString<ExpressionOrValue<Color>>("""["rgb",255,0,0]""")
+        assertEquals(Color(0xFFFF0000), expr.processAsColor())
     }
 
     @Test
-    fun testEqualsExpressionWithConstants() {
-        val expr = Expr.Equals(
-            left = Expr.Constant("value1"),
-            right = Expr.Constant("value2")
+    fun geometryTypeReadsTheFeatureGeometry() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(Boolean.serializer()),
+            """["==",["geometry-type"],"LineString"]""",
         )
+        assertEquals(true, expr.processAsBoolean(feature(type = "LineString")))
+        assertEquals(false, expr.processAsBoolean(feature(type = "Polygon")))
+    }
 
-        val result = expr.evaluate(emptyMap(), 0.0)
-        assertTrue(result == false)
-
-        val expr2 = Expr.Equals(
-            left = Expr.Constant("same"),
-            right = Expr.Constant("same")
+    @Test
+    fun featureIdIsAvailableToExpressions() {
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(Boolean.serializer()),
+            """["==",["id"],7]""",
         )
-
-        val result2 = expr2.evaluate(emptyMap(), 0.0)
-        assertTrue(result2 == true)
+        assertEquals(true, expr.processAsBoolean(EvalFeature(type = "Point", id = 7.0)))
+        assertEquals(false, expr.processAsBoolean(EvalFeature(type = "Point", id = 8.0)))
     }
 
     @Test
-    fun testEqualsExpressionWithGet() {
-        val properties = mapOf(
-            "prop1" to "value1",
-            "prop2" to "value2",
-            "prop3" to "value1"
-        )
-
-        val expr1 = Expr.Equals(
-            left = Expr.Get<String>(Expr.Constant("prop1")),
-            right = Expr.Get<String>(Expr.Constant("prop2"))
-        )
-        assertTrue(expr1.evaluate(properties, 0.0) == false)
-
-        val expr2 = Expr.Equals(
-            left = Expr.Get<String>(Expr.Constant("prop1")),
-            right = Expr.Get<String>(Expr.Constant("prop3"))
-        )
-        assertTrue(expr2.evaluate(properties, 0.0) == true)
+    fun isExpressionRecognisesArraysAndLegacyObjects() {
+        assertTrue(ExpressionOrValue.isExpression(json.parseToJsonElement("""["get","x"]""")))
+        assertTrue(ExpressionOrValue.isExpression(json.parseToJsonElement("""{"stops":[[0,1]]}""")))
+        assertTrue(!ExpressionOrValue.isExpression(json.parseToJsonElement("""["a","b"]""")))
+        assertTrue(!ExpressionOrValue.isExpression(json.parseToJsonElement("""5""")))
     }
-
-    @Test
-    fun testEqualsExpressionWithMixedTypes() {
-        val properties = mapOf(
-            "number" to 42,
-            "text" to "42"
-        )
-
-        val expr = Expr.Equals(
-            left = Expr.Get<Any>(Expr.Constant("number")),
-            right = Expr.Get<Any>(Expr.Constant("text"))
-        )
-        assertTrue(expr.evaluate(properties, 0.0) == false)
-    }
-
-    @Test
-    fun testEqualsExpressionWithNullValues() {
-        val properties = mapOf(
-            "existing" to "value",
-            "nullValue" to null
-        )
-
-        val expr1 = Expr.Equals(
-            left = Expr.Get<Any>(Expr.Constant("existing")),
-            right = Expr.Get<Any>(Expr.Constant("nonexistent"))
-        )
-        assertTrue(expr1.evaluate(properties, 0.0) == false)
-
-        val expr2 = Expr.Equals(
-            left = Expr.Get<Any>(Expr.Constant("nullValue")),
-            right = Expr.Get<Any>(Expr.Constant("nonexistent"))
-        )
-        assertTrue(expr2.evaluate(properties, 0.0) == true)
-    }
-
-    @Test
-    fun testToBooleanExpression() {
-        val nullExpr = Expr.ToBoolean(Expr.Constant(null))
-        assertTrue(nullExpr.evaluate(null, null) == false)
-
-        val emptyStringExpr = Expr.ToBoolean(Expr.Constant(""))
-        assertTrue(emptyStringExpr.evaluate(null, null) == false)
-
-        val nonEmptyStringExpr = Expr.ToBoolean(Expr.Constant("test"))
-        assertTrue(nonEmptyStringExpr.evaluate(null, null) == true)
-
-        val zeroExpr = Expr.ToBoolean(Expr.Constant(0))
-        assertTrue(zeroExpr.evaluate(null, null) == false)
-
-        val nonZeroExpr = Expr.ToBoolean(Expr.Constant(42))
-        assertTrue(nonZeroExpr.evaluate(null, null) == true)
-
-        val nanExpr = Expr.ToBoolean(Expr.Constant(Double.NaN))
-        assertTrue(nanExpr.evaluate(null, null) == false)
-
-        val trueExpr = Expr.ToBoolean(Expr.Constant(true))
-        assertTrue(trueExpr.evaluate(null, null) == true)
-
-        val falseExpr = Expr.ToBoolean(Expr.Constant(false))
-        assertTrue(falseExpr.evaluate(null, null) == false)
-
-        val objectExpr = Expr.ToBoolean(Expr.Constant(mapOf("key" to "value")))
-        assertTrue(objectExpr.evaluate(null, null) == true)
-    }
-
-    @Test
-    fun testToStringExpression() {
-        val nullExpr = Expr.ToString(Expr.Constant<Any?>(null))
-        assertEquals("", nullExpr.evaluate(null, null))
-
-        val emptyStringExpr = Expr.ToString(Expr.Constant(""))
-        assertEquals("", emptyStringExpr.evaluate(null, null))
-
-        val nonEmptyStringExpr = Expr.ToString(Expr.Constant("test"))
-        assertEquals("test", nonEmptyStringExpr.evaluate(null, null))
-
-        val trueExpr = Expr.ToString(Expr.Constant(true))
-        assertEquals("true", trueExpr.evaluate(null, null))
-
-        val falseExpr = Expr.ToString(Expr.Constant(false))
-        assertEquals("false", falseExpr.evaluate(null, null))
-
-        val numberExpr = Expr.ToString(Expr.Constant(42))
-        assertEquals("42", numberExpr.evaluate(null, null))
-
-        val doubleExpr = Expr.ToString(Expr.Constant(3.14))
-        assertEquals("3.14", doubleExpr.evaluate(null, null))
-
-        val colorExpr = Expr.ToString(Expr.Constant(Color(255, 0, 0, 128)))
-        assertEquals("rgba(255,0,0,0.5)", colorExpr.evaluate(null, null))
-
-        val objectExpr = Expr.ToString(Expr.Constant(mapOf("key" to "value")))
-        assertEquals("""{"key":"value"}""", objectExpr.evaluate(null, null))
-
-        val arrayExpr = Expr.ToString(Expr.Constant(listOf(1, 2, 3)))
-        assertEquals("[1,2,3]", arrayExpr.evaluate(null, null))
-    }
-
-    @Test
-    fun `isExpression returns true for array with string first element`() {
-        val input = JsonArray(listOf(JsonPrimitive("get"), JsonPrimitive("name")))
-        assertTrue(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression returns false for empty array`() {
-        val input = JsonArray(emptyList())
-        assertFalse(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression returns false for array with non-string first element`() {
-        val input = JsonArray(listOf(JsonPrimitive(1), JsonPrimitive("name")))
-        assertFalse(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression returns true for object with stops property`() {
-        val input = JsonObject(mapOf("stops" to JsonArray(emptyList())))
-        assertTrue(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression returns false for object without stops property`() {
-        val input = JsonObject(mapOf("color" to JsonPrimitive("red")))
-        assertFalse(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression returns false for primitive value`() {
-        val input = JsonPrimitive("test")
-        assertFalse(ExpressionOrValue.isExpression(input))
-    }
-
-    @Test
-    fun `isExpression work 001`() {
-        val input =
-            ("""[ "match", [ "get", "class" ], [ "college", "childcare", "dancing_school", "driving_school", "kindergarten", "school", "university" ], [ "get", "class" ], [ "case", [ "has", "class" ], "", "dot" ] ]""")
-        val expr = json.decodeFromString<ExpressionOrValue<String>>(input)
-        val feature = mapOf<String, Any>(
-            "class" to "school",
-            "name" to "Детский сад № 14",
-            "name:latin" to "Detskij sad № 14",
-            "name:nonlatin" to "Детский сад № 14",
-            "name_de" to "Детский сад № 14",
-            "name_en" to "Детский сад № 14",
-            "name_int" to "Detskij sad № 14",
-            "rank" to 11,
-            "subclass" to "kindergarten",
-            "\$type" to "Point"
-        )
-        val result = expr.process(feature, 15.0)
-        assertEquals("school", result)
-    }
-
-    @Test
-    fun `test case expression with equals condition`() {
-        val jsonStr = """
-        [
-          "case",
-          [
-            "==",
-            [
-              "get",
-              "brunnel"
-            ],
-            "tunnel"
-          ],
-          0.7,
-          1
-        ]
-        """.trimIndent()
-
-        val json = Json { ignoreUnknownKeys = true }
-        val exprOrValue = json.decodeFromString(ExpressionOrValueSerializer(Double.serializer()), jsonStr)
-
-        assertTrue(exprOrValue is ExpressionOrValue.Expression<Double>)
-        val expr = (exprOrValue).expr
-
-        assertTrue(expr is Expr.Case<Double>)
-        val caseExpr = expr
-
-        assertEquals(1, caseExpr.conditions.size)
-
-        val (condition, result) = caseExpr.conditions[0]
-        assertTrue(condition is Expr.Equals<*, *>)
-        val equalsExpr = condition
-
-        assertTrue(equalsExpr.left is Expr.Get<*>)
-        val getExpr = equalsExpr.left
-        assertEquals("brunnel", (getExpr.property as Expr.Constant).value)
-
-        assertTrue(equalsExpr.right is Expr.Constant<*>)
-        val constantExpr = equalsExpr.right
-        assertEquals("tunnel", constantExpr.value)
-
-        assertTrue(result is Expr.Constant<Double>)
-        val resultExpr = result
-        assertEquals(0.7, resultExpr.value)
-
-        assertTrue(caseExpr.default is Expr.Constant<Double>)
-        val defaultExpr = caseExpr.default
-        assertEquals(1.0, defaultExpr.value)
-
-        val tunnelProps = mapOf("brunnel" to "tunnel")
-        val nonTunnelProps = mapOf("brunnel" to "bridge")
-
-        assertEquals(0.7, exprOrValue.process(featureProperties = tunnelProps))
-        assertEquals(1.0, exprOrValue.process(featureProperties = nonTunnelProps))
-    }
-} 
+}
