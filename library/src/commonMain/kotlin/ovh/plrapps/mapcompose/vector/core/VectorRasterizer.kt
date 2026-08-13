@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.core
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -122,7 +124,7 @@ class VectorRasterizer(
         val imageBitmap = ImageBitmap(tileSize, tileSize)
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
-        val localPropCache = HashMap<String, Map<String, Any?>>()
+        val localPropCache = HashMap<String, EvalFeature>()
         val tileRenderer = TileRenderer(
             configuration = configuration,
             pathCache = pathCache,
@@ -304,7 +306,7 @@ class VectorRasterizer(
                         }
                 }
 
-                val localPropCache = HashMap<String, Map<String, Any?>>()
+                val localPropCache = HashMap<String, EvalFeature>()
 
                 // Use withIndex() to avoid O(n²) indexOf in the loop.
                 for ((layerIndex, styleLayer) in configuration.style.layers.withIndex()) {

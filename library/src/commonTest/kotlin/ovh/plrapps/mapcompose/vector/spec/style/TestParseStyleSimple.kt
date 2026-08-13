@@ -1,5 +1,10 @@
 package ovh.plrapps.mapcompose.vector.spec.style
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -14,7 +19,6 @@ import androidx.compose.ui.graphics.Color
 import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import mapcompose_mp.library.generated.resources.Res
-import ovh.plrapps.mapcompose.vector.spec.style.props.Expr
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 
 @OptIn(ExperimentalTestApi::class)
@@ -72,14 +76,11 @@ class TestParseStyleSimple {
         val lineWidth = coastlineLayer.paint?.lineWidth
         assertNotNull(lineWidth)
         assertTrue(lineWidth is ExpressionOrValue.Expression)
-        val lineWidthExpr = lineWidth
-        assertTrue(lineWidthExpr.expr is Expr.Interpolate)
-        val stops = lineWidthExpr.expr.stops
-        assertEquals(4, stops.size)
-        assertEquals(Pair(0.0, Expr.Constant(2.0)), stops[0])
-        assertEquals(Pair(6.0, Expr.Constant(6.0)), stops[1])
-        assertEquals(Pair(14.0, Expr.Constant(9.0)), stops[2])
-        assertEquals(Pair(22.0, Expr.Constant(18.0)), stops[3])
+        assertEquals(listOf(0.0, 6.0, 14.0, 22.0), lineWidth.expression.zoomStops)
+        assertEquals(2.0, lineWidth.processAsDouble(zoom = 0.0))
+        assertEquals(6.0, lineWidth.processAsDouble(zoom = 6.0))
+        assertEquals(9.0, lineWidth.processAsDouble(zoom = 14.0))
+        assertEquals(18.0, lineWidth.processAsDouble(zoom = 22.0))
         val coastColor = coastlineLayer.paint.lineColor?.process()
         println("coastlineLayer.paint?.lineColor?.process() = $coastColor")
         assertEquals(Color(0xFF198EC8), coastColor)
@@ -90,20 +91,15 @@ class TestParseStyleSimple {
         val fillColor = countriesFillLayer.paint?.fillColor
         assertNotNull(fillColor)
         assertTrue(fillColor is ExpressionOrValue.Expression)
-        val matchExpr = fillColor
-        assertTrue(matchExpr.expr is Expr.Match)
-        val match = matchExpr.expr
-        assertNotNull(match.input)
-        assertTrue(match.input is Expr.Get<*>)
-        assertEquals("ADM0_A3", ((match.input).property as Expr.Constant).value)
-        assertTrue(match.branches.isNotEmpty())
-        val firstBranch = match.branches[0]
-        println("firstBranch.first = ${firstBranch.first}")
-        println("firstBranch.second = ${firstBranch.second}")
-        println("firstBranch.second::class = ${firstBranch.second::class}")
-        assertTrue((firstBranch.first as List<*>).map { it.toString() }.contains("ARM"))
-        assertEquals(Color(0xFFD6C7FF), (firstBranch.second as Expr.Constant<Color>).value)
-        assertEquals(Color(0xFFEAB38F), (match.elseExpr as Expr.Constant<Color>).value)
+        // A data-driven ["match", ["get", "ADM0_A3"], ...]: assert what it resolves to.
+        assertEquals(
+            Color(0xFFD6C7FF),
+            fillColor.processAsColor(EvalFeature(type = "Polygon", properties = mapOf("ADM0_A3" to "ARM"))),
+        )
+        assertEquals(
+            Color(0xFFEAB38F),
+            fillColor.processAsColor(EvalFeature(type = "Polygon", properties = mapOf("ADM0_A3" to "ZZZ"))),
+        )
 
         val geolinesLayer = layers.find { it.id == "geolines" } as LineLayer
         assertNotNull(geolinesLayer)
@@ -115,13 +111,10 @@ class TestParseStyleSimple {
         println("textField = $textField")
         assertNotNull(textField)
         assertTrue(textField is ExpressionOrValue.Expression)
-        val textFieldExpr = textField
-        println("textFieldExpr.expr = ${textFieldExpr.expr}")
-        assertTrue(textFieldExpr.expr is Expr.Interpolate)
-
-        val textFieldStops = textFieldExpr.expr.stops
-        assertEquals(2, textFieldStops.size)
-        assertEquals(Pair(2.0, Expr.Constant("{ABBREV}")), textFieldStops[0])
-        assertEquals(Pair(4.0, Expr.Constant("{NAME}")), textFieldStops[1])
+        // A legacy {stops} function on a string property becomes a `step`, not an `interpolate`.
+        assertEquals("{ABBREV}", textField.processAsString(zoom = 2.0))
+        assertEquals("{ABBREV}", textField.processAsString(zoom = 3.0))
+        assertEquals("{NAME}", textField.processAsString(zoom = 4.0))
+        assertEquals("{NAME}", textField.processAsString(zoom = 5.0))
     }
 }

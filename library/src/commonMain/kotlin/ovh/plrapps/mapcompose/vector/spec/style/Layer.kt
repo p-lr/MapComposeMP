@@ -4,6 +4,8 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
+import ovh.plrapps.mapcompose.vector.spec.style.serializers.FeatureFilterSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.serializers.FilterHolder
 import ovh.plrapps.mapcompose.vector.spec.style.background.BackgroundLayout
 import ovh.plrapps.mapcompose.vector.spec.style.background.BackgroundPaint
 import ovh.plrapps.mapcompose.vector.spec.style.circle.CircleLayout
@@ -34,7 +36,8 @@ sealed class Layer {
     abstract val source: String?
     @SerialName("source-layer")
     abstract val sourceLayer: String?
-    abstract val filter: Filter?
+    @Serializable(with = FeatureFilterSerializer::class)
+    abstract val filter: FilterHolder?
     abstract val minzoom: Double?
     abstract val maxzoom: Double?
     abstract val layout: LayoutInterface?
@@ -49,7 +52,8 @@ data class LineLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: LineLayout? = null,
@@ -64,7 +68,8 @@ data class FillLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: FillLayout? = null,
@@ -79,7 +84,8 @@ data class SymbolLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: SymbolLayout? = null,
@@ -94,7 +100,8 @@ data class CircleLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: CircleLayout? = null,
@@ -109,7 +116,8 @@ data class BackgroundLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: BackgroundLayout? = null,
@@ -124,7 +132,8 @@ data class RasterLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: RasterLayout? = null,
@@ -139,7 +148,8 @@ data class HillshadeLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: HillshadeLayout? = null,
@@ -154,7 +164,8 @@ data class HeatmapLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: HeatmapLayout? = null,
@@ -169,7 +180,8 @@ data class FillExtrusionLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val layout: FillExtrusionLayout? = null,
     override val paint: FillExtrusionPaint? = null,
     override val minzoom: Double? = null,
@@ -184,7 +196,8 @@ data class SkyLayer(
     override val source: String? = null,
     @SerialName("source-layer")
     override val sourceLayer: String? = null,
-    override val filter: Filter? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
     override val layout: SkyLayout? = null,

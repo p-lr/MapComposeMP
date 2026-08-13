@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.spec.Tile
@@ -11,7 +13,7 @@ class TileRenderer(
     configuration: MapLibreConfiguration,
     private val pathCache: LruCache<String, Any>,
     private val pathCacheMutex: Mutex,
-    private val localPropCache: MutableMap<String, Map<String, Any?>>
+    private val localPropCache: MutableMap<String, EvalFeature>
 ) : BaseRenderer(configuration = configuration) {
     private val painters = mutableMapOf<Layer, BaseLayerPainter<*>>()
 
@@ -85,13 +87,16 @@ class TileRenderer(
                         }
                     }
 
+                // Feature geometry is only decoded when a `within`/`distance` expression reads it.
+                val needGeometry = styleLayer.filter?.filter?.needGeometry == true
+
                 for (feature in tileLayer.features) {
                     val featureIdKey = feature.id?.toString() ?: feature.hashCode().toString()
                     val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
                     val featureProperties = if (propertyKey != null) {
-                        localPropCache.getOrPut(propertyKey) { extractFeatureProperties(feature, tileLayer) }
+                        localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
                     } else {
-                        extractFeatureProperties(feature, tileLayer)
+                        buildEvalFeature(feature, tileLayer, needGeometry)
                     }
 
                     val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)

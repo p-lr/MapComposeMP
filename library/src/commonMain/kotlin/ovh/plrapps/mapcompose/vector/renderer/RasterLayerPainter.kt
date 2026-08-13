@@ -1,5 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.RasterLayer
@@ -12,7 +14,7 @@ class RasterLayerPainter : BaseLayerPainter<RasterLayer>() {
         canvasSize: Int,
         extent: Int,
         zoom: Double,
-        featureProperties: Map<String, Any?>?,
+        featureProperties: EvalFeature?,
         actualZoom: Double,
         featureKey: String?
     ) {

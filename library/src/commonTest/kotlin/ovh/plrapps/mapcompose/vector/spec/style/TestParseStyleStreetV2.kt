@@ -15,7 +15,8 @@ import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import mapcompose_mp.library.generated.resources.Res
-import ovh.plrapps.mapcompose.vector.spec.style.props.Expr
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 
 @OptIn(ExperimentalTestApi::class)
@@ -89,11 +90,12 @@ class TestParseStyleStreetV2 {
         assertNotNull(bgColor)
         assertTrue(bgColor is ExpressionOrValue.Expression)
         val bgColorExpr = bgColor
-        assertTrue(bgColorExpr.expr is Expr.Interpolate)
-        val bgStops = bgColorExpr.expr.stops
+        val bgStops = bgColorExpr.expression.zoomStops!!
         assertEquals(2, bgStops.size)
-        assertEquals(Pair(6.0, Expr.Constant(Color.hsl( 47F, 0.79F, 0.94F))), bgStops[0])
-        assertEquals(Pair(14.0, Expr.Constant(Color.hsl(42F, 0.49f, 0.93f))), bgStops[1])
+        assertEquals(6.0, bgStops[0])
+        assertEquals(14.0, bgStops[1])
+        assertEquals(Color.hsl(47F, 0.79F, 0.94F), bgColorExpr.processAsColor(zoom = 6.0))
+        assertEquals(Color.hsl(42F, 0.49f, 0.93f), bgColorExpr.processAsColor(zoom = 14.0))
 
         val meadowLayer = layers.find { it.id == "Meadow" } as FillLayer
         assertNotNull(meadowLayer)
@@ -111,11 +113,12 @@ class TestParseStyleStreetV2 {
         assertNotNull(meadowOpacity)
         assertTrue(meadowOpacity is ExpressionOrValue.Expression)
         val meadowOpacityExpr = meadowOpacity as ExpressionOrValue.Expression<*>
-        assertTrue(meadowOpacityExpr.expr is Expr.Interpolate)
-        val meadowOpacityStops = meadowOpacityExpr.expr.stops
+        val meadowOpacityStops = meadowOpacityExpr.expression.zoomStops!!
         assertEquals(2, meadowOpacityStops.size)
-        assertEquals(Pair(0.0, Expr.Constant(1.0)), meadowOpacityStops[0])
-        assertEquals(Pair(8.0, Expr.Constant(0.1)), meadowOpacityStops[1])
+        assertEquals(0.0, meadowOpacityStops[0])
+        assertEquals(8.0, meadowOpacityStops[1])
+        assertEquals(1.0, meadowOpacity.processAsDouble(zoom = 0.0))
+        assertEquals(0.1, meadowOpacity.processAsDouble(zoom = 8.0))
 
         val forestLayer = layers.find { it.id == "Forest" } as FillLayer
         assertNotNull(forestLayer)
