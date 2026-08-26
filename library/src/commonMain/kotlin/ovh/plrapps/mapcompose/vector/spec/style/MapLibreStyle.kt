@@ -35,6 +35,7 @@ data class Source(
     val tiles: List<String>? = null,
     val minzoom: Int? = null,
     val maxzoom: Int? = null,
+    val scheme: String? = null,
     val attribution: String? = null
 )
 

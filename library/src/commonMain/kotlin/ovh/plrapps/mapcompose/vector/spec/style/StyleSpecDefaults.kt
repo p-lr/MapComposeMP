@@ -63,6 +63,16 @@ object StyleSpecDefaults {
     val BACKGROUND_COLOR = Color.Black
     const val BACKGROUND_OPACITY = 1.0
 
+    // paint_raster
+    const val RASTER_OPACITY = 1.0
+    const val RASTER_HUE_ROTATE = 0.0
+    const val RASTER_BRIGHTNESS_MIN = 0.0
+    const val RASTER_BRIGHTNESS_MAX = 1.0
+    const val RASTER_SATURATION = 0.0
+    const val RASTER_CONTRAST = 0.0
+    const val RASTER_RESAMPLING = RESAMPLING_LINEAR
+    const val RASTER_FADE_DURATION = 300.0
+
     // layout_*
     const val VISIBILITY = "visible"
     const val VISIBILITY_NONE = "none"
@@ -73,3 +83,9 @@ const val ANCHOR_MAP = "map"
 
 /** `*-translate-anchor` / `*-pitch-*` enum value: the property is relative to the viewport. */
 const val ANCHOR_VIEWPORT = "viewport"
+
+/** `raster-resampling` enum value: bilinear filtering, which smooths a magnified tile. */
+const val RESAMPLING_LINEAR = "linear"
+
+/** `raster-resampling` enum value: nearest-neighbour, which keeps a magnified tile's hard edges. */
+const val RESAMPLING_NEAREST = "nearest"

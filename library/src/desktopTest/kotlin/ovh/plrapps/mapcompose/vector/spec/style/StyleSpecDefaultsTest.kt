@@ -129,6 +129,15 @@ class StyleSpecDefaultsTest {
             checkColor("paint_background", "background-color", BACKGROUND_COLOR)
             checkNumber("paint_background", "background-opacity", BACKGROUND_OPACITY)
 
+            checkNumber("paint_raster", "raster-opacity", RASTER_OPACITY)
+            checkNumber("paint_raster", "raster-hue-rotate", RASTER_HUE_ROTATE)
+            checkNumber("paint_raster", "raster-brightness-min", RASTER_BRIGHTNESS_MIN)
+            checkNumber("paint_raster", "raster-brightness-max", RASTER_BRIGHTNESS_MAX)
+            checkNumber("paint_raster", "raster-saturation", RASTER_SATURATION)
+            checkNumber("paint_raster", "raster-contrast", RASTER_CONTRAST)
+            checkString("paint_raster", "raster-resampling", RASTER_RESAMPLING)
+            checkNumber("paint_raster", "raster-fade-duration", RASTER_FADE_DURATION)
+
             checkString("layout_fill", "visibility", VISIBILITY)
         }
 

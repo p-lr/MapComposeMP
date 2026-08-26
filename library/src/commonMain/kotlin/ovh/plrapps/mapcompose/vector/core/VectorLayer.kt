@@ -16,7 +16,6 @@ import ovh.plrapps.mapcompose.api.fullSize
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.core.TileMatrix
 import ovh.plrapps.mapcompose.core.TileStreamProvider
-import ovh.plrapps.mapcompose.vector.core.VectorTileStreamProvider
 import ovh.plrapps.mapcompose.core.Viewport
 import ovh.plrapps.mapcompose.core.VisibleTiles
 import ovh.plrapps.mapcompose.core.VisibleWindow
