@@ -36,7 +36,14 @@ data class Source(
     val minzoom: Int? = null,
     val maxzoom: Int? = null,
     val scheme: String? = null,
-    val attribution: String? = null
+    val attribution: String? = null,
+
+    /* raster-dem only: how the tile's RGB channels encode elevation. See DemUnpack. */
+    val encoding: String? = null,
+    val redFactor: Double? = null,
+    val greenFactor: Double? = null,
+    val blueFactor: Double? = null,
+    val baseShift: Double? = null,
 )
 
 @Serializable

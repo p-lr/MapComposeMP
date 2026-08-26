@@ -11,14 +11,12 @@
 
 ## Status
 Parsers, decoders and the expression engine are done. The 2D painters -- background, fill, line,
-circle, raster -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work but
-predate the expression engine. The remaining layer types are not implemented; each painter's source
-says what it would need.
+circle, raster, hillshade -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work
+but predate the expression engine. The remaining layer types are not implemented; each painter's
+source says what it would need.
 
 Remaining directions
 - Symbols. Rework against the expression engine, and the layout properties listed as unread below.
-- Hillshade. Needs a `raster-dem` source: `SourceType` names it, but nothing decodes Terrain-RGB into
-  elevation yet. The rest of the source plumbing it used to be blocked on now exists.
 - Heatmap. Needs a viewport-wide accumulation overlay, like the one symbols already use; a per-tile
   heatmap would seam at every tile edge.
 - fill-extrusion and sky. 3D; blocked on camera pitch.
@@ -47,9 +45,10 @@ TL;DR
 - 🛠️ Sprites (part of Symbols)
 - ✅ Raster — opacity, hue-rotate, saturation, contrast, brightness-min/max, resampling,
   overzoom
+- ✅ Hillshade — Terrain-RGB decode (mapbox/terrarium/custom), exaggeration,
+  illumination-direction, shadow/highlight/accent colours, overzoom, neighbour-backfilled borders
 - ❌ FillExtrusion
 - ❌ Heatmap
-- ❌ Hillshade
 - ❌ Sky
 
 Layer gating that applies to all of them: `visibility`, `minzoom`/`maxzoom`, `filter`, and
@@ -63,7 +62,11 @@ painter: `line-round-limit` is inert, `line-blur` and `line-gradient` are approx
 `circle-pitch-scale` / `circle-pitch-alignment` are inert (no camera pitch), and a
 `viewport`-anchored `*-translate` is not counter-rotated. Raster adds its own, from drawing into a
 tile bitmap rather than sampling a texture: `raster-fade-duration` is inert (no frame loop to
-cross-fade over), the image is resampled twice, and a source's `bounds` is not honoured.
+cross-fade over), the image is resampled twice, and a source's `bounds` is not honoured. Hillshade
+shares the last two and adds `hillshade-illumination-anchor`, which is inert for the same reason a
+`viewport`-anchored `*-translate` is -- the bearing is unknown when a tile is rasterized -- so the
+light is always map-anchored; it also lights each DEM sample and interpolates the resulting colours,
+where upstream interpolates the slope and lights each screen pixel.
 
 ### What is implemented and close to MapLibre
 
@@ -84,6 +87,15 @@ Visual debugging (borders, color).
 Collision reset.
 Currently, collision reset is implemented at the tile level, but MapLibre has nuances with global placement (especially when rendering multiple tiles in one frame).
 No spatial index (R-tree), but for small tiles this is not critical. No Fonts(WIP). 
+#### Hillshade
+A CPU port of upstream's two GPU passes: `hillshade_prepare.fragment.glsl`'s Sobel operator over the
+decoded DEM, then `hillshade.fragment.glsl`'s lighting, both in
+`renderer/utils/HillshadeShading.kt`. `data/DemData.kt` is the port of `data/dem_data.ts`, including
+the 1 px border ring -- seeded by clamping and then backfilled from the 8 neighbouring tiles, which
+is what keeps the slope continuous across a tile boundary. Upstream's `19.2562` hardcodes a 512 px
+DEM tile; the ground resolution is derived from the tile's own size here instead, so a 256 px DEM is
+right too.
+
 #### Fill, Line, Circle & Background
 Ported against `maplibre-gl-js/src/render/draw_*.ts` and the matching shaders. Polygon rings are
 grouped into polygons and holes by `classifyRings`, the port of upstream's `classify_rings.ts`, and

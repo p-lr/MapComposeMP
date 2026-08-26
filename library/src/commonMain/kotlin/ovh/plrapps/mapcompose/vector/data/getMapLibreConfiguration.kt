@@ -25,9 +25,12 @@ suspend fun getMapLibreConfiguration(
             val sourceUrl = source.url
             val tiles = source.tiles
             val type = SourceType.fromSpec(source.type)
+            /* Only a raster-dem source's channels mean elevation; every other type leaves this null
+             * so nothing else can be mistaken for a DEM. */
+            val demUnpack = if (type == SourceType.RASTER_DEM) DemUnpack.of(source) else null
             if (sourceUrl !== null) {
                 val tileJson = getTileJson(sourceUrl, loadResource).getOrElse { e -> return Result.failure(e) }
-                tileSources[name] = MapLibreTileSource(tileJson, type)
+                tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack)
             } else if(tiles != null) {
                 tileSources[name] = MapLibreTileSource(
                     TileJson(
@@ -38,6 +41,7 @@ suspend fun getMapLibreConfiguration(
                         scheme = source.scheme ?: "xyz",
                     ),
                     type,
+                    demUnpack,
                 )
             }
         }

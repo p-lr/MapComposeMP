@@ -138,6 +138,17 @@ class StyleSpecDefaultsTest {
             checkString("paint_raster", "raster-resampling", RASTER_RESAMPLING)
             checkNumber("paint_raster", "raster-fade-duration", RASTER_FADE_DURATION)
 
+            checkNumber("paint_hillshade", "hillshade-exaggeration", HILLSHADE_EXAGGERATION)
+            checkNumber(
+                "paint_hillshade", "hillshade-illumination-direction", HILLSHADE_ILLUMINATION_DIRECTION
+            )
+            checkString(
+                "paint_hillshade", "hillshade-illumination-anchor", HILLSHADE_ILLUMINATION_ANCHOR
+            )
+            checkColor("paint_hillshade", "hillshade-shadow-color", HILLSHADE_SHADOW_COLOR)
+            checkColor("paint_hillshade", "hillshade-highlight-color", HILLSHADE_HIGHLIGHT_COLOR)
+            checkColor("paint_hillshade", "hillshade-accent-color", HILLSHADE_ACCENT_COLOR)
+
             checkString("layout_fill", "visibility", VISIBILITY)
         }
 

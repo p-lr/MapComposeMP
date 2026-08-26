@@ -20,12 +20,14 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  *
  * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolsProducer] so
  * that collision detection can run across the whole viewport rather than per tile, and
- * `hillshade` / `heatmap` / `fill-extrusion` / `sky` are not implemented -- see the note in each
- * painter for what each would need.
+ * `heatmap` / `fill-extrusion` / `sky` are not implemented -- see the note in each painter for what
+ * each would need.
  *
- * A `raster` layer is drawn from [rasterImage] rather than from [tile]: its source serves images,
- * not MVT, so [ovh.plrapps.mapcompose.vector.core.VectorRasterizer] decodes it separately and passes
- * the crop that covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter].
+ * A `raster` layer is drawn from [rasterImage] and a `hillshade` layer from [demTile], rather than
+ * from [tile]: their sources serve images, not MVT, so
+ * [ovh.plrapps.mapcompose.vector.core.VectorRasterizer] decodes them separately and passes what
+ * covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter], and see
+ * [HillshadeLayerPainter] for hillshade's own divergences.
  */
 class TileRenderer(
     configuration: MapLibreConfiguration,
@@ -39,6 +41,9 @@ class TileRenderer(
     /** Stateless, and outside [BaseLayerPainter], so one instance serves every raster layer. */
     private val rasterPainter = RasterLayerPainter()
 
+    /** Likewise for hillshade: one stateless instance, never routed through [painterFor]. */
+    private val hillshadePainter = HillshadeLayerPainter()
+
     suspend fun render(
         canvas: DrawScope,
         tile: Tile?,
@@ -47,7 +52,9 @@ class TileRenderer(
         canvasSize: Int,
         actualZoom: Double,
         tileKey: String? = null,
-        rasterImage: RasterTileImage? = null
+        rasterImage: RasterTileImage? = null,
+        demTile: DemTile? = null,
+        tileY: Int = 0,
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
@@ -57,7 +64,6 @@ class TileRenderer(
             is SymbolLayer,
             is FillExtrusionLayer,
             is HeatmapLayer,
-            is HillshadeLayer,
             is SkyLayer -> return
 
             is RasterLayer -> {
@@ -69,6 +75,21 @@ class TileRenderer(
                     style = styleLayer,
                     image = rasterImage,
                     canvasSize = canvasSize,
+                    actualZoom = actualZoom,
+                )
+            }
+
+            is HillshadeLayer -> {
+                // No DEM means the source had nothing for this tile -- below its minzoom, or the
+                // fetch failed. Either way there is nothing to shade.
+                demTile ?: return
+                hillshadePainter.paint(
+                    canvas = canvas,
+                    style = styleLayer,
+                    demTile = demTile,
+                    canvasSize = canvasSize,
+                    tileZ = zoom.toInt(),
+                    tileY = tileY,
                     actualZoom = actualZoom,
                 )
             }

@@ -33,11 +33,14 @@ import ovh.plrapps.mapcompose.core.TileMatrix
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.AngleRad
 import ovh.plrapps.mapcompose.utils.IODispatcher
+import ovh.plrapps.mapcompose.vector.data.DemData
+import ovh.plrapps.mapcompose.vector.data.DemUnpack
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SourceType
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement
+import ovh.plrapps.mapcompose.vector.renderer.DemTile
 import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
 import ovh.plrapps.mapcompose.vector.renderer.Symbol
@@ -84,26 +87,40 @@ class VectorRasterizer(
     private val rasterImageCache = LruCache<String, ImageBitmap>(maxSize = 30)
     private val rasterImageCacheMutex = Mutex()
 
+    // Decoded elevation tiles, keyed by the tile actually fetched. Building one costs its 8
+    // neighbours' bytes too (see buildDem), so this cache is what keeps the border backfill to
+    // roughly one extra fetch per DEM tile rather than nine per map tile.
+    private val demCache = LruCache<String, DemData>(maxSize = 30)
+    private val demCacheMutex = Mutex()
+
     // Precomputed source names referenced by style layers (constant after init), split by what the
-    // source serves: a raster source must never reach the protobuf decoder, and a vector source must
-    // never reach the image decoder.
+    // source serves: neither a raster nor a raster-dem source may reach the protobuf decoder, a
+    // vector source must never reach the image decoder, and only a raster-dem source's channels
+    // mean elevation.
     private val referencedSourceNames: Set<String> by lazy {
         configuration.style.layers.mapNotNull { it.source?.takeIf { s -> s.isNotBlank() } }.toSet()
     }
 
+    /* A whitelist, not "everything that is not raster": a raster-dem source's bytes are a PNG too,
+     * and feeding one to the protobuf decoder only produces noise. */
     private val vectorSourceNames: Set<String> by lazy {
-        referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) != SourceType.RASTER }
+        referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) == SourceType.VECTOR }
     }
 
     private val rasterSourceNames: Set<String> by lazy {
         referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) == SourceType.RASTER }
     }
 
+    private val demSourceNames: Set<String> by lazy {
+        referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) == SourceType.RASTER_DEM }
+    }
+
     private fun typeOf(sourceName: String): SourceType =
         configuration.tileSources[sourceName]?.type ?: SourceType.VECTOR
 
     /** The source types a tile bitmap is drawn from. Every other type is never fetched. */
-    private val TILE_SOURCE_TYPES = setOf(SourceType.VECTOR, SourceType.RASTER)
+    private val TILE_SOURCE_TYPES =
+        setOf(SourceType.VECTOR, SourceType.RASTER, SourceType.RASTER_DEM)
 
     // Minimum viewport-pixel distance between repetitions of the same line label across tiles.
     // Mirrors MapLibre's default symbol-spacing (250px).
@@ -176,6 +193,11 @@ class VectorRasterizer(
             image?.let { RasterTileImage.of(it, tile.ref) }
         }
 
+        val demForSource: Map<String, DemTile?> = demSourceNames.associateWith { sourceName ->
+            val tile = fetched[sourceName] ?: return@associateWith null
+            buildDem(sourceName, tile.ref)?.let { DemTile(dem = it, ref = tile.ref) }
+        }
+
         val imageBitmap = ImageBitmap(tileSize, tileSize)
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
@@ -206,11 +228,88 @@ class VectorRasterizer(
                     canvasSize = tileSize,
                     actualZoom = actualZoom,
                     tileKey = tileKey,
-                    rasterImage = sourceName?.let { rasterForSource[it] }
+                    rasterImage = sourceName?.let { rasterForSource[it] },
+                    demTile = sourceName?.let { demForSource[it] },
+                    tileY = y,
                 )
             }
         }
         return imageBitmap
+    }
+
+    /**
+     * Decodes the elevation tile [ref] of [sourceName], with its border ring backfilled.
+     *
+     * The [DemData] covers the *whole* fetched tile, never the sub-square an overzoomed map tile
+     * crops: that is what lets several map tiles share one decode, and it keeps the border ring
+     * reachable from every sub-square. Borders come from the 8 neighbouring tiles, as upstream's
+     * `DEMData#backfillBorder` does -- without them the Sobel operator at a tile edge is halved and
+     * a grid of seams shows across the map. A neighbour that fails to fetch simply leaves the
+     * clamp-to-edge seed in place.
+     */
+    private suspend fun buildDem(sourceName: String, ref: TileRef): DemData? {
+        val key = getTileKey(sourceName, ref.z, ref.x, ref.y)
+        demCacheMutex.withLock { demCache.get(key) }?.let { return it }
+
+        val source = configuration.tileSources[sourceName] ?: return null
+        val unpack = source.demUnpack ?: return null
+
+        val dem = decodeDem(sourceName, ref, unpack) ?: return null
+
+        val neighbours = supervisorScope {
+            neighbourRefs(ref)
+                .map { (offset, neighbourRef) ->
+                    offset to async { decodeDem(sourceName, neighbourRef, unpack) }
+                }
+                .map { (offset, deferred) ->
+                    offset to runCatching { deferred.await() }.getOrNull()
+                }
+        }
+
+        for ((offset, neighbour) in neighbours) {
+            val (dx, dy) = offset
+            neighbour ?: continue
+            /* A neighbour of a different size cannot be stitched onto this one; upstream throws,
+             * but here the clamped seed is a better outcome than dropping the tile. */
+            if (neighbour.dim != dem.dim) continue
+            dem.backfillBorder(neighbour, dx, dy)
+        }
+
+        demCacheMutex.withLock { demCache.put(key, dem) }
+        return dem
+    }
+
+    /** Fetches and decodes one elevation tile, without touching its own border. */
+    private suspend fun decodeDem(sourceName: String, ref: TileRef, unpack: DemUnpack): DemData? {
+        val source = configuration.tileSources[sourceName] ?: return null
+        val bytes = fetchTile(source.getTileUrl(ref), ref = ref, sourceName = sourceName)
+            .getOrNull() ?: return null
+        val image = decodeImageFromByteArray(bytes) ?: return null
+        return DemData.ofImage(image, unpack)
+    }
+
+    /**
+     * The 8 tiles around [ref], paired with their offset.
+     *
+     * Wraps in x and drops out-of-range rows in y, as upstream's
+     * `RasterDEMTileSource#_getNeighboringTiles` does -- the map is cyclic east-west but not
+     * north-south.
+     */
+    private fun neighbourRefs(ref: TileRef): List<Pair<Pair<Int, Int>, TileRef>> {
+        val tiles = 1 shl ref.z
+        val result = mutableListOf<Pair<Pair<Int, Int>, TileRef>>()
+        for (dy in -1..1) {
+            for (dx in -1..1) {
+                if (dx == 0 && dy == 0) continue
+                val ny = ref.y + dy
+                if (ny < 0 || ny >= tiles) continue
+                val nx = ((ref.x + dx) % tiles + tiles) % tiles
+                result.add(
+                    (dx to dy) to TileRef(z = ref.z, x = nx, y = ny, subX = 0, subY = 0, span = 1)
+                )
+            }
+        }
+        return result
     }
 
     private suspend fun fetchTile(url: String, ref: TileRef, sourceName: String): Result<ByteArray> {
@@ -267,7 +366,8 @@ class VectorRasterizer(
             val deferred = configuration.tileSources.mapNotNull { (sourceName, ts) ->
                 if (ts.type !in types) return@mapNotNull null
                 val ref = when (ts.type) {
-                    SourceType.RASTER -> ts.resolve(z = z, x = x, y = y) ?: return@mapNotNull null
+                    SourceType.RASTER,
+                    SourceType.RASTER_DEM -> ts.resolve(z = z, x = x, y = y) ?: return@mapNotNull null
                     else -> TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
                 }
                 sourceName to async {

@@ -6,12 +6,15 @@ import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
  * One tile source of a style: what [type] of data it serves, and which URL serves a given tile.
  *
  * @property type What the bytes at [getTileUrl] are. The rasterizer decodes a [SourceType.VECTOR]
- * source's tiles as MVT protobuf and a [SourceType.RASTER] source's as an image; nothing else is
- * fetched at all.
+ * source's tiles as MVT protobuf, and a [SourceType.RASTER] or [SourceType.RASTER_DEM] source's as
+ * an image; nothing else is fetched at all.
+ * @property demUnpack How to read elevation out of that image, set for a [SourceType.RASTER_DEM]
+ * source and `null` for every other type.
  */
 class MapLibreTileSource(
     val tileJson: TileJson,
     val type: SourceType = SourceType.VECTOR,
+    val demUnpack: DemUnpack? = null,
 ) {
 
     companion object {
