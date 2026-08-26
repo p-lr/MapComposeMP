@@ -8,9 +8,8 @@ package ovh.plrapps.mapcompose.vector.data
  * It used to be parsed and dropped here, so every source was fetched and pbf-decoded as MVT; that
  * is what blocked the `raster` layer.
  *
- * Only [VECTOR] and [RASTER] currently change what the pipeline does. The rest are named so that a
- * style declaring one is recognised rather than silently treated as a vector source -- and so the
- * hillshade work has [RASTER_DEM] to hang off.
+ * [VECTOR], [RASTER] and [RASTER_DEM] change what the pipeline does. The rest are named so that a
+ * style declaring one is recognised rather than silently treated as a vector source.
  */
 enum class SourceType {
     VECTOR,

@@ -164,6 +164,73 @@ class MapLibreTileSourceTest {
     }
 
     @Test
+    fun `a raster-dem source overzooms like a raster one`() {
+        val tileSource = source(maxzoom = 14, type = SourceType.RASTER_DEM)
+
+        val ref = assertNotNull(tileSource.resolve(z = 16, x = 13, y = 6))
+        assertEquals(14, ref.z)
+        assertEquals(3, ref.x)
+        assertEquals(1, ref.y)
+        assertEquals(4, ref.span)
+        assertEquals(1, ref.subX)
+        assertEquals(2, ref.subY)
+    }
+
+    @Test
+    fun `the dem unpack vector is read off the style`() = runTest {
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "terrarium": {
+                  "type": "raster-dem",
+                  "encoding": "terrarium",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.png"]
+                },
+                "mapbox": {
+                  "type": "raster-dem",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.png"]
+                },
+                "made-up": {
+                  "type": "raster-dem",
+                  "encoding": "custom",
+                  "redFactor": 2.0,
+                  "greenFactor": 3.0,
+                  "blueFactor": 4.0,
+                  "baseShift": 5.0,
+                  "tiles": ["https://example.test/{z}/{x}/{y}.png"]
+                },
+                "plain": {
+                  "type": "raster",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.png"]
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration = getMapLibreConfiguration(style = style) { null }.getOrThrow()
+
+        assertEquals(
+            DemUnpack.TERRARIUM,
+            assertNotNull(configuration.tileSources["terrarium"]).demUnpack,
+        )
+        assertEquals(
+            DemUnpack.MAPBOX,
+            assertNotNull(configuration.tileSources["mapbox"]).demUnpack,
+            "an absent encoding is mapbox, as the style spec says",
+        )
+        assertEquals(
+            DemUnpack(red = 2.0, green = 3.0, blue = 4.0, baseShift = 5.0),
+            assertNotNull(configuration.tileSources["made-up"]).demUnpack,
+        )
+        assertNull(
+            assertNotNull(configuration.tileSources["plain"]).demUnpack,
+            "only a raster-dem source's channels mean elevation",
+        )
+    }
+
+    @Test
     fun `an unrecognised source type is not treated as vector`() {
         assertEquals(SourceType.UNKNOWN, SourceType.fromSpec("something-new"))
         assertEquals(SourceType.VECTOR, SourceType.fromSpec(null))

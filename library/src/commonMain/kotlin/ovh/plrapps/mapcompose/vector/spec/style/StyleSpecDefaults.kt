@@ -73,6 +73,14 @@ object StyleSpecDefaults {
     const val RASTER_RESAMPLING = RESAMPLING_LINEAR
     const val RASTER_FADE_DURATION = 300.0
 
+    // paint_hillshade
+    const val HILLSHADE_EXAGGERATION = 0.5
+    const val HILLSHADE_ILLUMINATION_DIRECTION = 335.0
+    const val HILLSHADE_ILLUMINATION_ANCHOR = ANCHOR_VIEWPORT
+    val HILLSHADE_SHADOW_COLOR = Color.Black
+    val HILLSHADE_HIGHLIGHT_COLOR = Color.White
+    val HILLSHADE_ACCENT_COLOR = Color.Black
+
     // layout_*
     const val VISIBILITY = "visible"
     const val VISIBILITY_NONE = "none"
