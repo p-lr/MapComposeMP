@@ -189,6 +189,15 @@ class CompoundExpression(
 
         private fun hasKey(key: Any?, obj: Map<*, *>): Boolean = obj.containsKey(key)
 
+        /**
+         * A feature property as the legacy `filter-*` operators see it: [JsUndefined] when the key
+         * is absent, so `["==", "foo", null]` does not match a feature that simply lacks `foo`.
+         */
+        private fun propertyOrUndefined(ctx: EvaluationContext, key: Any?): Any? {
+            val props = ctx.properties()
+            return if (props.containsKey(key)) props[key] else JsUndefined
+        }
+
         private fun getKey(key: Any?, obj: Map<*, *>): Any? = obj[key]
 
         private fun binarySearch(v: Any?, a: List<Any?>, from: Int, to: Int): Boolean {
@@ -340,7 +349,7 @@ class CompoundExpression(
             // Internal operators produced by the legacy-filter converter. They are never written
             // by style authors; see spec/style/filter/FeatureFilter.kt.
             put("filter-==", simple(BooleanType, fixed(StringType, ValueType)) { ctx, args, _ ->
-                jsStrictEqual(ctx.properties()[literalValue(args[0])], literalValue(args[1]))
+                jsStrictEqual(propertyOrUndefined(ctx, literalValue(args[0])), literalValue(args[1]))
             })
             put("filter-id-==", simple(BooleanType, fixed(ValueType)) { ctx, args, _ ->
                 jsStrictEqual(ctx.id(), literalValue(args[0]))
@@ -350,7 +359,7 @@ class CompoundExpression(
             })
             for ((op, test) in RELATIONAL_TESTS) {
                 put("filter-$op", simple(BooleanType, fixed(StringType, ValueType)) { ctx, args, _ ->
-                    val cmp = compareJsValues(ctx.properties()[literalValue(args[0])], literalValue(args[1]))
+                    val cmp = compareJsValues(propertyOrUndefined(ctx, literalValue(args[0])), literalValue(args[1]))
                     cmp != null && test(cmp)
                 })
                 put("filter-id-$op", simple(BooleanType, fixed(ValueType)) { ctx, args, _ ->
@@ -370,12 +379,12 @@ class CompoundExpression(
             })
             put("filter-in-small", simple(BooleanType, fixed(StringType, array(ValueType))) { ctx, args, _ ->
                 val v = literalValue(args[1]) as List<Any?>
-                val target = ctx.properties()[literalValue(args[0])]
+                val target = propertyOrUndefined(ctx, literalValue(args[0]))
                 v.any { jsStrictEqual(it, target) }
             })
             put("filter-in-large", simple(BooleanType, fixed(StringType, array(ValueType))) { ctx, args, _ ->
                 val v = literalValue(args[1]) as List<Any?>
-                binarySearch(ctx.properties()[literalValue(args[0])], v, 0, v.size - 1)
+                binarySearch(propertyOrUndefined(ctx, literalValue(args[0])), v, 0, v.size - 1)
             })
 
             put(
