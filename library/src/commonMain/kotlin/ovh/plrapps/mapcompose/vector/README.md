@@ -11,14 +11,14 @@
 
 ## Status
 Parsers, decoders and the expression engine are done. The 2D painters -- background, fill, line,
-circle -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work but predate the
-expression engine. The remaining layer types are not implemented; each painter's source says what it
-would need.
+circle, raster -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work but
+predate the expression engine. The remaining layer types are not implemented; each painter's source
+says what it would need.
 
 Remaining directions
 - Symbols. Rework against the expression engine, and the layout properties listed as unread below.
-- Raster and hillshade. Both are blocked on source types: `Source.type` is ignored today, so every
-  source is fetched and pbf-decoded as MVT.
+- Hillshade. Needs a `raster-dem` source: `SourceType` names it, but nothing decodes Terrain-RGB into
+  elevation yet. The rest of the source plumbing it used to be blocked on now exists.
 - Heatmap. Needs a viewport-wide accumulation overlay, like the one symbols already use; a per-tile
   heatmap would seam at every tile edge.
 - fill-extrusion and sky. 3D; blocked on camera pitch.
@@ -45,7 +45,8 @@ TL;DR
 - ✅ Circle — radius, colour, opacity, blur, stroke width/colour/opacity, translate
 - 🛠️ Symbols
 - 🛠️ Sprites (part of Symbols)
-- ❌ Raster
+- ✅ Raster — opacity, hue-rotate, saturation, contrast, brightness-min/max, resampling,
+  overzoom
 - ❌ FillExtrusion
 - ❌ Heatmap
 - ❌ Hillshade
@@ -60,7 +61,9 @@ Defaults for every implemented property come from `spec/style/StyleSpecDefaults.
 Divergences forced by stroking on the CPU instead of tessellating on the GPU, each documented at its
 painter: `line-round-limit` is inert, `line-blur` and `line-gradient` are approximated,
 `circle-pitch-scale` / `circle-pitch-alignment` are inert (no camera pitch), and a
-`viewport`-anchored `*-translate` is not counter-rotated.
+`viewport`-anchored `*-translate` is not counter-rotated. Raster adds its own, from drawing into a
+tile bitmap rather than sampling a texture: `raster-fade-duration` is inert (no frame loop to
+cross-fade over), the image is resampled twice, and a source's `bounds` is not honoured.
 
 ### What is implemented and close to MapLibre
 
