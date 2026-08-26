@@ -171,6 +171,27 @@ fun ExpressionOrValue<Color>?.processAsGradientColor(
 }
 
 /**
+ * Evaluates a `heatmap-color` at one density.
+ *
+ * The other global-reading paint property, alongside [processAsGradientColor]: `heatmap-color` is
+ * defined over `["heatmap-density"]` in `0..1` rather than over a feature. No zoom is supplied,
+ * because upstream builds the ramp once per paint value in `HeatmapStyleLayer._updateColorRamp`
+ * (`renderColorRamp` passes only the density), not once per frame -- so a style that references
+ * `zoom` here reads it as 0, exactly as it would in MapLibre.
+ */
+fun ExpressionOrValue<Color>?.processAsHeatmapColor(
+    heatmapDensity: Double,
+): Color? = when (this) {
+    null -> null
+    is ExpressionOrValue.Value -> value
+    is ExpressionOrValue.Invalid -> null
+    is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
+        globals = GlobalProperties(zoom = 0.0, heatmapDensity = heatmapDensity),
+        feature = null,
+    ) as? Color
+}
+
+/**
  * Evaluates without the declared type parameter getting in the way. The generic `T` on
  * [ExpressionOrValue] is nominal — the engine works in `Any?` — so the coercing helpers above go
  * through this rather than [ExpressionOrValue.process].

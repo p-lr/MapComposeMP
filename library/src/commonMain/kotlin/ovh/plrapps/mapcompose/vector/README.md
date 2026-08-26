@@ -11,14 +11,12 @@
 
 ## Status
 Parsers, decoders and the expression engine are done. The 2D painters -- background, fill, line,
-circle, raster, hillshade -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work
-but predate the expression engine. The remaining layer types are not implemented; each painter's
-source says what it would need.
+circle, raster, hillshade, heatmap -- follow maplibre-gl-js and are covered by pixel-level tests.
+Symbols work but predate the expression engine. The remaining layer types are not implemented; each
+painter's source says what it would need.
 
 Remaining directions
 - Symbols. Rework against the expression engine, and the layout properties listed as unread below.
-- Heatmap. Needs a viewport-wide accumulation overlay, like the one symbols already use; a per-tile
-  heatmap would seam at every tile edge.
 - fill-extrusion and sky. 3D; blocked on camera pitch.
 
 TL;DR
@@ -48,7 +46,8 @@ TL;DR
 - ✅ Hillshade — Terrain-RGB decode (mapbox/terrarium/custom), exaggeration,
   illumination-direction, shadow/highlight/accent colours, overzoom, neighbour-backfilled borders
 - ❌ FillExtrusion
-- ❌ Heatmap
+- ✅ Heatmap — weight, intensity, radius, opacity, `heatmap-color` ramp, kernels gathered across
+  neighbouring tiles
 - ❌ Sky
 
 Layer gating that applies to all of them: `visibility`, `minzoom`/`maxzoom`, `filter`, and
@@ -66,7 +65,11 @@ cross-fade over), the image is resampled twice, and a source's `bounds` is not h
 shares the last two and adds `hillshade-illumination-anchor`, which is inert for the same reason a
 `viewport`-anchored `*-translate` is -- the bearing is unknown when a tile is rasterized -- so the
 light is always map-anchored; it also lights each DEM sample and interpolates the resulting colours,
-where upstream interpolates the slope and lights each screen pixel.
+where upstream interpolates the slope and lights each screen pixel. Heatmap shares that extra
+resample too, and adds two of its own: only the 8 immediate neighbours are gathered, so a
+`heatmap-radius` past roughly one tile still clips; and `heatmap-opacity` is folded into the colour
+ramp when the tile is rasterized, so it cannot animate -- the same root cause as
+`raster-fade-duration` being inert.
 
 ### What is implemented and close to MapLibre
 
@@ -95,6 +98,29 @@ the 1 px border ring -- seeded by clamping and then backfilled from the 8 neighb
 is what keeps the slope continuous across a tile boundary. Upstream's `19.2562` hardcodes a 512 px
 DEM tile; the ground resolution is derived from the tile's own size here instead, so a 256 px DEM is
 right too.
+
+#### Heatmap
+Upstream has *two* paths in `src/webgl/draw/draw_heatmap.ts`. The flat one accumulates the whole
+viewport into a single quarter-resolution framebuffer with additive blending and
+`StencilMode.disabled` -- "Allow kernels to be drawn across boundaries, so that large kernels are not
+clipped to tiles" -- then maps it through a 256x1 `heatmap-color` ramp texture; the terrain one does
+the same per tile and accepts the seams. This port keeps the flat path's *output* inside the tile
+pipeline instead of adding an overlay: `TileRenderer` gathers the points of the tile **and its 8
+neighbours** (`NeighbourTile`, fetched by `VectorRasterizer.neighbourVectorTiles`, reusing the same
+`neighbourRefs` the hillshade border backfill uses) and hands them all to `HeatmapLayerPainter`. The
+kernel is finite, so that reproduces what the shared framebuffer would hold -- no seam. Points are
+de-duplicated with upstream's own rule from `CircleBucket.addFeature`, "Do not include points that
+are outside the tile boundaries", so one duplicated into a neighbour's MVT buffer is never counted
+twice.
+
+`renderer/utils/HeatmapKernel.kt` holds the pure maths (`kernelValue`, `kernelExtentInRadii`, and the
+two texture reads `bilinearSample` / `sampleColorRamp`), so `commonTest` covers it and only the
+painter needs `skiaTest` -- the same split as `HillshadeShading.kt`. The density field is a quarter
+of the tile bitmap in each axis, as upstream's is of the screen, and density is interpolated *before*
+the ramp lookup, as the fragment shader does. `heatmap-color` is the one spec default that is an
+expression rather than a scalar: `StyleSpecDefaults.HEATMAP_COLOR` keeps it as JSON text and the
+painter compiles it through the ordinary property serializer. It is read at a *density* rather than
+at a zoom or a feature, hence `processAsHeatmapColor`.
 
 #### Fill, Line, Circle & Background
 Ported against `maplibre-gl-js/src/render/draw_*.ts` and the matching shaders. Polygon rings are
