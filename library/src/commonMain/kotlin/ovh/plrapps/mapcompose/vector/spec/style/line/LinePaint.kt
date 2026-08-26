@@ -38,5 +38,13 @@ data class LinePaint(
     val lineTranslateAnchor: ExpressionOrValue<String>? = null,
 
     @SerialName("line-gap-width")
-    val lineGapWidth: ExpressionOrValue<Double>? = null
+    val lineGapWidth: ExpressionOrValue<Double>? = null,
+
+    /**
+     * Defines a gradient with which to colour a line feature. Only takes effect on sources with
+     * line metrics; evaluated against the `line-progress` global.
+     */
+    @SerialName("line-gradient")
+    @Serializable(with = ExpressionOrValueColorSerializer::class)
+    val lineGradient: ExpressionOrValue<Color>? = null
 ) : PaintInterface

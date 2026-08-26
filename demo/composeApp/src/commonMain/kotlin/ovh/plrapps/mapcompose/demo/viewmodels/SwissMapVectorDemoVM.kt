@@ -35,7 +35,10 @@ class SwissMapVectorDemoVM : ViewModel() {
         scroll(0.5231943373, 0.3542287256)
     }.apply {
         viewModelScope.launch {
-            addVectorLayer(vectorTileStreamProvider)
+            /* This map uses 512 px tiles, so it is the one where minification between pyramid
+             * levels is most visible. Super-sampling costs 4x the rasterization; drop it to 1 to
+             * compare. */
+            addVectorLayer(vectorTileStreamProvider, superSamplingFactor = 2)
         }
         enableRotation()
         scale = 0.0

@@ -7,8 +7,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Density
@@ -59,7 +61,6 @@ class VectorRasterizer(
     val fontFamilyResolverState:  MutableStateFlow<FontFamily.Resolver?>,
     val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     val getTileStream: suspend (url: String, row: Int, col: Int, zoomLvl: Int) -> RawSource?,
-    val tileSize: Int = 256,
 ) {
     // Decoded protobuf Tile objects are large (up to several MB each in dense areas).
     // Keep size modest; raw bytes remain available in byteCache for cheap re-decoding.
@@ -231,11 +232,21 @@ class VectorRasterizer(
         return imageBitmap
     }
 
+    /**
+     * Rasterizes one tile into a [tileSize] x [tileSize] bitmap.
+     *
+     * With [superSampling] > 1 the tile is drawn that many times larger and filtered back down to
+     * [tileSize] before returning, so the caller always gets the size it asked for. That trades
+     * `superSampling²` fill rate for cleaner hairlines and text: the tile is minified again when it
+     * is drawn (a tile covers `tileSize * relativeScale` device pixels, `relativeScale` in
+     * `(0.5, 1.0]`), and that second minification is a plain bilinear sample.
+     */
     suspend fun getTile(
         x: Int,
         y: Int,
         zoom: Double,
         tileSize: Int,
+        superSampling: Int = 1,
     ): ImageBitmap {
         val z = zoom.toInt()
         val pbfList = fetch(z = z, x = x, y = y).getOrElse { e ->
@@ -243,7 +254,7 @@ class VectorRasterizer(
             return emptyBitmap(tileSize)
         }
 
-        return renderTile(
+        val rendered = renderTile(
             pbfList = pbfList,
             zoom = zoom,
             tileSize = tileSize,
@@ -251,6 +262,35 @@ class VectorRasterizer(
             x = x,
             y = y,
         )
+
+        return if (superSampling > 1) downsample(rendered, tileSize / superSampling) else rendered
+    }
+
+    /**
+     * Filters [source] down to [targetSize], with the bicubic sampling of [FilterQuality.High] —
+     * the point of super-sampling is the quality of this step, so it does not use the default.
+     */
+    private fun downsample(source: ImageBitmap, targetSize: Int): ImageBitmap {
+        val density = densityState.value ?: return source
+        if (targetSize <= 0) return source
+
+        val target = ImageBitmap(targetSize, targetSize)
+        CanvasDrawScope().draw(
+            density = density,
+            layoutDirection = LayoutDirection.Ltr,
+            canvas = Canvas(target),
+            size = Size(targetSize.toFloat(), targetSize.toFloat()),
+        ) {
+            drawImage(
+                image = source,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(source.width, source.height),
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(targetSize, targetSize),
+                filterQuality = FilterQuality.High,
+            )
+        }
+        return target
     }
 
     private val symbolsProducer = SymbolsProducer(
