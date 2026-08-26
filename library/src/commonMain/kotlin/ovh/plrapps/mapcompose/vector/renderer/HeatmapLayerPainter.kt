@@ -18,10 +18,10 @@ class HeatmapLayerPainter : BaseLayerPainter<HeatmapLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        // TODO: Implement heatmap rendering
-        // 1. Collect all points with weights
-        // 2. Apply Gaussian blur
-        // 3. Normalize values
-        // 4. Apply color scheme
+        // Not implemented. Upstream accumulates a density field for the whole viewport into an
+        // offscreen framebuffer and then maps it through `heatmap-color`
+        // (`src/render/draw_heatmap.ts`). Tiles here are rasterized independently, so a per-tile
+        // heatmap would seam at every tile edge; this needs a screen-space overlay like
+        // `SymbolComposer`, not a per-tile painter.
     }
 } 

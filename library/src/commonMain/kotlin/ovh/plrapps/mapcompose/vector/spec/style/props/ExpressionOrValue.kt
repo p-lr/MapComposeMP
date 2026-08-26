@@ -151,6 +151,26 @@ fun ExpressionOrValue<List<Double>>?.processAsDoubleList(
 }
 
 /**
+ * Evaluates a `line-gradient` at one position along a line.
+ *
+ * `line-gradient` is the one paint property whose expression reads a global other than `zoom`
+ * (`["line-progress"]`, in `0..1` along the feature), so it cannot go through the zoom-only helpers
+ * above.
+ */
+fun ExpressionOrValue<Color>?.processAsGradientColor(
+    lineProgress: Double,
+    zoom: Double? = null,
+): Color? = when (this) {
+    null -> null
+    is ExpressionOrValue.Value -> value
+    is ExpressionOrValue.Invalid -> null
+    is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
+        globals = GlobalProperties(zoom = zoom ?: 0.0, lineProgress = lineProgress),
+        feature = null,
+    ) as? Color
+}
+
+/**
  * Evaluates without the declared type parameter getting in the way. The generic `T` on
  * [ExpressionOrValue] is nominal — the engine works in `Any?` — so the coercing helpers above go
  * through this rather than [ExpressionOrValue.process].

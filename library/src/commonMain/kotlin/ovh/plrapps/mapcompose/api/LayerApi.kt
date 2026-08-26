@@ -64,12 +64,25 @@ fun MapState.addLayer(
     return id
 }
 
+/**
+ * Adds a layer rendered from MapLibre vector tiles.
+ *
+ * @param superSamplingFactor Renders each tile this many times larger and filters it back down,
+ * trading `factor²` rasterization cost for cleaner hairlines and text. Tiles are already rasterized
+ * at the size they are drawn at, so `1` — the default — is never stretched; raising it only refines
+ * the minification that happens between pyramid levels.
+ */
 suspend fun MapState.addVectorLayer(
     vectorTileStreamProvider: VectorTileStreamProvider,
     initialOpacity: Float = 1f,
-    placement: LayerPlacement = AboveAll
+    placement: LayerPlacement = AboveAll,
+    superSamplingFactor: Int = 1,
 ): String {
-    val vectorLayer = VectorLayer(mapState = this, vectorTileStreamProvider)
+    val vectorLayer = VectorLayer(
+        mapState = this,
+        vectorTileStreamProvider = vectorTileStreamProvider,
+        superSamplingFactor = superSamplingFactor.coerceAtLeast(1),
+    )
     val tileStreamProvider = vectorLayer.makeTileStreamProvider()
     // TODO: honor placement parameter
     return addLayer(tileStreamProvider)

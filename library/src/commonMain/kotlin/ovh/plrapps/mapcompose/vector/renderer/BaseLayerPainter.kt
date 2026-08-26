@@ -22,6 +22,12 @@ abstract class BaseLayerPainter<T : Layer> {
         featureKey: String? = null
     )
 
+    /**
+     * The feature's geometry as a single [Path], in canvas space.
+     *
+     * Point features have no path -- a point has no extent to fill or stroke. The circle painter
+     * draws them from [GeometryDecoders.decodePoint] instead.
+     */
     protected fun createPath(
         feature: Tile.Feature,
         canvasSize: Int,
@@ -37,8 +43,7 @@ abstract class BaseLayerPainter<T : Layer> {
             Tile.GeomType.LINESTRING -> geometryDecoders.createLineStringPath(
                 geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent).flatten()
             )
-            Tile.GeomType.POINT -> null // TODO: Implement point rendering
             else -> null
         }
     }
-} 
+}
