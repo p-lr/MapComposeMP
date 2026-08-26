@@ -81,6 +81,25 @@ object StyleSpecDefaults {
     val HILLSHADE_HIGHLIGHT_COLOR = Color.White
     val HILLSHADE_ACCENT_COLOR = Color.Black
 
+    // paint_heatmap
+    const val HEATMAP_WEIGHT = 1.0
+    const val HEATMAP_INTENSITY = 1.0
+    const val HEATMAP_RADIUS = 30.0
+    const val HEATMAP_OPACITY = 1.0
+
+    /**
+     * `heatmap-color`, the one spec default that is an expression rather than a scalar.
+     *
+     * It is kept as its JSON text and compiled with the ordinary property serializer, so the ramp a
+     * style gets when it says nothing is byte-for-byte the ramp it would get by spelling this out --
+     * including how `interpolate` blends the stops. See
+     * [ovh.plrapps.mapcompose.vector.renderer.HeatmapLayerPainter].
+     */
+    const val HEATMAP_COLOR: String =
+        """["interpolate",["linear"],["heatmap-density"],""" +
+            """0,"rgba(0, 0, 255, 0)",0.1,"royalblue",0.3,"cyan",""" +
+            """0.5,"lime",0.7,"yellow",1,"red"]"""
+
     // layout_*
     const val VISIBILITY = "visible"
     const val VISIBILITY_NONE = "none"

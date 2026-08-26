@@ -20,14 +20,17 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  *
  * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolsProducer] so
  * that collision detection can run across the whole viewport rather than per tile, and
- * `heatmap` / `fill-extrusion` / `sky` are not implemented -- see the note in each painter for what
- * each would need.
+ * `fill-extrusion` / `sky` are not implemented -- see the note in each painter for what each would
+ * need.
  *
  * A `raster` layer is drawn from [rasterImage] and a `hillshade` layer from [demTile], rather than
  * from [tile]: their sources serve images, not MVT, so
  * [ovh.plrapps.mapcompose.vector.core.VectorRasterizer] decodes them separately and passes what
  * covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter], and see
  * [HillshadeLayerPainter] for hillshade's own divergences.
+ *
+ * A `heatmap` layer reads [heatmapNeighbours] in addition to [tile]: its kernels reach past the
+ * tile they belong to, so the neighbouring tiles' points contribute too. See [HeatmapLayerPainter].
  */
 class TileRenderer(
     configuration: MapLibreConfiguration,
@@ -44,6 +47,12 @@ class TileRenderer(
     /** Likewise for hillshade: one stateless instance, never routed through [painterFor]. */
     private val hillshadePainter = HillshadeLayerPainter()
 
+    /** And for heatmap, which paints a whole layer's points at once rather than one feature. */
+    private val heatmapPainter = HeatmapLayerPainter()
+
+    /** Point decoding for the heatmap layer; the other layer types decode inside their painter. */
+    private val geometryDecoders = GeometryDecoders()
+
     suspend fun render(
         canvas: DrawScope,
         tile: Tile?,
@@ -55,6 +64,7 @@ class TileRenderer(
         rasterImage: RasterTileImage? = null,
         demTile: DemTile? = null,
         tileY: Int = 0,
+        heatmapNeighbours: List<NeighbourTile> = emptyList(),
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
@@ -63,8 +73,17 @@ class TileRenderer(
             // Drawn elsewhere or not implemented; see the class KDoc.
             is SymbolLayer,
             is FillExtrusionLayer,
-            is HeatmapLayer,
             is SkyLayer -> return
+
+            is HeatmapLayer -> {
+                heatmapPainter.paint(
+                    canvas = canvas,
+                    style = styleLayer,
+                    points = heatmapPoints(tile, heatmapNeighbours, styleLayer, zoom, canvasSize),
+                    canvasSize = canvasSize,
+                    actualZoom = actualZoom,
+                )
+            }
 
             is RasterLayer -> {
                 // No image means the source had nothing for this tile -- below its minzoom, or the
@@ -156,6 +175,63 @@ class TileRenderer(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Every point feature that contributes to [styleLayer]'s density field, in this tile's canvas
+     * space.
+     *
+     * The neighbouring tiles are walked exactly as the tile itself is -- same source layer, same
+     * filter -- and only their offset differs, so a point that heats this tile from outside is
+     * gated the same way the tile's own points are.
+     */
+    private fun heatmapPoints(
+        tile: Tile?,
+        neighbours: List<NeighbourTile>,
+        styleLayer: HeatmapLayer,
+        zoom: Double,
+        canvasSize: Int,
+    ): List<HeatmapPoint> {
+        val points = mutableListOf<HeatmapPoint>()
+        if (tile != null) addHeatmapPoints(points, tile, 0, 0, styleLayer, zoom, canvasSize)
+        for (neighbour in neighbours) {
+            addHeatmapPoints(points, neighbour.tile, neighbour.dx, neighbour.dy, styleLayer, zoom, canvasSize)
+        }
+        return points
+    }
+
+    private fun addHeatmapPoints(
+        into: MutableList<HeatmapPoint>,
+        tile: Tile,
+        dx: Int,
+        dy: Int,
+        styleLayer: HeatmapLayer,
+        zoom: Double,
+        canvasSize: Int,
+    ) {
+        val tileLayer = tile.layers.find { it.name == styleLayer.sourceLayer } ?: return
+        val extent = tileLayer.extent ?: DEFAULT_EXTENT
+        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
+        val offsetX = dx.toDouble() * canvasSize
+        val offsetY = dy.toDouble() * canvasSize
+
+        for (feature in tileLayer.features) {
+            if (feature.type != Tile.GeomType.POINT) continue
+            val properties = buildEvalFeature(feature, tileLayer, needGeometry)
+            if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, properties)) continue
+
+            val decoded = geometryDecoders.decodePoint(
+                feature.geometry, extent = extent, canvasSize = canvasSize
+            )
+            for (point in decoded) {
+                /* Upstream's `CircleBucket.addFeature`: "Do not include points that are outside the
+                 * tile boundaries." Without it a point that the MVT buffer duplicated into a
+                 * neighbouring tile would be accumulated twice, once from each tile carrying it. */
+                if (point.x < 0.0 || point.x >= canvasSize) continue
+                if (point.y < 0.0 || point.y >= canvasSize) continue
+                into.add(HeatmapPoint(point.x + offsetX, point.y + offsetY, properties))
             }
         }
     }

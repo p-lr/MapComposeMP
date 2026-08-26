@@ -85,6 +85,22 @@ class StyleSpecDefaultsTest {
             if (expected != actual) failures.add("$block/$property expected $expected ('$raw') but was $actual")
         }
 
+        /**
+         * `heatmap-color` is the one default that is an expression, so it is compared as parsed
+         * JSON -- whitespace and number formatting in the vendored table are not the point.
+         */
+        fun checkExpression(block: String, property: String, actual: String) {
+            val entry = spec(block, property)
+                ?: return note("$block/$property is not in the vendored spec table")
+            val expected = entry["default"]
+                ?: return note("$block/$property has no default upstream")
+            val parsed = runCatching { Json.parseToJsonElement(actual) }.getOrNull()
+                ?: return note("$block/$property default in StyleSpecDefaults is not valid JSON")
+            if (expected != parsed) {
+                failures.add("$block/$property expected $expected but was $parsed")
+            }
+        }
+
         fun checkNumberPair(block: String, property: String, actual: List<Double>) {
             val entry = spec(block, property)
                 ?: return note("$block/$property is not in the vendored spec table")
@@ -148,6 +164,12 @@ class StyleSpecDefaultsTest {
             checkColor("paint_hillshade", "hillshade-shadow-color", HILLSHADE_SHADOW_COLOR)
             checkColor("paint_hillshade", "hillshade-highlight-color", HILLSHADE_HIGHLIGHT_COLOR)
             checkColor("paint_hillshade", "hillshade-accent-color", HILLSHADE_ACCENT_COLOR)
+
+            checkNumber("paint_heatmap", "heatmap-weight", HEATMAP_WEIGHT)
+            checkNumber("paint_heatmap", "heatmap-intensity", HEATMAP_INTENSITY)
+            checkNumber("paint_heatmap", "heatmap-radius", HEATMAP_RADIUS)
+            checkNumber("paint_heatmap", "heatmap-opacity", HEATMAP_OPACITY)
+            checkExpression("paint_heatmap", "heatmap-color", HEATMAP_COLOR)
 
             checkString("layout_fill", "visibility", VISIBILITY)
         }
