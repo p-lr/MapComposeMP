@@ -24,9 +24,10 @@ suspend fun getMapLibreConfiguration(
         style.sources?.toList()?.forEach { (name, source) ->
             val sourceUrl = source.url
             val tiles = source.tiles
+            val type = SourceType.fromSpec(source.type)
             if (sourceUrl !== null) {
                 val tileJson = getTileJson(sourceUrl, loadResource).getOrElse { e -> return Result.failure(e) }
-                tileSources[name] = MapLibreTileSource(tileJson)
+                tileSources[name] = MapLibreTileSource(tileJson, type)
             } else if(tiles != null) {
                 tileSources[name] = MapLibreTileSource(
                     TileJson(
@@ -34,7 +35,9 @@ suspend fun getMapLibreConfiguration(
                         tiles = tiles,
                         maxzoom = source.maxzoom ?: 22,
                         minzoom = source.minzoom ?: 0,
-                    )
+                        scheme = source.scheme ?: "xyz",
+                    ),
+                    type,
                 )
             }
         }
