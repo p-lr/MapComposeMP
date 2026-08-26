@@ -41,6 +41,7 @@ import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement
 import ovh.plrapps.mapcompose.vector.renderer.DemTile
+import ovh.plrapps.mapcompose.vector.renderer.NeighbourTile
 import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
 import ovh.plrapps.mapcompose.vector.renderer.Symbol
@@ -52,6 +53,7 @@ import ovh.plrapps.mapcompose.vector.renderer.collision.LabelPlacement
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.utils.LruCache
+import ovh.plrapps.mapcompose.vector.spec.style.HeatmapLayer
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
@@ -113,6 +115,16 @@ class VectorRasterizer(
 
     private val demSourceNames: Set<String> by lazy {
         referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) == SourceType.RASTER_DEM }
+    }
+
+    /* The vector sources a heatmap layer reads. A heatmap kernel reaches past the tile its point
+     * belongs to, so those sources' 8 neighbouring tiles are fetched as well and handed to the
+     * painter -- the border treatment `buildDem` needs for hillshade, for the same reason: without
+     * it a hot cluster near a tile edge cools off at the seam. */
+    private val heatmapSourceNames: Set<String> by lazy {
+        configuration.style.layers.filterIsInstance<HeatmapLayer>()
+            .mapNotNull { it.source?.takeIf { s -> s.isNotBlank() } }
+            .filterTo(mutableSetOf()) { typeOf(it) == SourceType.VECTOR }
     }
 
     private fun typeOf(sourceName: String): SourceType =
@@ -198,9 +210,6 @@ class VectorRasterizer(
             buildDem(sourceName, tile.ref)?.let { DemTile(dem = it, ref = tile.ref) }
         }
 
-        val imageBitmap = ImageBitmap(tileSize, tileSize)
-        val canvas = Canvas(imageBitmap)
-        val drawScope = CanvasDrawScope()
         val localPropCache = HashMap<String, EvalFeature>()
         val tileRenderer = TileRenderer(
             configuration = configuration,
@@ -208,6 +217,21 @@ class VectorRasterizer(
             pathCacheMutex = pathCacheMutex,
             localPropCache = localPropCache
         )
+
+        /* Gated on a heatmap layer actually drawing at this zoom, because the neighbours cost 8
+         * fetches per source and a heatmap is commonly bounded to a narrow zoom range. */
+        val heatmapNeighboursForSource: Map<String, List<NeighbourTile>> = when {
+            heatmapSourceNames.isEmpty() -> emptyMap()
+            configuration.style.layers.none {
+                it is HeatmapLayer && tileRenderer.isLayerVisible(it) && tileRenderer.isZoomInRange(it, zoom)
+            } -> emptyMap()
+
+            else -> heatmapSourceNames.associateWith { neighbourVectorTiles(it, z = z, x = x, y = y) }
+        }
+
+        val imageBitmap = ImageBitmap(tileSize, tileSize)
+        val canvas = Canvas(imageBitmap)
+        val drawScope = CanvasDrawScope()
 
         drawScope.draw(
             density = density,
@@ -231,10 +255,52 @@ class VectorRasterizer(
                     rasterImage = sourceName?.let { rasterForSource[it] },
                     demTile = sourceName?.let { demForSource[it] },
                     tileY = y,
+                    heatmapNeighbours = sourceName
+                        ?.let { heatmapNeighboursForSource[it] }
+                        ?: emptyList(),
                 )
             }
         }
         return imageBitmap
+    }
+
+    /**
+     * The 8 vector tiles around [z]/[x]/[y] of [sourceName], decoded.
+     *
+     * Only a heatmap layer needs these, and only because its kernels cross tile boundaries -- see
+     * [ovh.plrapps.mapcompose.vector.renderer.HeatmapLayerPainter]. A neighbour that fails to fetch
+     * is simply left out, which costs the tile the heat of whatever that neighbour held rather than
+     * the whole layer.
+     */
+    private suspend fun neighbourVectorTiles(
+        sourceName: String,
+        z: Int,
+        x: Int,
+        y: Int,
+    ): List<NeighbourTile> {
+        val centre = TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
+        return supervisorScope {
+            neighbourRefs(centre)
+                .map { (offset, ref) -> offset to async { decodeVectorTile(sourceName, ref) } }
+                .mapNotNull { (offset, deferred) ->
+                    val tile = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
+                    val (dx, dy) = offset
+                    NeighbourTile(tile = tile, dx = dx, dy = dy)
+                }
+        }
+    }
+
+    /** Fetches and decodes one vector tile, going through both caches the render path uses. */
+    private suspend fun decodeVectorTile(sourceName: String, ref: TileRef): Tile? {
+        val key = getTileKey(sourceName, ref.z, ref.x, ref.y)
+        tileCacheMutex.withLock { tileCache.get(key) }?.let { return it }
+
+        val source = configuration.tileSources[sourceName] ?: return null
+        val bytes = fetchTile(source.getTileUrl(ref), ref = ref, sourceName = sourceName)
+            .getOrNull() ?: return null
+        return decodePBFFromByteArray(bytes)?.also { tile ->
+            tileCacheMutex.withLock { tileCache.put(key, tile) }
+        }
     }
 
     /**

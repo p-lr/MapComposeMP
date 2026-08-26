@@ -43,6 +43,7 @@ class TileRendererTest {
         zoom: Double = 10.0,
         tileKey: String? = null,
         renderer: TileRenderer = renderer(),
+        heatmapNeighbours: List<NeighbourTile> = emptyList(),
     ): ImageBitmap = renderToBitmap(size = SIZE) {
         renderer.render(
             canvas = this,
@@ -52,6 +53,7 @@ class TileRendererTest {
             canvasSize = SIZE,
             actualZoom = zoom,
             tileKey = tileKey,
+            heatmapNeighbours = heatmapNeighbours,
         )
     }
 
@@ -196,7 +198,6 @@ class TileRendererTest {
         val unpainted = listOf(
             """{"id":"r","type":"raster","source":"src","source-layer":"test"}""",
             """{"id":"h","type":"hillshade","source":"src","source-layer":"test"}""",
-            """{"id":"hm","type":"heatmap","source":"src","source-layer":"test"}""",
             """{"id":"fe","type":"fill-extrusion","source":"src","source-layer":"test"}""",
             """{"id":"sky","type":"sky"}""",
             """{"id":"s","type":"symbol","source":"src","source-layer":"test"}""",
@@ -207,6 +208,84 @@ class TileRendererTest {
             assertEquals(0, bitmap.opaquePixelCount(), "layer $styleJson should draw nothing")
         }
     }
+
+    // region heatmap
+    //
+    // A heatmap's kernels reach past the tile their point belongs to, so `render` is given the
+    // neighbouring tiles as well; these cover the gathering, not the kernel itself, which
+    // `HeatmapLayerPainterTest` and `HeatmapKernelTest` cover.
+
+    private fun heatmapLayer(extra: String = "") = layer(
+        """{"id":"heat","type":"heatmap","source":"src","source-layer":"points",
+            "paint":{"heatmap-color":["interpolate",["linear"],["heatmap-density"],
+                0,"rgba(255, 0, 0, 0)",1,"rgba(255, 0, 0, 1)"]}$extra}"""
+    )
+
+    private fun pointTile(vararg points: Pair<Int, Int>, tags: List<Int> = emptyList()) = Mvt.tile(
+        Mvt.layer(name = "points", features = listOf(Mvt.pointFeature(*points, tags = tags)))
+    )
+
+    @Test
+    fun `a heatmap layer accumulates its own tile's points`() = runTest {
+        val bitmap = render(heatmapLayer(), pointTile(2048 to 2048))
+
+        assertTrue(bitmap.pixelAt(32, 32).alpha > 0.2f, "the point must heat the tile centre")
+    }
+
+    @Test
+    fun `a heatmap layer accumulates the neighbouring tiles' points`() = runTest {
+        // The point sits just inside the western neighbour's eastern edge, so its kernel reaches
+        // into this tile even though this tile carries no points at all.
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+
+        val bitmap = render(heatmapLayer(), tile = null, heatmapNeighbours = listOf(west))
+
+        assertTrue(bitmap.pixelAt(0, 32).alpha > 0.1f, "the west edge must be heated from outside")
+        assertEquals(0f, bitmap.pixelAt(SIZE - 1, 32).alpha, "the east edge is out of reach")
+    }
+
+    @Test
+    fun `a point outside its own tile is dropped rather than counted twice`() = runTest {
+        // 4096 + 128 puts the point in the western neighbour's *buffer*: it belongs to this tile,
+        // which carries it too, and upstream's CircleBucket drops it from the neighbour's bucket.
+        val west = NeighbourTile(tile = pointTile(4224 to 2048), dx = -1, dy = 0)
+
+        val bitmap = render(heatmapLayer(), tile = null, heatmapNeighbours = listOf(west))
+
+        assertEquals(0, bitmap.opaquePixelCount(), "a buffered point must not be accumulated twice")
+    }
+
+    @Test
+    fun `a filter selects which points heat the tile`() = runTest {
+        val styleLayer = heatmapLayer(extra = ""","filter":["==",["get","kind"],"keep"]""")
+        val tile = Mvt.tile(
+            Mvt.layer(
+                name = "points",
+                features = listOf(
+                    Mvt.pointFeature(1024 to 2048, id = 1, tags = listOf(0, 0)),
+                    Mvt.pointFeature(3072 to 2048, id = 2, tags = listOf(0, 1)),
+                ),
+                keys = listOf("kind"),
+                values = listOf(Mvt.stringValue("keep"), Mvt.stringValue("drop")),
+            )
+        )
+
+        val bitmap = render(styleLayer, tile)
+
+        assertTrue(bitmap.pixelAt(16, 32).alpha > 0.2f, "the matching point")
+        assertEquals(0f, bitmap.pixelAt(63, 32).alpha, "the filtered-out point")
+    }
+
+    @Test
+    fun `a heatmap layer ignores non-point features`() = runTest {
+        val tile = Mvt.tile(
+            Mvt.layer(name = "points", features = listOf(coveringPolygon()))
+        )
+
+        assertEquals(0, render(heatmapLayer(), tile).opaquePixelCount())
+    }
+
+    // endregion
 
     @Test
     fun `a second render of the same tile hits the geometry cache and looks identical`() = runTest {
