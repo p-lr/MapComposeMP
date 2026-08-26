@@ -21,6 +21,11 @@ class HillshadeLayerPainter : BaseLayerPainter<HillshadeLayer>() {
         // Not implemented. A `hillshade` layer needs a `raster-dem` source: elevation tiles decoded
         // from Mapbox or Terrarium RGB encoding, then per-pixel normals lit by
         // `hillshade-illumination-direction` (upstream `src/render/draw_hillshade.ts` and
-        // `src/data/dem_data.ts`). Blocked on the same source-type plumbing as the raster layer.
+        // `src/data/dem_data.ts`).
+        //
+        // The source-type plumbing this used to be blocked on now exists: `SourceType.RASTER_DEM`
+        // names the source, and `RasterLayerPainter` shows how an image source reaches a painter.
+        // What is still missing is the DEM decode itself -- an elevation raster is not drawn as
+        // colour, so it needs its own per-source decode rather than `byteArrayToImageBitmap`.
     }
 } 

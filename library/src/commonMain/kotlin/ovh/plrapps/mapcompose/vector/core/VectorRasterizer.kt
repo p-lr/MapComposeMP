@@ -34,8 +34,12 @@ import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.AngleRad
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import ovh.plrapps.mapcompose.vector.data.SourceType
+import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement
 import ovh.plrapps.mapcompose.vector.renderer.Point
+import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
 import ovh.plrapps.mapcompose.vector.renderer.Symbol
 import ovh.plrapps.mapcompose.vector.renderer.SymbolsProducer
 import ovh.plrapps.mapcompose.vector.renderer.TextPlacementCandidate
@@ -75,10 +79,31 @@ class VectorRasterizer(
     private val pathCacheMutex = Mutex()
     private val renderedByteCacheMutex = Mutex()
 
-    // Precomputed set of all source names referenced by style layers (constant after init).
-    private val allSourceNames: Set<String> by lazy {
+    // Decoded raster tiles. Small: an image tile is megabytes once decoded, and the encoded bytes
+    // stay in byteCache for a cheap re-decode.
+    private val rasterImageCache = LruCache<String, ImageBitmap>(maxSize = 30)
+    private val rasterImageCacheMutex = Mutex()
+
+    // Precomputed source names referenced by style layers (constant after init), split by what the
+    // source serves: a raster source must never reach the protobuf decoder, and a vector source must
+    // never reach the image decoder.
+    private val referencedSourceNames: Set<String> by lazy {
         configuration.style.layers.mapNotNull { it.source?.takeIf { s -> s.isNotBlank() } }.toSet()
     }
+
+    private val vectorSourceNames: Set<String> by lazy {
+        referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) != SourceType.RASTER }
+    }
+
+    private val rasterSourceNames: Set<String> by lazy {
+        referencedSourceNames.filterTo(mutableSetOf()) { typeOf(it) == SourceType.RASTER }
+    }
+
+    private fun typeOf(sourceName: String): SourceType =
+        configuration.tileSources[sourceName]?.type ?: SourceType.VECTOR
+
+    /** The source types a tile bitmap is drawn from. Every other type is never fetched. */
+    private val TILE_SOURCE_TYPES = setOf(SourceType.VECTOR, SourceType.RASTER)
 
     // Minimum viewport-pixel distance between repetitions of the same line label across tiles.
     // Mirrors MapLibre's default symbol-spacing (250px).
@@ -99,8 +124,24 @@ class VectorRasterizer(
         }
     }
 
+    /**
+     * Decodes a raster source's tile.
+     *
+     * [byteArrayToImageBitmap] throws on Skia and NPEs on Android when the bytes are not a decodable
+     * image, so this swallows both the way [decodePBFFromByteArray] does: one bad tile should leave
+     * a hole, not fail the whole rasterization.
+     */
+    fun decodeImageFromByteArray(bytes: ByteArray): ImageBitmap? {
+        return try {
+            byteArrayToImageBitmap(bytes)
+        } catch (e: Exception) {
+            println("Error decoding raster tile: ${e.message}")
+            null
+        }
+    }
+
     private suspend fun renderTile(
-        pbfList: Map<String, ByteArray>,
+        fetched: Map<String, FetchedTile>,
         zoom: Double,
         tileSize: Int,
         actualZoom: Double,
@@ -112,14 +153,27 @@ class VectorRasterizer(
 
         // One tileCache lookup per source (not per style layer) — reduces mutex ops from
         // O(style_layers) to O(sources).
-        val tileForSource: Map<String, Tile?> = allSourceNames.associateWith { sourceName ->
+        val tileForSource: Map<String, Tile?> = vectorSourceNames.associateWith { sourceName ->
             val key = getTileKey(sourceName, z, x, y)
             tileCacheMutex.withLock { tileCache.get(key) }
-                ?: pbfList[sourceName]?.let { bytes ->
-                    decodePBFFromByteArray(bytes)?.also { t ->
+                ?: fetched[sourceName]?.let { tile ->
+                    decodePBFFromByteArray(tile.bytes)?.also { t ->
                         tileCacheMutex.withLock { tileCache.put(key, t) }
                     }
                 }
+        }
+
+        /* Raster sources are keyed by the tile actually fetched, not by the tile requested: when the
+         * source is overzoomed several map tiles share one ancestor image and differ only in which
+         * part of it they crop. */
+        val rasterForSource: Map<String, RasterTileImage?> = rasterSourceNames.associateWith { sourceName ->
+            val tile = fetched[sourceName] ?: return@associateWith null
+            val key = getTileKey(sourceName, tile.ref.z, tile.ref.x, tile.ref.y)
+            val image = rasterImageCacheMutex.withLock { rasterImageCache.get(key) }
+                ?: decodeImageFromByteArray(tile.bytes)?.also { decoded ->
+                    rasterImageCacheMutex.withLock { rasterImageCache.put(key, decoded) }
+                }
+            image?.let { RasterTileImage.of(it, tile.ref) }
         }
 
         val imageBitmap = ImageBitmap(tileSize, tileSize)
@@ -151,15 +205,18 @@ class VectorRasterizer(
                     zoom = zoom,
                     canvasSize = tileSize,
                     actualZoom = actualZoom,
-                    tileKey = tileKey
+                    tileKey = tileKey,
+                    rasterImage = sourceName?.let { rasterForSource[it] }
                 )
             }
         }
         return imageBitmap
     }
 
-    private suspend fun fetchTile(url: String, row: Int, col: Int, zoomLvl: Int, sourceName: String): Result<ByteArray> {
-        val key = getTileKey(sourceName, zoomLvl, col, row)
+    private suspend fun fetchTile(url: String, ref: TileRef, sourceName: String): Result<ByteArray> {
+        /* Keyed by the tile actually fetched, so overzoomed map tiles sharing one ancestor image
+         * share one cache entry rather than re-fetching it per sub-square. */
+        val key = getTileKey(sourceName, ref.z, ref.x, ref.y)
         byteCacheMutex.withLock {
             byteCache.get(key)?.let { return Result.success(it) }
         }
@@ -170,7 +227,7 @@ class VectorRasterizer(
 
 //            println("fetch the tile $url")
             val result = withContext(IODispatcher) {
-                val response = getTileStream(url, row, col, zoomLvl)
+                val response = getTileStream(url, ref.y, ref.x, ref.z)
                 response?.buffered()?.use { bufferedSource ->
                     bufferedSource.readByteArray()
                 }
@@ -187,23 +244,47 @@ class VectorRasterizer(
         }
     }
 
-    // return sourceName: String and tile: ByteArray
-    private suspend fun fetch(z: Int, x: Int, y: Int): Result<Map<String, ByteArray>> = supervisorScope {
+    /** A source's tile bytes, and which tile of that source they are. */
+    private class FetchedTile(val bytes: ByteArray, val ref: TileRef)
+
+    /**
+     * Fetches the tile at [z]/[x]/[y] from every source of one of [types], concurrently.
+     *
+     * Overzooming -- falling back to a magnified ancestor tile above a source's `maxzoom` -- is
+     * applied to raster sources only. Cropping an image is all it takes there, whereas reusing an
+     * ancestor *vector* tile would mean rescaling and translating every feature's tile-local
+     * geometry, which the painters do not do. A vector source therefore keeps asking for the tile it
+     * was asked for and simply renders nothing when the server has none.
+     */
+    private suspend fun fetch(
+        z: Int,
+        x: Int,
+        y: Int,
+        types: Set<SourceType>,
+    ): Result<Map<String, FetchedTile>> = supervisorScope {
         try {
             // Kick off concurrent fetches per source without failing the whole scope on one error
-            val deferred = configuration.tileSources.map { (sourceName, ts) ->
+            val deferred = configuration.tileSources.mapNotNull { (sourceName, ts) ->
+                if (ts.type !in types) return@mapNotNull null
+                val ref = when (ts.type) {
+                    SourceType.RASTER -> ts.resolve(z = z, x = x, y = y) ?: return@mapNotNull null
+                    else -> TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
+                }
                 sourceName to async {
                     // Ensure still active before heavy work
                     coroutineContext.ensureActive()
-                    fetchTile(ts.getTileUrl(z = z, x = x, y = y), row = y, col = x, zoomLvl = z, sourceName = sourceName).getOrThrow()
+                    FetchedTile(
+                        bytes = fetchTile(ts.getTileUrl(ref), ref = ref, sourceName = sourceName).getOrThrow(),
+                        ref = ref,
+                    )
                 }
             }
 
             // Await all; collect successes, ignore failures so partial data can still render
-            val buffer = mutableMapOf<String, ByteArray>()
+            val buffer = mutableMapOf<String, FetchedTile>()
             for ((sourceName, d) in deferred) {
                 runCatching { d.await() }
-                    .onSuccess { bytes -> buffer[sourceName] = bytes }
+                    .onSuccess { tile -> buffer[sourceName] = tile }
                     .onFailure { /* ignore single source failure */ }
             }
 
@@ -249,13 +330,13 @@ class VectorRasterizer(
         superSampling: Int = 1,
     ): ImageBitmap {
         val z = zoom.toInt()
-        val pbfList = fetch(z = z, x = x, y = y).getOrElse { e ->
+        val fetched = fetch(z = z, x = x, y = y, types = TILE_SOURCE_TYPES).getOrElse { e ->
             println("ERROR: ${e.message}")
             return emptyBitmap(tileSize)
         }
 
         val rendered = renderTile(
-            pbfList = pbfList,
+            fetched = fetched,
             zoom = zoom,
             tileSize = tileSize,
             actualZoom = zoom,
@@ -329,18 +410,20 @@ class VectorRasterizer(
 
         for ((y, colRange) in expandedTiles) {
             for (x in colRange) {
-                // Loading PBF for the tile
-                val pbfList = fetch(z = z.toInt(), x = x, y = y).getOrElse { e ->
-                    println("ERROR: ${e.message}")
-                    return@withContext Result.failure(e)
-                }
+                // Loading PBF for the tile. Symbols only ever come from vector sources, so image
+                // tiles are not fetched here at all.
+                val fetched = fetch(z = z.toInt(), x = x, y = y, types = setOf(SourceType.VECTOR))
+                    .getOrElse { e ->
+                        println("ERROR: ${e.message}")
+                        return@withContext Result.failure(e)
+                    }
 
                 // One tileCache lookup per source (not per style layer).
-                val tileForSource: Map<String, Tile?> = allSourceNames.associateWith { sourceName ->
+                val tileForSource: Map<String, Tile?> = vectorSourceNames.associateWith { sourceName ->
                     val key = getTileKey(sourceName, z.toInt(), x, y)
                     tileCacheMutex.withLock { tileCache.get(key) }
-                        ?: pbfList[sourceName]?.let { bytes ->
-                            decodePBFFromByteArray(bytes)?.also { t ->
+                        ?: fetched[sourceName]?.let { tile ->
+                            decodePBFFromByteArray(tile.bytes)?.also { t ->
                                 tileCacheMutex.withLock { tileCache.put(key, t) }
                             }
                         }

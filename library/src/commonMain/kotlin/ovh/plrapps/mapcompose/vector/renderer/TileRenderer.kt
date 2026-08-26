@@ -20,8 +20,12 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  *
  * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolsProducer] so
  * that collision detection can run across the whole viewport rather than per tile, and
- * `raster` / `hillshade` / `heatmap` / `fill-extrusion` / `sky` are not implemented -- see the note
- * in each painter for what each would need.
+ * `hillshade` / `heatmap` / `fill-extrusion` / `sky` are not implemented -- see the note in each
+ * painter for what each would need.
+ *
+ * A `raster` layer is drawn from [rasterImage] rather than from [tile]: its source serves images,
+ * not MVT, so [ovh.plrapps.mapcompose.vector.core.VectorRasterizer] decodes it separately and passes
+ * the crop that covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter].
  */
 class TileRenderer(
     configuration: MapLibreConfiguration,
@@ -32,6 +36,9 @@ class TileRenderer(
     private val painters = mutableMapOf<Layer, BaseLayerPainter<*>>()
     private val patternBrushes = PatternBrushCache()
 
+    /** Stateless, and outside [BaseLayerPainter], so one instance serves every raster layer. */
+    private val rasterPainter = RasterLayerPainter()
+
     suspend fun render(
         canvas: DrawScope,
         tile: Tile?,
@@ -39,7 +46,8 @@ class TileRenderer(
         zoom: Double,
         canvasSize: Int,
         actualZoom: Double,
-        tileKey: String? = null
+        tileKey: String? = null,
+        rasterImage: RasterTileImage? = null
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
@@ -50,8 +58,20 @@ class TileRenderer(
             is FillExtrusionLayer,
             is HeatmapLayer,
             is HillshadeLayer,
-            is RasterLayer,
             is SkyLayer -> return
+
+            is RasterLayer -> {
+                // No image means the source had nothing for this tile -- below its minzoom, or the
+                // fetch failed. Either way there is nothing to draw.
+                rasterImage ?: return
+                rasterPainter.paint(
+                    canvas = canvas,
+                    style = styleLayer,
+                    image = rasterImage,
+                    canvasSize = canvasSize,
+                    actualZoom = actualZoom,
+                )
+            }
 
             is BackgroundLayer -> {
                 painterFor(styleLayer).paint(
@@ -113,8 +133,6 @@ class TileRenderer(
                             canvas, entry.feature, styleLayer, canvasSize, extent, zoom,
                             entry.properties, actualZoom, entry.cacheKey
                         )
-
-                        else -> return
                     }
                 }
             }
