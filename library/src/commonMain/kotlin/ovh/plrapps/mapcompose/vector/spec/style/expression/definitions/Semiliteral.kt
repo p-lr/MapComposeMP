@@ -63,11 +63,13 @@ class Semiliteral(val arr: List<Expression>) : Expression {
             }
         }
 
+        /** `typeof v`, as the upstream error message reports it. */
         private fun jsTypeNameOf(v: Any?): String = when (v) {
             null -> "object"
             is String -> "string"
             is Boolean -> "boolean"
             is Number -> "number"
+            is Function<*> -> "function"
             else -> "object"
         }
     }

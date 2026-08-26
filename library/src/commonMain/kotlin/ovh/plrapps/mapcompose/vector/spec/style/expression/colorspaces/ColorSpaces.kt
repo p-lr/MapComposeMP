@@ -23,6 +23,9 @@ typealias LabColor = DoubleArray
 /** `[h, c, l, alpha]` — hue degrees 0..360 (NaN when achromatic), chroma 0..~230, lightness 0..100. */
 typealias HclColor = DoubleArray
 
+/** `[h, s, l, alpha]` — hue degrees 0..360, saturation and lightness as percentages 0..100. */
+typealias HslColor = DoubleArray
+
 /** `[r, g, b, alpha]`, all 0..1. */
 typealias RgbColor = DoubleArray
 
@@ -116,3 +119,24 @@ fun Color.toRgbArray(): RgbColor =
 
 fun rgbArrayToColor(rgb: RgbColor): Color =
     Color(rgb[0].toFloat(), rgb[1].toFloat(), rgb[2].toFloat(), rgb[3].toFloat())
+
+/**
+ * HSL to sRGB, per https://drafts.csswg.org/css-color-4/#hsl-to-rgb.
+ *
+ * Used by [CssColorParser] for the `hsl()` / `hsla()` functions. It lives here rather than in the
+ * parser because that is where upstream keeps it, and `color_spaces.test.ts` tests it directly.
+ */
+fun hslToRgb(hsl: HslColor): RgbColor {
+    var h = hsl[0] % 360.0
+    if (h < 0) h += 360.0
+    val s = hsl[1] / 100.0
+    val l = hsl[2] / 100.0
+
+    fun f(n: Double): Double {
+        val k = (n + h / 30.0) % 12.0
+        val a = s * kotlin.math.min(l, 1 - l)
+        return l - a * kotlin.math.max(-1.0, kotlin.math.min(kotlin.math.min(k - 3, 9 - k), 1.0))
+    }
+
+    return doubleArrayOf(f(0.0), f(8.0), f(4.0), hsl[3])
+}
