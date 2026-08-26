@@ -3,6 +3,7 @@ package ovh.plrapps.mapcompose.vector.renderer
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
+import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
@@ -10,7 +11,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.Point2D
 import ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers
 
 abstract class BaseRenderer(
-    private val configuration: MapLibreConfiguration,
+    protected val configuration: MapLibreConfiguration,
 ) {
 
     /**
@@ -39,6 +40,16 @@ abstract class BaseRenderer(
     }
 
     private val MAX_ZOOM = 30.0
+
+    /**
+     * Whether the layer's `visibility` layout property lets it draw.
+     *
+     * MapLibre treats `"none"` as "this layer does not exist for rendering purposes"
+     * (`StyleLayer.isHidden`), so it is checked alongside the zoom range rather than left to each
+     * painter.
+     */
+    fun isLayerVisible(styleLayer: Layer): Boolean =
+        styleLayer.layout?.visibility != StyleSpecDefaults.VISIBILITY_NONE
 
     fun isZoomInRange(styleLayer: Layer, zoom: Double): Boolean {
         val minZoom = styleLayer.minzoom ?: 0.0

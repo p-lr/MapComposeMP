@@ -10,13 +10,18 @@
 - Maplibre-native https://github.com/maplibre/maplibre-native/blob/main/src/mbgl/renderer/layers/render_symbol_layer.cpp
 
 ## Status
-The overall project structure and, most importantly, the parsers and decoders have been implemented.
-For rendering, only the basic painters have been implemented (background, lines, polygons, labels).
+Parsers, decoders and the expression engine are done. The 2D painters -- background, fill, line,
+circle -- follow maplibre-gl-js and are covered by pixel-level tests. Symbols work but predate the
+expression engine. The remaining layer types are not implemented; each painter's source says what it
+would need.
 
-Three main directions
-- Expression parser and processing. Needs to be covered with tests, and the existing tests require reorganization.
-- Rendering.Implement the remaining painters and fix bugs in the existing ones.
-- Tests. Not enough tests, more needed
+Remaining directions
+- Symbols. Rework against the expression engine, and the layout properties listed as unread below.
+- Raster and hillshade. Both are blocked on source types: `Source.type` is ignored today, so every
+  source is fetched and pbf-decoded as MVT.
+- Heatmap. Needs a viewport-wide accumulation overlay, like the one symbols already use; a per-tile
+  heatmap would seam at every tile edge.
+- fill-extrusion and sky. 3D; blocked on camera pitch.
 
 TL;DR
 ### ✅ Decoders
@@ -33,17 +38,29 @@ TL;DR
 
 ### 🚧 Layers
 
-- 🛠 Background
-- 🛠️ Lines
-- 🛠️ Polygons
+- ✅ Background — colour, opacity, pattern
+- ✅ Fill — colour, opacity, antialias/outline, translate, pattern, holes, multipolygons
+- ✅ Line — colour, opacity, width, gap-width casing, offset, blur, dasharray, cap/join, translate,
+  pattern, gradient
+- ✅ Circle — radius, colour, opacity, blur, stroke width/colour/opacity, translate
 - 🛠️ Symbols
-- ❌ Sprites (part of Symbols)
+- 🛠️ Sprites (part of Symbols)
 - ❌ Raster
-- ❌ Circle
 - ❌ FillExtrusion
 - ❌ Heatmap
 - ❌ Hillshade
 - ❌ Sky
+
+Layer gating that applies to all of them: `visibility`, `minzoom`/`maxzoom`, `filter`, and
+`*-sort-key` ordering within a layer.
+
+Defaults for every implemented property come from `spec/style/StyleSpecDefaults.kt`, which
+`StyleSpecDefaultsTest` checks against the vendored copy of upstream's `v8.json` property table.
+
+Divergences forced by stroking on the CPU instead of tessellating on the GPU, each documented at its
+painter: `line-round-limit` is inert, `line-blur` and `line-gradient` are approximated,
+`circle-pitch-scale` / `circle-pitch-alignment` are inert (no camera pitch), and a
+`viewport`-anchored `*-translate` is not counter-rotated.
 
 ### What is implemented and close to MapLibre
 
@@ -64,8 +81,14 @@ Visual debugging (borders, color).
 Collision reset.
 Currently, collision reset is implemented at the tile level, but MapLibre has nuances with global placement (especially when rendering multiple tiles in one frame).
 No spatial index (R-tree), but for small tiles this is not critical. No Fonts(WIP). 
-#### Line, Background & Polygons
-WIP
+#### Fill, Line, Circle & Background
+Ported against `maplibre-gl-js/src/render/draw_*.ts` and the matching shaders. Polygon rings are
+grouped into polygons and holes by `classifyRings`, the port of upstream's `classify_rings.ts`, and
+holes are cut by the non-zero fill rule rather than by identifying them explicitly.
+
+Each painter has a pixel-level test suite that renders into an off-screen `ImageBitmap` and asserts
+`toPixelMap()` colours -- plain `kotlin.test`, no `runComposeUiTest`. They live in `skiaTest`
+(desktop, iOS, wasm) because `ImageBitmap` cannot be allocated in Android unit tests.
 #### Styles
 Using expressions (process()) to obtain styles.
 LineLabelPlacement

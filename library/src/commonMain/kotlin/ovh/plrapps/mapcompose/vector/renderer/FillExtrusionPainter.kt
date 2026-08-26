@@ -18,10 +18,9 @@ class FillExtrusionPainter : BaseLayerPainter<FillExtrusionLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        // TODO: Implement 3D extrusion rendering
-        // 1. Get height from properties
-        // 2. Create 3D geometry
-        // 3. Apply materials and lighting
-        // 4. Draw with perspective
+        // Not implemented. `fill-extrusion` is 3D: it extrudes footprints between
+        // `fill-extrusion-base` and `fill-extrusion-height` and shades them against the style's
+        // light (upstream `src/render/draw_fill_extrusion.ts`). Out of scope while the renderer has
+        // no camera pitch.
     }
 } 

@@ -18,9 +18,11 @@ class RasterLayerPainter : BaseLayerPainter<RasterLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        // TODO: Implement bitmap layer rendering
-        // 1. Load bitmap
-        // 2. Apply transformations
-        // 3. Draw with transparency
+        // Not implemented. A `raster` layer needs a raster *source*, which the tile pipeline does
+        // not have: `Source.type` is ignored in `getMapLibreConfiguration`, so every source is
+        // fetched and pbf-decoded as MVT. Implementing this means modelling source types, fetching
+        // image tiles, and applying `raster-opacity` / `-brightness-min` / `-brightness-max` /
+        // `-saturation` / `-contrast` / `-hue-rotate` as a colour matrix (see upstream
+        // `src/render/draw_raster.ts` and `shaders/raster.fragment.glsl`).
     }
 } 

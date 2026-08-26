@@ -19,5 +19,8 @@ data class LineLayout(
     @SerialName("line-round-limit")
     val lineRoundLimit: ExpressionOrValue<Double>? = null,
 
+    @SerialName("line-sort-key")
+    val lineSortKey: ExpressionOrValue<Double>? = null,
+
     override val visibility: String? = "visible"
 ) : LayoutInterface

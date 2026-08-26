@@ -18,9 +18,8 @@ class SkyLayerPainter : BaseLayerPainter<SkyLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        // TODO: Implement sky rendering
-        // 1. Create a sky gradient
-        // 2. Add atmospheric effects
-        // 3. Apply lighting
+        // Not implemented. `sky` paints the atmosphere above the horizon, which only exists on a
+        // pitched camera (upstream `src/render/draw_sky.ts`). Out of scope for the same reason as
+        // `fill-extrusion`.
     }
 } 
