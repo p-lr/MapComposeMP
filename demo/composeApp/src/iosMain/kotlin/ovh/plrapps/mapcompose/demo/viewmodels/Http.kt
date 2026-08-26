@@ -47,8 +47,9 @@ actual class OSMVectorTileStreamProvider actual constructor(actual override val 
     @OptIn(ExperimentalResourceApi::class)
     actual override suspend fun loadResources(url: String): RawSource? {
         return try {
-            when (url) {
-                "files/style_street_v2.json" -> {
+            when {
+                /* Any bundled style resource, so a new demo style needs no change here. */
+                url.startsWith("files/") -> {
                     val buffer = Buffer()
                     buffer.write(Res.readBytes(url))
                     buffer
