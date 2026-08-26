@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.spec.style.expression
 
 import androidx.compose.ui.graphics.Color
+import kotlin.math.pow
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Collator
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
@@ -131,13 +132,38 @@ fun formatNumber(d: Double): String = when {
 
 private fun formatNumberForMessage(v: Any?): String = if (v is Number) formatNumber(v.toDouble()) else v.toString()
 
+/**
+ * `rgba(r,g,b,a)` with 0..255 channels, matching `Color.toString()` upstream.
+ *
+ * Upstream prints the alpha the style author wrote, because it keeps colours as doubles. Compose
+ * stores an 8-bit alpha, so `0.3` comes back as `77/255 = 0.30196…`. Printing that verbatim would
+ * be noise, so the shortest decimal that re-quantizes to the same byte is used instead — which
+ * recovers `0.3` here, and `0.73`, and `0.5`.
+ */
 fun colorToRgbaString(color: Color): String {
-    val r = kotlin.math.round(color.red * 255.0).toInt()
-    val g = kotlin.math.round(color.green * 255.0).toInt()
-    val b = kotlin.math.round(color.blue * 255.0).toInt()
-    val a = color.alpha.toDouble()
-    return "rgba($r,$g,$b,${formatNumber(kotlin.math.round(a * 1000.0) / 1000.0)})"
+    val r = roundHalfUp(color.red * 255.0).toInt()
+    val g = roundHalfUp(color.green * 255.0).toInt()
+    val b = roundHalfUp(color.blue * 255.0).toInt()
+    return "rgba($r,$g,$b,${formatNumber(shortestAlpha(color.alpha.toDouble()))})"
 }
+
+private fun shortestAlpha(alpha: Double): Double {
+    val byte = roundHalfUp(alpha * 255.0)
+    for (decimals in 0..3) {
+        val scale = 10.0.pow(decimals)
+        val candidate = roundHalfUp(alpha * scale) / scale
+        if (roundHalfUp(candidate * 255.0) == byte) return candidate
+    }
+    return alpha
+}
+
+/**
+ * Rounds half away from zero, as JavaScript's `Math.round` and Compose's 8-bit channel packing do.
+ *
+ * `kotlin.math.round` rounds halves to the nearest *even* integer, so 76.5 becomes 76 — which turns
+ * an alpha of 0.3 into `0.302` when looking for the shortest representation.
+ */
+internal fun roundHalfUp(x: Double): Double = kotlin.math.floor(x + 0.5)
 
 /**
  * Deep structural equality, ported from `maplibre-style-spec/src/util/deep_equal.ts`.

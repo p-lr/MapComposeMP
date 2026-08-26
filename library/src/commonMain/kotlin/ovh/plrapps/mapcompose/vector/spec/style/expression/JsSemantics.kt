@@ -49,6 +49,18 @@ fun jsToNumber(value: Any?): Double = when (value) {
 }
 
 /**
+ * Stands in for JavaScript's `undefined`, which Kotlin has no equivalent of.
+ *
+ * A Kotlin `Map` returns `null` both for an absent key and for a key explicitly set to null, but
+ * MapLibre's legacy `filter-*` operators are specified with `===` and therefore distinguish the two:
+ * `["==", "foo", null]` matches `{foo: null}` and not `{}`. Only the `filter-*` operators need the
+ * distinction — the `get` operator returns `null` for a missing property upstream too.
+ */
+object JsUndefined {
+    override fun toString(): String = "undefined"
+}
+
+/**
  * `a === b` — strict equality. Arrays and objects compare by identity in JavaScript, so this is
  * deliberately *not* [deepEqual]; the legacy `filter-*` operators are specified in terms of `===`.
  */

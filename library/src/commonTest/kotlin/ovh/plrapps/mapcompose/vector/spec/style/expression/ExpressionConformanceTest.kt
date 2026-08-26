@@ -20,8 +20,6 @@ import mapcompose_mp.library.generated.resources.Res
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
-import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.EXTENT
-import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.getTileCoordinates
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -61,7 +59,10 @@ class ExpressionConformanceTest {
             bundle = loaded
         }
 
-        waitUntil(timeoutMillis = 30_000) { bundle != null }
+        // 5s, like the sibling TestParseStyle* tests. A longer wait outlives karma's 2s ping timeout
+        // on the wasm browser target, where Res.readBytes never resolves, and killing the browser
+        // session would take every later test down with it.
+        waitUntil(timeoutMillis = 5_000) { bundle != null }
 
         val tests = bundle!!["tests"]!!.jsonObject
         val failures = mutableListOf<String>()
@@ -231,65 +232,18 @@ class ExpressionConformanceTest {
         )
     }
 
-    /**
-     * Builds the feature, converting the fixture's GeoJSON geometry into tile-local coordinates.
-     *
-     * Ported from `test/lib/geometry.ts` in the upstream repo: the coordinates are projected with
-     * `getTileCoordinates` and then shifted to be relative to the tile, and `Multi*` geometries
-     * collapse to their singular type.
-     */
+    /** Builds the feature from the fixture's GeoJSON, via the shared `test/lib/geometry.ts` port. */
     private fun parseFeature(obj: JsonObject?, canonical: CanonicalTileId?): EvalFeature? {
         if (obj == null) return null
-        val properties = (obj["properties"] as? JsonObject)
-            ?.mapValues { (_, v) -> jsonToValue(v) } ?: emptyMap()
-
-        val geometryJson = obj["geometry"] as? JsonObject
-        val geometryType = geometryJson?.get("type")?.jsonPrimitive?.content
-        val type = when (geometryType) {
-            "MultiPoint" -> "Point"
-            "MultiLineString" -> "LineString"
-            "MultiPolygon" -> "Polygon"
-            null -> "Unknown"
-            else -> geometryType
-        }
-
-        val rings: List<List<Point2D>>? =
-            if (geometryJson != null && canonical != null) {
-                val coordinates = geometryJson["coordinates"]
-                when (geometryType) {
-                    "Point" -> listOf(listOf(tilePoint(coordinates!!.jsonArray, canonical)))
-                    "MultiPoint" -> coordinates!!.jsonArray.map { listOf(tilePoint(it.jsonArray, canonical)) }
-                    "LineString" -> listOf(tileLine(coordinates!!.jsonArray, canonical))
-                    "MultiLineString", "Polygon" -> coordinates!!.jsonArray.map { tileLine(it.jsonArray, canonical) }
-                    "MultiPolygon" -> coordinates!!.jsonArray.flatMap { polygon ->
-                        polygon.jsonArray.map { tileLine(it.jsonArray, canonical) }
-                    }
-
-                    else -> null
-                }
-            } else {
-                null
-            }
-
-        return EvalFeature(
-            type = type,
+        val geometry = obj["geometry"] as? JsonObject
+        return geoJsonFeature(
+            geometryType = geometry?.get("type")?.jsonPrimitive?.content,
+            coordinates = geometry?.get("coordinates")?.let { jsonToValue(it) },
+            canonical = canonical,
+            properties = (obj["properties"] as? JsonObject)?.mapValues { (_, v) -> jsonToValue(v) } ?: emptyMap(),
             id = obj["id"]?.let { jsonToValue(it) },
-            properties = properties,
-            geometryProvider = rings?.let { { it } },
         )
     }
-
-    private fun tilePoint(position: JsonArray, canonical: CanonicalTileId): Point2D {
-        val coord = getTileCoordinates(
-            listOf(position[0].jsonPrimitive.doubleOrNull ?: 0.0, position[1].jsonPrimitive.doubleOrNull ?: 0.0),
-            canonical,
-        )
-        // Shift so the point is relative to the tile rather than the world.
-        return Point2D(coord[0] - canonical.x.toDouble() * EXTENT, coord[1] - canonical.y.toDouble() * EXTENT)
-    }
-
-    private fun tileLine(line: JsonArray, canonical: CanonicalTileId): List<Point2D> =
-        line.map { tilePoint(it.jsonArray, canonical) }
 
     /** Returns null for property types this port deliberately does not model. */
     private fun parsePropertySpec(spec: JsonObject?): StylePropertySpec? {
@@ -498,8 +452,6 @@ class ExpressionConformanceTest {
                     "No ICU: CLDR unit abbreviations are locale data we do not have.",
             "to-rgba/alpha" to
                     "Compose Color stores 8-bit channels, so alpha round-trips as 128/255, not 0.5.",
-            "to-string/color" to
-                    "Compose Color stores 8-bit channels, so the alpha renders as 0.502, not 0.5.",
         )
     }
 }

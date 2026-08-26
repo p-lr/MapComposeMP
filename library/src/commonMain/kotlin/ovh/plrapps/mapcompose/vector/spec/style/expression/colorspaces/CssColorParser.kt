@@ -280,19 +280,3 @@ object CssColorParser {
         "yellow" to intArrayOf(255, 255, 0),
     )
 }
-
-/** `[h, s, l, alpha]` with hue in degrees, saturation and lightness as percentages. */
-private fun hslToRgb(hsl: DoubleArray): RgbColor {
-    var h = hsl[0] % 360.0
-    if (h < 0) h += 360.0
-    val s = hsl[1] / 100.0
-    val l = hsl[2] / 100.0
-
-    fun f(n: Double): Double {
-        val k = (n + h / 30.0) % 12.0
-        val a = s * min(l, 1 - l)
-        return l - a * max(-1.0, min(min(k - 3, 9 - k), 1.0))
-    }
-
-    return doubleArrayOf(f(0.0), f(8.0), f(4.0), hsl[3])
-}
