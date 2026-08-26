@@ -1,7 +1,6 @@
 package ovh.plrapps.mapcompose.vector.core
 
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collectLatest
@@ -28,9 +27,26 @@ import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.extension.toMVTViewport
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 
+/**
+ * The pixel size of the bitmap a vector tile is rasterized into.
+ *
+ * A tile is drawn into `mapState.tileSize * relativeScale` device pixels (see `TileCanvas`, where
+ * `dstSize` is `tileSize / scaleForLevel` inside a `scale(scale)` transform), and `relativeScale` is
+ * in `(0.5, 1.0]` because `VisibleTilesResolver.getLevel` rounds the level up. So rasterizing at
+ * [tileSize] guarantees the bitmap is never smaller than the area it covers, whatever `tileSize` the
+ * map was built with — the tile is always minified, never stretched.
+ *
+ * [density] only adds resolution: the destination size above is in device pixels and does not
+ * depend on it. [superSampling] adds more still, to be filtered back down before the bitmap leaves
+ * the rasterizer.
+ */
+internal fun vectorTileBitmapSize(tileSize: Int, density: Float, superSampling: Int): Int =
+    (tileSize * density.coerceAtLeast(1f)).toInt() * superSampling.coerceAtLeast(1)
+
 internal class VectorLayer(
     private val mapState: MapState,
     private val vectorTileStreamProvider: VectorTileStreamProvider,
+    private val superSamplingFactor: Int = 1,
 ) {
     private val scope = mapState.scope
 
@@ -64,13 +80,18 @@ internal class VectorLayer(
 
         return TileStreamProvider { row, col, zoomLvl ->
             val density = mapState.densityState.value ?: return@TileStreamProvider null
-            val tilePx = with(density) { 256.dp.toPx() }.toInt()
+            val bitmapPx = vectorTileBitmapSize(
+                tileSize = mapState.tileSize,
+                density = density.density,
+                superSampling = superSamplingFactor,
+            )
 
             val imageBitmap = rasterizer.getTile(
                 x = col,
                 y = row,
                 zoom = zoomLvl.toDouble(),
-                tileSize = tilePx
+                tileSize = bitmapPx,
+                superSampling = superSamplingFactor,
             )
 
             val bytes = imageBitmap.toBytes()
@@ -90,11 +111,15 @@ internal class VectorLayer(
                     viewportInfo ?: return@collectLatest
 
                     val zoomLvl = viewportInfo.zoom
-                    val tilePx = mapState.tileSize
+                    /* Not the same number as the tile bitmap size above, and deliberately so:
+                     * symbols are drawn by SymbolComposer as a viewport overlay, so they are laid
+                     * out in the pixel space a tile occupies on screen, not in the pixel space the
+                     * tile bitmap is rasterized at. */
+                    val layoutPx = mapState.tileSize
 
                     val nextSymbols = rasterizer.produceSymbols(
                         viewport = viewportInfo.toMVTViewport(),
-                        tileSize = tilePx,
+                        tileSize = layoutPx,
                         z = zoomLvl.toDouble()
                     ).getOrElse { e ->
                         println("[ERROR] produceSymbols(): ${e.message}")

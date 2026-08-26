@@ -38,6 +38,8 @@ class SymbolsProducer(
         density: Density,
         localPropCache: MutableMap<String, EvalFeature>
     ): List<Symbol> {
+        if (!isLayerVisible(styleLayer)) return emptyList()
+
         if (!isZoomInRange(styleLayer, zoom)) {
 //            println("  missed by zoom")
             return emptyList()
