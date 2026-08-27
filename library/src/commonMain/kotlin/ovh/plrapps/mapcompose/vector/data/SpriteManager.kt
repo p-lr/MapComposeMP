@@ -15,6 +15,8 @@ import kotlinx.io.readByteArray
 import kotlinx.io.readString
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import ovh.plrapps.mapcompose.utils.IODispatcher
+import ovh.plrapps.mapcompose.vector.renderer.utils.sdfPixel
+import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.math.max
@@ -28,26 +30,69 @@ internal expect fun imageBitmapFromArgb(
 
 internal expect fun byteArrayToImageBitmap(bytes: ByteArray): ImageBitmap
 
-class SpriteManager(
-    private val spriteIndex: Map<String, Sprite>,
-    private val spriteImage: ImageBitmap
-) {
-    fun getSpriteInfo(spriteId: String): Sprite? {
-        val spriteInfo = spriteIndex[spriteId] ?: run {
-            return null
+/**
+ * One sprite sheet: its index JSON and the image the entries are cut out of.
+ *
+ * A style may declare several ([ovh.plrapps.mapcompose.vector.spec.style.sprites]), each with its
+ * own id, so a sheet is a value rather than something [SpriteManager] is.
+ */
+class SpriteSheet(
+    val index: Map<String, Sprite>,
+    val image: ImageBitmap,
+)
+
+/**
+ * The sprites a style can draw, across every sheet it declares.
+ *
+ * A style's `sprite` may be a single URL or a list of `{id, url}` pairs; in the list form an entry
+ * is addressed as `"<id>:<name>"`, which is the namespacing upstream applies when it merges the
+ * sheets into one atlas. Only the first sheet used to be loaded, so a style using the list form
+ * silently lost every icon but one sheet's.
+ */
+class SpriteManager(private val sheets: List<SpriteSheet>) {
+
+    constructor(spriteIndex: Map<String, Sprite>, spriteImage: ImageBitmap) :
+        this(listOf(SpriteSheet(spriteIndex, spriteImage)))
+
+    /**
+     * Every entry, resolved to the sheet image it belongs to.
+     *
+     * Later sheets do not overwrite earlier ones: the style lists them in priority order, and an id
+     * that two sheets both define should resolve the way the style wrote it.
+     */
+    private val entries: Map<String, Pair<Sprite, ImageBitmap>> = buildMap {
+        for (sheet in sheets) {
+            for ((id, sprite) in sheet.index) {
+                if (!containsKey(id)) put(id, sprite to sheet.image)
+            }
         }
-        return spriteInfo
     }
 
     /**
-     * Gets a sprite by its id
-     * @param spriteId Sprite id from JSON file
-     * @return Pair of sprite object with metadata and sprite cutout image
+     * Every sprite id the style holds.
+     *
+     * This is what `availableImages` means to the expression engine: an `["image", a, b]` marks a
+     * [ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage] available only when
+     * its name is in this list, which is how the fallback chain picks the first id that actually
+     * exists -- upstream reads the same set off its sprite atlas.
      */
+    val availableImages: List<String> = entries.keys.toList()
+
+    fun getSpriteInfo(spriteId: String): Sprite? = entries[spriteId]?.first
+
     private val spriteCache = LruCache<String, ImageBitmap>(maxSize = 100)
 
+    /**
+     * Cuts one sprite out of its sheet, tinted or SDF-shaded as the layer asks.
+     *
+     * [tintColor] applies to a plain image; an SDF entry ignores it and is recoloured by [sdf]
+     * instead. An SDF entry with no [sdf] is shaded with the spec defaults rather than refused --
+     * it used to throw, so an SDF icon in a layer that set no `icon-color` crashed the painter.
+     *
+     * @return the entry's metadata and its cut-out image, or `null` if no sheet holds the id.
+     */
     fun getSprite(spriteId: String, tintColor: Color? = null, sdf: SDF? = null): Pair<Sprite, ImageBitmap>? {
-        val spriteInfo = spriteIndex[spriteId] ?: return null
+        val (spriteInfo, sheetImage) = entries[spriteId] ?: return null
 
         val cacheKey = "$spriteId-${tintColor?.toArgb() ?: "none"}-${sdf?.hashCode() ?: "none"}"
         spriteCache.get(cacheKey)?.let {
@@ -55,7 +100,7 @@ class SpriteManager(
         }
 
         var sprite = cropImageBitmap(
-            source = spriteImage,
+            source = sheetImage,
             x = spriteInfo.x,
             y = spriteInfo.y,
             width = spriteInfo.width,
@@ -67,9 +112,9 @@ class SpriteManager(
             sprite = renderSdf(
                 src = resizeImageBitmapWithAspectRatio(
                     src = sprite,
-                    targetMaxSize = 128 // scale sdf for improve result
+                    targetMaxSize = SDF_RENDER_SIZE
                 ),
-                sdf = sdf ?: error("sdf not provided")
+                sdf = sdf ?: SDF(),
             )
         }
 
@@ -77,28 +122,16 @@ class SpriteManager(
         return spriteInfo to sprite
     }
 
-    fun getAvailableSprites(): List<String> = spriteIndex.keys.toList()
+    fun getAvailableSprites(): List<String> = availableImages
 
     companion object {
-        var softness = 0.005f
-
-        fun intArrayToImageByteArray(ints: IntArray): ByteArray {
-            val bytes = ByteArray(ints.size * 4)
-            for (i in ints.indices) {
-                val v = ints[i]
-                val j = i * 4
-                bytes[j] = (v shr 0 and 0xFF).toByte()  // B
-                bytes[j + 1] = (v shr 8 and 0xFF).toByte()  // G
-                bytes[j + 2] = (v shr 16 and 0xFF).toByte()  // R
-                bytes[j + 3] = (v shr 24 and 0xFF).toByte()  // A
-            }
-            return bytes
-        }
-
-        fun smoothstep(edge0: Float, edge1: Float, x: Float): Float {
-            val t = ((x - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
-            return t * t * (3 - 2 * t)
-        }
+        /**
+         * The size an SDF entry is magnified to before it is shaded.
+         *
+         * The distance field is linear, so bilinear magnification is lossless in a way the shaded
+         * result is not -- shading first and scaling after would visibly stair-step the halo.
+         */
+        const val SDF_RENDER_SIZE = 128
 
         fun resizeImageBitmapWithAspectRatio(
             src: ImageBitmap,
@@ -129,36 +162,29 @@ class SpriteManager(
             return resizedBitmap
         }
 
+        /**
+         * Recolours an SDF entry into a fill plus a halo.
+         *
+         * The per-pixel maths is [sdfPixel], a port of `symbol_sdf.fragment.glsl`; this is only the
+         * loop over the bitmap. The halo used to be a fixed-width ring drawn *inside* the shape's
+         * edge and added to the fill, which brightened the boundary instead of surrounding it.
+         */
         fun renderSdf(src: ImageBitmap, sdf: SDF): ImageBitmap {
             val width = src.width
             val height = src.height
-            val strokeColor = sdf.haloColor
-            val strokeWidth = sdf.haloWidth
-            val fillColor = sdf.fillColor
-
             val srcPixels = src.toPixelMap()
-
-            val fillEdge = sdf.threshold
-            val strokeEdge = fillEdge + strokeWidth
             val outPixels = IntArray(width * height)
 
             for (y in 0 until height) {
                 for (x in 0 until width) {
-                    val idx = y * width + x
-                    val sdfVal = srcPixels[x, y].alpha
-
-                    val fillAlpha = smoothstep(fillEdge - softness, fillEdge + softness, sdfVal)
-                    val strokeAlpha = smoothstep(strokeEdge - softness, strokeEdge + softness, sdfVal)
-
-                    val strokeOnly = (fillAlpha - strokeAlpha).coerceIn(0f, 1f)
-                    val fillOnly = fillAlpha.coerceIn(0f, 1f)
-
-                    val r = fillColor.red * fillOnly + strokeColor.red * strokeOnly
-                    val g = fillColor.green * fillOnly + strokeColor.green * strokeOnly
-                    val b = fillColor.blue * fillOnly + strokeColor.blue * strokeOnly
-                    val a = (fillOnly + strokeOnly).coerceIn(0f, 1f)
-
-                    outPixels[idx] = Color(r, g, b, a).toArgb()
+                    outPixels[y * width + x] = sdfPixel(
+                        distance = srcPixels[x, y].alpha,
+                        fillColor = sdf.fillColor,
+                        haloColor = sdf.haloColor,
+                        haloWidth = sdf.haloWidth,
+                        haloBlur = sdf.haloBlur,
+                        fontScale = sdf.fontScale,
+                    ).toArgb()
                 }
             }
 
@@ -199,13 +225,20 @@ class SpriteManager(
         }
 
         /**
-         * Loads sprites from the specified URL
-         * @param spriteUrl Sprite URL (without extension)
-         * @param pixelRatio Pixel density (1 or 2 for @2x)
-         * @return Result of loading sprites
+         * Loads one sprite sheet.
+         *
+         * @param spriteUrl the sheet's URL without an extension; `.json` and `.png` are appended,
+         * prefixed with `@2x` when [pixelRatio] asks for the hidpi variant.
+         * @param id the sheet's id from a list-form `sprite`, used to namespace its entries as
+         * `"<id>:<name>"`. Empty for the single-URL form, whose entries keep their bare names.
          */
         @OptIn(ExperimentalResourceApi::class)
-        suspend fun load(spriteUrl: String, pixelRatio: Int = 1, loadResource: suspend (String) -> RawSource?): Result<SpriteManager> {
+        suspend fun loadSheet(
+            spriteUrl: String,
+            pixelRatio: Int = 1,
+            id: String = "",
+            loadResource: suspend (String) -> RawSource?,
+        ): Result<SpriteSheet> {
             val suffix = if (pixelRatio > 1) "@2x" else ""
             val jsonUrl = "$spriteUrl$suffix.json"
             val imageUrl = "$spriteUrl$suffix.png"
@@ -214,26 +247,48 @@ class SpriteManager(
                 val spriteJson = withContext(IODispatcher) {
                     loadResource(jsonUrl)?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
                 }
-                val spriteIndex = json.decodeFromString<Map<String, Sprite>>(spriteJson)
+                val decoded = json.decodeFromString<Map<String, Sprite>>(spriteJson)
+                val spriteIndex = if (id.isEmpty()) decoded else decoded.mapKeys { "$id:${it.key}" }
 
                 val spriteImageBytes = withContext(IODispatcher) {
                     loadResource(imageUrl)?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
                 }
                 val spriteImage = byteArrayToImageBitmap(spriteImageBytes)
 
-                Result.success(SpriteManager(spriteIndex, spriteImage))
+                Result.success(SpriteSheet(spriteIndex, spriteImage))
             } catch (e: Exception) {
                 println("Failed to load sprite: ${e.message}")
                 Result.failure(e)
             }
-
         }
+
+        /** Loads a single sheet as a whole [SpriteManager] -- the single-URL `sprite` form. */
+        suspend fun load(
+            spriteUrl: String,
+            pixelRatio: Int = 1,
+            loadResource: suspend (String) -> RawSource?,
+        ): Result<SpriteManager> =
+            loadSheet(spriteUrl, pixelRatio, id = "", loadResource = loadResource)
+                .map { SpriteManager(listOf(it)) }
     }
 }
 
+/**
+ * How an SDF sprite is recoloured: `icon-color` plus the three `icon-halo-*` properties, and the
+ * scale the icon will be drawn at.
+ *
+ * The defaults are the style spec's, so an SDF entry in a layer that sets none of them renders as
+ * MapLibre would render it -- a black shape with no halo.
+ *
+ * [fontScale] is the ratio between the size the icon is drawn at and its size on the sheet. The
+ * halo is specified in layout pixels but applied to a distance field measured in sheet pixels, so
+ * it is what converts between the two; see
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.sdfHaloBuffer].
+ */
 data class SDF(
-    val haloColor: Color = Color.Unspecified,
-    val haloWidth: Float = 0.02f,
-    val threshold: Float = 0.729f,
-    val fillColor: Color
+    val fillColor: Color = StyleSpecDefaults.ICON_COLOR,
+    val haloColor: Color = StyleSpecDefaults.ICON_HALO_COLOR,
+    val haloWidth: Float = StyleSpecDefaults.ICON_HALO_WIDTH.toFloat(),
+    val haloBlur: Float = StyleSpecDefaults.ICON_HALO_BLUR.toFloat(),
+    val fontScale: Float = 1f,
 )

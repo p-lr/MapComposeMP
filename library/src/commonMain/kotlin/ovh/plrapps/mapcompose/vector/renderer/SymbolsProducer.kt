@@ -40,14 +40,11 @@ class SymbolsProducer(
     ): List<Symbol> {
         if (!isLayerVisible(styleLayer)) return emptyList()
 
-        if (!isZoomInRange(styleLayer, zoom)) {
-//            println("  missed by zoom")
-            return emptyList()
-        }
+        if (!isZoomInRange(styleLayer, zoom)) return emptyList()
 
         if (tile == null || tile.layers.isEmpty()) return emptyList()
 
-        val tileLayer = tile.layers.find { it.name == styleLayer.sourceLayer }
+        val tileLayer = tileLayerFor(tile, styleLayer)
 
         if (tileLayer == null) {
             return emptyList()

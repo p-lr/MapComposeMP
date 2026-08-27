@@ -37,6 +37,8 @@ import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.DemUnpack
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SourceType
+import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_SOURCE
+import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_VIEWPORT_Y
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement
@@ -127,6 +129,11 @@ class VectorRasterizer(
             .filterTo(mutableSetOf()) { typeOf(it) == SourceType.VECTOR }
     }
 
+    /** The `geojson` sources any layer reads; each is cut from a document held in memory. */
+    private val geoJsonSourceNames: Set<String> by lazy {
+        referencedSourceNames.filterTo(mutableSetOf()) { configuration.geoJsonSources.containsKey(it) }
+    }
+
     private fun typeOf(sourceName: String): SourceType =
         configuration.tileSources[sourceName]?.type ?: SourceType.VECTOR
 
@@ -182,6 +189,12 @@ class VectorRasterizer(
 
         // One tileCache lookup per source (not per style layer) — reduces mutex ops from
         // O(style_layers) to O(sources).
+        /* A geojson source is not fetched: its tile is cut out of the loaded document here, and
+         * from `TileRenderer`'s point of view it is an ordinary vector tile from then on. */
+        val geoJsonForSource: Map<String, Tile?> = geoJsonSourceNames.associateWith { sourceName ->
+            configuration.geoJsonSources[sourceName]?.tile(z = z, x = x, y = y)
+        }
+
         val tileForSource: Map<String, Tile?> = vectorSourceNames.associateWith { sourceName ->
             val key = getTileKey(sourceName, z, x, y)
             tileCacheMutex.withLock { tileCache.get(key) }
@@ -242,7 +255,7 @@ class VectorRasterizer(
             for (styleLayer in configuration.style.layers) {
                 val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() }
                 val tileKey = sourceName?.let { getTileKey(it, z, x, y) }
-                val tile = sourceName?.let { tileForSource[it] }
+                val tile = sourceName?.let { tileForSource[it] ?: geoJsonForSource[it] }
 
                 tileRenderer.render(
                     canvas = this,
@@ -255,6 +268,7 @@ class VectorRasterizer(
                     rasterImage = sourceName?.let { rasterForSource[it] },
                     demTile = sourceName?.let { demForSource[it] },
                     tileY = y,
+                    tileX = x,
                     heatmapNeighbours = sourceName
                         ?.let { heatmapNeighboursForSource[it] }
                         ?: emptyList(),
@@ -595,13 +609,18 @@ class VectorRasterizer(
                         }
                 }
 
+                // Labels come from geojson sources too; they are cut rather than fetched.
+                val geoJsonForSource: Map<String, Tile?> = geoJsonSourceNames.associateWith { sourceName ->
+                    configuration.geoJsonSources[sourceName]?.tile(z = z.toInt(), x = x, y = y)
+                }
+
                 val localPropCache = HashMap<String, EvalFeature>()
 
                 // Use withIndex() to avoid O(n²) indexOf in the loop.
                 for ((layerIndex, styleLayer) in configuration.style.layers.withIndex()) {
                     if (styleLayer !is SymbolLayer) continue
                     val tile = styleLayer.source.takeIf { !it.isNullOrBlank() }
-                        ?.let { tileForSource[it] } ?: continue
+                        ?.let { tileForSource[it] ?: geoJsonForSource[it] } ?: continue
 
                     symbolsProducer.produce(
                         tile = tile,
@@ -631,26 +650,7 @@ class VectorRasterizer(
             else -> nextSymbols
         }
 
-        checkIndexErrors(symbols)
-        println("xxxxx number of symbols ${symbols.size}")
         state.symbolState.symbols = symbols
-    }
-
-    private class Counter {
-        var value: Int = 0
-    }
-
-    private fun checkIndexErrors(nextSymbols: List<Symbol>) {
-        val counters = mutableMapOf<String, Counter>()
-
-        nextSymbols.forEach { symbol ->
-            counters.getOrPut(symbol.id) { Counter() }.value++
-        }
-        counters.forEach { (id, value) ->
-            if (value.value > 1) {
-                println("xxxxx [ERROR]: Id $id not unique (${value.value})")
-            }
-        }
     }
 
     /**
@@ -730,7 +730,16 @@ class VectorRasterizer(
     }
 
     /**
-     * Sort symbols according to priority
+     * Orders symbols for the placement pass: whichever comes first gets the ground it asks for.
+     *
+     * Style order dominates -- a layer declared later in the style wins over an earlier one -- and
+     * `symbol-z-order` decides the order *within* a layer, as upstream's `SymbolBucket` does:
+     *
+     * - `viewport-y` sorts by screen y, so a symbol nearer the bottom of the map is placed first
+     *   and so drawn on top, which is what makes a field of markers read as a depth ordering;
+     * - `source` keeps the order the tile served, ignoring `symbol-sort-key`;
+     * - `auto`, the default, is `symbol-sort-key` when the layer sets one and `viewport-y`
+     *   otherwise.
      */
     private fun sortForPlacement(symbols: List<Symbol>): List<Symbol> {
         return symbols.withIndex()
@@ -738,12 +747,23 @@ class VectorRasterizer(
                 compareByDescending<IndexedValue<Symbol>> {
                     it.value.placement.spritePlacement.layerIndex
                 }.thenBy {
-                    it.value.placement.spritePlacement.inLayerPriority
+                    withinLayerOrder(it.value)
                 }.thenBy {
                     it.index
                 }
             )
             .map { it.value }
+    }
+
+    /** The `symbol-z-order` comparator's key for one symbol; lower is placed first. */
+    private fun withinLayerOrder(symbol: Symbol): Double {
+        val placement = symbol.placement.spritePlacement
+        return when (placement.zOrder) {
+            SYMBOL_Z_ORDER_SOURCE -> 0.0
+            SYMBOL_Z_ORDER_VIEWPORT_Y -> -symbol.global.y
+            // auto
+            else -> if (placement.hasSortKey) placement.inLayerPriority else -symbol.global.y
+        }
     }
 
     private fun makeStableAnchorKey(symbol: Symbol.SpriteWithText): String {
@@ -807,21 +827,18 @@ class VectorRasterizer(
                                     // Text added first: SymbolComposer draws reversed(), so first
                                     // entries are drawn on top — text should render above sprite.
                                     acceptedSymbols.add(
-                                        Symbol.Text(
+                                        symbol.textOnly(
                                             id = "${symbol.id}_t",
                                             global = Point(candidate.mercatorX, candidate.mercatorY),
                                             placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                                            value = symbol.text,
                                             spriteAnchorGlobal = symbol.global,
                                             textOffset = Pair(candidate.dx, candidate.dy),
                                         )
                                     )
                                     acceptedSymbols.add(
-                                        Symbol.Sprite(
+                                        symbol.iconOnly(
                                             id = "${symbol.id}_s",
-                                            global = symbol.global,
                                             placement = CompoundLabelPlacement(spritePlacement, null),
-                                            value = symbol.sprite,
                                         )
                                     )
                                     placed = true
@@ -831,11 +848,9 @@ class VectorRasterizer(
                             if (!placed && symbol.textOptional) {
                                 collisionDetector.insert(spriteViewportPlacement)
                                 acceptedSymbols.add(
-                                    Symbol.Sprite(
+                                    symbol.iconOnly(
                                         id = symbol.id,
-                                        global = symbol.global,
                                         placement = CompoundLabelPlacement(spritePlacement, null),
-                                        value = symbol.sprite,
                                     )
                                 )
                             }
@@ -847,11 +862,10 @@ class VectorRasterizer(
                                 if (!collisionDetector.wouldCollide(textVPPlacement)) {
                                     collisionDetector.insert(textVPPlacement)
                                     acceptedSymbols.add(
-                                        Symbol.Text(
+                                        symbol.textOnly(
                                             id = "${symbol.id}_t",
                                             global = Point(candidate.mercatorX, candidate.mercatorY),
                                             placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                                            value = symbol.text,
                                         )
                                     )
                                     break
@@ -891,21 +905,18 @@ class VectorRasterizer(
                         } else if (spriteCanPlace && !textCanPlace && symbol.textOptional) {
                             collisionDetector.insert(spriteViewportPlacement)
                             acceptedSymbols.add(
-                                Symbol.Sprite(
+                                symbol.iconOnly(
                                     id = symbol.id,
-                                    global = symbol.global,
                                     placement = CompoundLabelPlacement(spritePlacement, spritePlacement),
-                                    value = symbol.sprite
                                 )
                             )
                         } else if (!spriteCanPlace && textCanPlace && symbol.iconOptional && textPlacement != null && textViewportPlacement != null) {
                             collisionDetector.insert(textViewportPlacement)
                             acceptedSymbols.add(
-                                Symbol.Text(
+                                symbol.textOnly(
                                     id = symbol.id,
                                     global = symbol.global,
                                     placement = CompoundLabelPlacement(textPlacement, textPlacement),
-                                    value = symbol.text
                                 )
                             )
                         }

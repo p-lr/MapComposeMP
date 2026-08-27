@@ -2,8 +2,13 @@ package ovh.plrapps.mapcompose.vector.spec.style.symbol
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import ovh.plrapps.mapcompose.vector.spec.style.LayoutInterface
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueFormattedSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueResolvedImageSerializer
 
 @Serializable
 data class SymbolLayout(
@@ -30,8 +35,10 @@ data class SymbolLayout(
     @SerialName("icon-text-fit-padding")
     val iconTextFitPadding: ExpressionOrValue<List<Double>>? = null,
 
+    /* `resolvedImage`, not `string`: the type is what lets an ["image", ...] expression compile. */
     @SerialName("icon-image")
-    val iconImage: ExpressionOrValue<String>? = null,
+    @Serializable(with = ExpressionOrValueResolvedImageSerializer::class)
+    val iconImage: ExpressionOrValue<ResolvedImage>? = null,
 
     @SerialName("icon-rotate")
     val iconRotate: ExpressionOrValue<Double>? = null,
@@ -57,8 +64,10 @@ data class SymbolLayout(
     @SerialName("text-rotation-alignment")
     val textRotationAlignment: ExpressionOrValue<String>? = null,
 
+    /* `formatted`, not `string`: the type is what lets a ["format", ...] expression compile. */
     @SerialName("text-field")
-    val textField: ExpressionOrValue<String>? = null,
+    @Serializable(with = ExpressionOrValueFormattedSerializer::class)
+    val textField: ExpressionOrValue<Formatted>? = null,
 
     @SerialName("text-font")
     val textFont: ExpressionOrValue<List<String>>? = null,
@@ -83,6 +92,14 @@ data class SymbolLayout(
 
     @SerialName("text-variable-anchor")
     val textVariableAnchor: ExpressionOrValue<List<String>>? = null,
+
+    /*
+     * Upstream's `variableAnchorOffsetCollection`: a flat ["top", [dx, dy], "left", [dx, dy], ...]
+     * list pairing each anchor with its own offset in ems. Kept as raw JSON because the expression
+     * engine has no such type; the painter reads the pairs out of it.
+     */
+    @SerialName("text-variable-anchor-offset")
+    val textVariableAnchorOffset: ExpressionOrValue<List<JsonElement>>? = null,
 
     @SerialName("text-anchor")
     val textAnchor: ExpressionOrValue<String>? = null,
