@@ -1,6 +1,8 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
 import kotlin.test.Test
+import kotlin.test.assertFalse
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import ovh.plrapps.mapcompose.vector.renderer.GeometryDecoders.Companion.tileCoordToCanvas
@@ -126,5 +128,41 @@ class GeometryDecodersTest {
         val points = decoders.decodePoint(feature.geometry, extent = 1024, canvasSize = 512)
 
         assertEquals(Point(256.0, 128.0), points.single())
+    }
+
+    @Test
+    fun `decodeVertices lists every vertex of a line`() {
+        // Upstream's CircleBucket walks all of them, not just the first MoveTo.
+        val feature = Mvt.lineFeature(listOf(0 to 0, 2048 to 0, 2048 to 2048))
+        val vertices = decoders.decodeVertices(feature.geometry, extent = 4096, canvasSize = 256)
+        assertEquals(3, vertices.size)
+        assertEquals(0.0, vertices[0].x)
+        assertEquals(128.0, vertices[1].x)
+        assertEquals(128.0, vertices[2].y)
+    }
+
+    @Test
+    fun `decodeVertices lists every vertex of a polygon ring`() {
+        val feature = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048))
+        val vertices = decoders.decodeVertices(feature.geometry, extent = 4096, canvasSize = 256)
+        // Four corners; the ClosePath repeats the first and is not listed again.
+        assertEquals(4, vertices.size)
+    }
+
+    @Test
+    fun `decodeVertices lists every point of a multipoint`() {
+        val feature = Mvt.pointFeature(0 to 0, 2048 to 2048)
+        assertEquals(2, decoders.decodeVertices(feature.geometry, extent = 4096, canvasSize = 256).size)
+    }
+
+    @Test
+    fun `a point outside the tile does not belong to it`() {
+        assertTrue(isInsideTile(0.0, 0.0, 256))
+        assertTrue(isInsideTile(255.9, 255.9, 256))
+        assertFalse(isInsideTile(-0.1, 10.0, 256))
+        assertFalse(isInsideTile(10.0, -0.1, 256))
+        // The far edges belong to the next tile, so neighbours never both claim a point.
+        assertFalse(isInsideTile(256.0, 10.0, 256))
+        assertFalse(isInsideTile(10.0, 256.0, 256))
     }
 }

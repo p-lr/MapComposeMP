@@ -250,6 +250,45 @@ class GeometryDecoders {
     }
 
     /**
+     * Every vertex of a feature, whatever its geometry type.
+     *
+     * This is what upstream's `CircleBucket.addFeature` walks: it does not look at the geometry
+     * type at all, so a `circle` layer over a line or polygon source draws a circle at each of its
+     * vertices. [decodePoint] reads only `MoveTo`, which is right for a point feature but stops at
+     * the first vertex of anything else.
+     */
+    fun decodeVertices(
+        geometry: List<Int>,
+        extent: Int = 4096,
+        canvasSize: Int = 256
+    ): List<Point> {
+        val points = mutableListOf<Point>()
+        var x = 0
+        var y = 0
+        var i = 0
+        while (i < geometry.size) {
+            val cmdInteger = geometry[i++]
+            val command = cmdInteger and 0x7
+            val count = cmdInteger shr 3
+            when (command) {
+                1, 2 -> { // MoveTo, LineTo
+                    for (j in 0 until count) {
+                        if (i + 1 >= geometry.size) break
+                        x += decodeZigZag(geometry[i++])
+                        y += decodeZigZag(geometry[i++])
+                        val point = tileCoordToCanvas(x = x, y = y, canvasSize = canvasSize, extent = extent)
+                        points.add(Point(point.first.toDouble(), point.second.toDouble()))
+                    }
+                }
+
+                7 -> Unit // ClosePath repeats the ring's first vertex, which is already listed.
+                else -> break
+            }
+        }
+        return points
+    }
+
+    /**
      * Groups a polygon feature's rings into polygons, each an exterior ring followed by its holes.
      *
      * A single MVT feature may hold a MultiPolygon, distinguished only by winding order: an

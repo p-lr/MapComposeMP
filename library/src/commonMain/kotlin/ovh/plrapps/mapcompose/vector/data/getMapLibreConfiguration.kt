@@ -5,6 +5,8 @@ import kotlinx.io.RawSource
 import kotlinx.io.buffered
 import kotlinx.io.readString
 import ovh.plrapps.mapcompose.utils.IODispatcher
+import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
+import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
 import ovh.plrapps.mapcompose.vector.spec.style.sprites
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
@@ -21,10 +23,18 @@ suspend fun getMapLibreConfiguration(
         val diagnostics = StyleDiagnostics.drain()
         val tileSources = mutableMapOf<String, MapLibreTileSource>()
 
+        val geoJsonSources = mutableMapOf<String, GeoJsonSource>()
+
         style.sources?.toList()?.forEach { (name, source) ->
             val sourceUrl = source.url
             val tiles = source.tiles
             val type = SourceType.fromSpec(source.type)
+            if (type == SourceType.GEOJSON) {
+                /* A geojson source has no tile URL: the whole document is loaded once and cut into
+                 * tiles on demand, so it never reaches the tile fetcher at all. */
+                GeoJsonSource.load(source, loadResource)?.let { geoJsonSources[name] = it }
+                return@forEach
+            }
             /* Only a raster-dem source's channels mean elevation; every other type leaves this null
              * so nothing else can be mistaken for a DEM. */
             val demUnpack = if (type == SourceType.RASTER_DEM) DemUnpack.of(source) else null
@@ -46,14 +56,31 @@ suspend fun getMapLibreConfiguration(
             }
         }
 
-        val spriteManager = style.sprites.firstOrNull()?.url?.let { sprite ->
-            SpriteManager.load(spriteUrl = sprite, pixelRatio = pixelRatio, loadResource = loadResource).getOrElse { e -> return Result.failure(e) }
+        /* Every declared sheet, not just the first: a list-form `sprite` namespaces each sheet's
+         * entries by its id, and dropping all but one sheet loses every icon the others define. */
+        val spriteSheets = style.sprites.mapNotNull { source ->
+            val url = source.url ?: return@mapNotNull null
+            SpriteManager.loadSheet(
+                spriteUrl = url,
+                pixelRatio = pixelRatio,
+                id = source.id.orEmpty(),
+                loadResource = loadResource,
+            ).getOrElse { e -> return Result.failure(e) }
         }
+        val spriteManager = spriteSheets.takeIf { it.isNotEmpty() }?.let { SpriteManager(it) }
+
+        /* The glyph server is lazy: nothing is fetched until a label needs a codepoint range, so a
+         * style declaring `glyphs` costs nothing until a symbol layer actually draws. */
+        val glyphManager = style.glyphs
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { GlyphManager(urlTemplate = it, loadResource = loadResource) }
 
         return Result.success(MapLibreConfiguration(
             style = style,
             tileSources = tileSources,
+            geoJsonSources = geoJsonSources,
             spriteManager = spriteManager,
+            glyphManager = glyphManager,
             diagnostics = diagnostics,
         ))
 
