@@ -38,6 +38,23 @@ data class Source(
     val scheme: String? = null,
     val attribution: String? = null,
 
+    /**
+     * `geojson` only: the document itself, or the URL of one.
+     *
+     * The style spec allows either an inline `FeatureCollection` and a URL string in the same
+     * field, so it is kept as raw JSON and told apart when the source is loaded.
+     */
+    val data: JsonElement? = null,
+
+    /** `raster` only: the source's tile size in pixels; 512 when it says nothing. */
+    val tileSize: Int? = null,
+
+    /** `[west, south, east, north]`; parsed but not yet honoured -- see the raster painter. */
+    val bounds: List<Double>? = null,
+
+    /** `geojson` only: the feature property to promote to the feature's id. */
+    val promoteId: String? = null,
+
     /* raster-dem only: how the tile's RGB channels encode elevation. See DemUnpack. */
     val encoding: String? = null,
     val redFactor: Double? = null,

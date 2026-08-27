@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
@@ -22,8 +23,12 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
  * Follows maplibre-gl-js `src/shaders/circle.fragment.glsl`: a filled disc of `circle-radius`, then
  * a `circle-stroke-width` ring drawn outside it, with `circle-blur` feathering the fill inwards.
  *
- * `circle-pitch-scale` and `circle-pitch-alignment` are read but inert: both describe how a circle
- * reacts to camera pitch, and MapComposeMP has no pitch.
+ * A circle is drawn at **every vertex** of the feature, whatever its geometry type -- upstream's
+ * `CircleBucket.addFeature` does not look at the type either, which is how a `circle` layer over a
+ * line or polygon source renders. Vertices outside the tile are dropped; see [isInsideTile].
+ *
+ * `circle-pitch-scale` and `circle-pitch-alignment` are inert: both describe how a circle reacts to
+ * camera pitch, and MapComposeMP has no pitch.
  */
 class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
     override suspend fun paint(
@@ -37,10 +42,10 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        if (feature.type != Tile.GeomType.POINT) return
-
         val paint = style.paint ?: return
-        val points = geometryDecoders.decodePoint(feature.geometry, extent = extent, canvasSize = canvasSize)
+        val points = geometryDecoders
+            .decodeVertices(feature.geometry, extent = extent, canvasSize = canvasSize)
+            .filter { isInsideTile(it.x, it.y, canvasSize) }
         if (points.isEmpty()) return
 
         val density = canvas.density

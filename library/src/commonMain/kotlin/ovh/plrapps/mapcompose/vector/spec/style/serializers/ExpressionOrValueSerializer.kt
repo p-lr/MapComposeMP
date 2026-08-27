@@ -21,7 +21,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.BooleanType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExprType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExpressionResult
+import ovh.plrapps.mapcompose.vector.spec.style.expression.FormattedType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.ResolvedImageType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StringType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StylePropertySpec
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ValueType
@@ -139,9 +141,11 @@ class ExpressionOrValueSerializer<T : Any>(
          * data classes, so the serializer's descriptor is the available signal. A `null` result
          * means "no expected type", which disables the parser's assert/coerce annotation.
          */
-        fun expectedTypeOf(serializer: KSerializer<*>): ExprType? {
-            if (serializer is ColorSerializer) return ColorType
-            return descriptorToType(serializer.descriptor)
+        fun expectedTypeOf(serializer: KSerializer<*>): ExprType? = when (serializer) {
+            is ColorSerializer -> ColorType
+            is FormattedSerializer -> FormattedType
+            is ResolvedImageSerializer -> ResolvedImageType
+            else -> descriptorToType(serializer.descriptor)
         }
 
         fun isInterpolatable(type: ExprType?): Boolean = when (type) {

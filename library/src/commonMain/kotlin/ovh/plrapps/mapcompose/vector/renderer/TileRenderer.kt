@@ -5,6 +5,7 @@ import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.evaluateSortKey
+import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
 import ovh.plrapps.mapcompose.vector.renderer.utils.sortKeyOf
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.*
@@ -64,10 +65,22 @@ class TileRenderer(
         rasterImage: RasterTileImage? = null,
         demTile: DemTile? = null,
         tileY: Int = 0,
+        tileX: Int = 0,
         heatmapNeighbours: List<NeighbourTile> = emptyList(),
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
+
+        /* Patterns are anchored to the world and sized in screen pixels, so they need to know which
+         * tile they are being drawn into and how much it will be magnified. See PatternBrushCache. */
+        patternBrushes.configure(
+            tileX = tileX,
+            tileY = tileY,
+            canvasSize = canvasSize,
+            tileZoom = zoom,
+            actualZoom = actualZoom,
+            density = canvas.density,
+        )
 
         when (styleLayer) {
             // Drawn elsewhere or not implemented; see the class KDoc.
@@ -130,7 +143,7 @@ class TileRenderer(
             is FillLayer,
             is LineLayer -> {
                 if (tile == null || tile.layers.isEmpty()) return
-                val tileLayer = tile.layers.find { it.name == styleLayer.sourceLayer } ?: return
+                val tileLayer = tileLayerFor(tile, styleLayer) ?: return
                 val extent = tileLayer.extent ?: DEFAULT_EXTENT
 
                 // Feature geometry is only decoded when a `within`/`distance` expression reads it.
@@ -211,7 +224,7 @@ class TileRenderer(
         zoom: Double,
         canvasSize: Int,
     ) {
-        val tileLayer = tile.layers.find { it.name == styleLayer.sourceLayer } ?: return
+        val tileLayer = tileLayerFor(tile, styleLayer) ?: return
         val extent = tileLayer.extent ?: DEFAULT_EXTENT
         val needGeometry = styleLayer.filter?.filter?.needGeometry == true
         val offsetX = dx.toDouble() * canvasSize
@@ -226,11 +239,9 @@ class TileRenderer(
                 feature.geometry, extent = extent, canvasSize = canvasSize
             )
             for (point in decoded) {
-                /* Upstream's `CircleBucket.addFeature`: "Do not include points that are outside the
-                 * tile boundaries." Without it a point that the MVT buffer duplicated into a
-                 * neighbouring tile would be accumulated twice, once from each tile carrying it. */
-                if (point.x < 0.0 || point.x >= canvasSize) continue
-                if (point.y < 0.0 || point.y >= canvasSize) continue
+                // See `isInsideTile`: a point the MVT buffer duplicated into a neighbouring tile
+                // would otherwise be accumulated twice, once from each tile carrying it.
+                if (!isInsideTile(point.x, point.y, canvasSize)) continue
                 into.add(HeatmapPoint(point.x + offsetX, point.y + offsetY, properties))
             }
         }

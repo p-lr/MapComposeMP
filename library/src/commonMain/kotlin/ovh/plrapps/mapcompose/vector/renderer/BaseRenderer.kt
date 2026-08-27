@@ -39,7 +39,8 @@ abstract class BaseRenderer(
         )
     }
 
-    private val MAX_ZOOM = 30.0
+    /** The style spec's maximum zoom, and so what an absent `maxzoom` means. */
+    private val MAX_ZOOM = 24.0
 
     /**
      * Whether the layer's `visibility` layout property lets it draw.
@@ -50,6 +51,18 @@ abstract class BaseRenderer(
      */
     fun isLayerVisible(styleLayer: Layer): Boolean =
         styleLayer.layout?.visibility != StyleSpecDefaults.VISIBILITY_NONE
+
+    /**
+     * The tile layer a style layer draws from.
+     *
+     * A `geojson` source has no `source-layer` -- the spec forbids one, because the document is a
+     * single layer -- so a layer that names none takes whatever the tile holds. Every other source
+     * type is matched by name, as before.
+     */
+    fun tileLayerFor(tile: Tile, styleLayer: Layer): Tile.Layer? {
+        val name = styleLayer.sourceLayer ?: return tile.layers.firstOrNull()
+        return tile.layers.find { it.name == name }
+    }
 
     fun isZoomInRange(styleLayer: Layer, zoom: Double): Boolean {
         val minZoom = styleLayer.minzoom ?: 0.0

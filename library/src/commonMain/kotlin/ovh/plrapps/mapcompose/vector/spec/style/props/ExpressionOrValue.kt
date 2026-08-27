@@ -13,6 +13,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.StylePropertyExpressi
 import ovh.plrapps.mapcompose.vector.spec.style.expression.isExpression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 import ovh.plrapps.mapcompose.vector.spec.style.serializers.ExpressionOrValueSerializer
 
 /**
@@ -192,17 +193,74 @@ fun ExpressionOrValue<Color>?.processAsHeatmapColor(
 }
 
 /**
+ * Evaluates a list-valued property without coercing its items.
+ *
+ * `text-variable-anchor-offset` is the only user: it alternates anchor names and `[x, y]` pairs, so
+ * neither [processAsStringList] nor [processAsDoubleList] can describe it.
+ */
+fun ExpressionOrValue<*>?.processAsAnyList(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+): List<Any?>? = this?.processUntyped(feature, zoom) as? List<Any?>
+
+/**
+ * Evaluates a `formatted` property -- `text-field`.
+ *
+ * A constant decodes to a single-section [Formatted]; a `["format", ...]` expression evaluates to a
+ * multi-section one carrying per-section `text-font`, `text-size` scale and colour. A plain string
+ * expression such as `["get", "name"]` is coerced by the parser, so this never sees a bare String.
+ */
+fun ExpressionOrValue<Formatted>?.processAsFormatted(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+    availableImages: List<String>? = null,
+): Formatted? = when (val result = this?.processUntyped(feature, zoom, availableImages)) {
+    null -> null
+    is Formatted -> result
+    else -> Formatted.fromString(result.toString())
+}
+
+/**
+ * Evaluates a `resolvedImage` property -- `icon-image`.
+ *
+ * [availableImages] is what makes `["image", "a", "b"]` fall back from a missing sprite to a present
+ * one: the engine marks a [ResolvedImage] `available` only when its name is in that list, exactly as
+ * upstream does with the sprite atlas's key set.
+ */
+fun ExpressionOrValue<ResolvedImage>?.processAsImage(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+    availableImages: List<String>? = null,
+): ResolvedImage? = when (val result = this?.processUntyped(feature, zoom, availableImages)) {
+    null -> null
+    is ResolvedImage -> result
+    else -> ResolvedImage.fromString(result.toString())
+}
+
+/** The sprite id an `icon-image` resolves to, or `null` when it resolves to nothing. */
+fun ExpressionOrValue<ResolvedImage>?.processAsImageName(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+    availableImages: List<String>? = null,
+): String? = processAsImage(feature, zoom, availableImages)?.name?.takeIf { it.isNotEmpty() }
+
+/**
  * Evaluates without the declared type parameter getting in the way. The generic `T` on
  * [ExpressionOrValue] is nominal — the engine works in `Any?` — so the coercing helpers above go
  * through this rather than [ExpressionOrValue.process].
  */
-private fun ExpressionOrValue<*>.processUntyped(feature: EvalFeature?, zoom: Double?): Any? =
+private fun ExpressionOrValue<*>.processUntyped(
+    feature: EvalFeature?,
+    zoom: Double?,
+    availableImages: List<String>? = null,
+): Any? =
     when (this) {
         is ExpressionOrValue.Value -> value
         is ExpressionOrValue.Invalid -> null
         is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
             globals = GlobalProperties(zoom = zoom ?: 0.0),
             feature = feature,
+            availableImages = availableImages,
         )
     }
 
