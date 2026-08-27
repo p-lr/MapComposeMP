@@ -5,6 +5,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import kotlinx.serialization.json.Json
+import ovh.plrapps.mapcompose.vector.data.geojson.GeoJson
+import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonTiler
 import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
@@ -13,6 +16,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -314,5 +318,34 @@ class TileRendererTest {
 
     private companion object {
         const val SIZE = 64
+    }
+
+    @Test
+    fun `a layer without a source-layer takes the tile's only layer`() = runTest {
+        // A geojson source has no `source-layer` -- the spec forbids one, because the document is a
+        // single layer -- and its tiles carry the name upstream's GeoJSONWrapper uses.
+        val styleLayer = layer(
+            """{"id":"fill","type":"fill","source":"geo",
+                "paint":{"fill-color":"#ff0000","fill-antialias":false}}"""
+        )
+        val tile = tileWith(coveringPolygon(), layerName = GeoJsonTiler.LAYER_NAME)
+
+        assertColorEquals(Color.Red, render(styleLayer, tile).pixelAt(32, 32))
+    }
+
+    @Test
+    fun `a geojson document renders like a vector tile`() = runTest {
+        val features = GeoJson.parse(
+            Json.parseToJsonElement(
+                """{"type":"Polygon","coordinates":[[[-180,-85],[180,-85],[180,85],[-180,85],[-180,-85]]]}"""
+            )
+        )
+        val tile = assertNotNull(GeoJsonTiler(features).tile(0, 0, 0))
+        val styleLayer = layer(
+            """{"id":"fill","type":"fill","source":"geo",
+                "paint":{"fill-color":"#00ff00","fill-antialias":false}}"""
+        )
+
+        assertColorEquals(Color.Green, render(styleLayer, tile).pixelAt(32, 32))
     }
 }

@@ -3,7 +3,7 @@ package ovh.plrapps.mapcompose.vector.spec.style
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
-import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFormatted
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -112,9 +112,10 @@ class TestParseStyleSimple {
         assertNotNull(textField)
         assertTrue(textField is ExpressionOrValue.Expression)
         // A legacy {stops} function on a string property becomes a `step`, not an `interpolate`.
-        assertEquals("{ABBREV}", textField.processAsString(zoom = 2.0))
-        assertEquals("{ABBREV}", textField.processAsString(zoom = 3.0))
-        assertEquals("{NAME}", textField.processAsString(zoom = 4.0))
-        assertEquals("{NAME}", textField.processAsString(zoom = 5.0))
+        // `text-field` is a `formatted` property, so each stop is coerced into a one-section value.
+        assertEquals("{ABBREV}", textField.processAsFormatted(zoom = 2.0).toString())
+        assertEquals("{ABBREV}", textField.processAsFormatted(zoom = 3.0).toString())
+        assertEquals("{NAME}", textField.processAsFormatted(zoom = 4.0).toString())
+        assertEquals("{NAME}", textField.processAsFormatted(zoom = 5.0).toString())
     }
 }

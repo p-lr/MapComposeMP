@@ -109,6 +109,29 @@ class StyleSpecDefaultsTest {
             if (expected != actual) failures.add("$block/$property expected $expected but was $actual")
         }
 
+        /**
+         * Upstream types `icon-padding` as `padding`, whose default is an array covering the four
+         * sides. Only a uniform padding is modelled here, so every side of the spec default must
+         * equal the single constant.
+         */
+        fun checkPadding(block: String, property: String, actual: Double) {
+            val entry = spec(block, property)
+                ?: return note("$block/$property is not in the vendored spec table")
+            val expected = entry["default"]?.jsonArray?.map { it.jsonPrimitive.double() }
+                ?: return note("$block/$property has no array default upstream")
+            if (expected.any { it != actual }) {
+                failures.add("$block/$property expected every side to be $actual but was $expected")
+            }
+        }
+
+        fun checkStringList(block: String, property: String, actual: List<String>) {
+            val entry = spec(block, property)
+                ?: return note("$block/$property is not in the vendored spec table")
+            val expected = entry["default"]?.jsonArray?.map { it.jsonPrimitive.content }
+                ?: return note("$block/$property has no array default upstream")
+            if (expected != actual) failures.add("$block/$property expected $expected but was $actual")
+        }
+
         with(StyleSpecDefaults) {
             checkColor("paint_fill", "fill-color", FILL_COLOR)
             checkNumber("paint_fill", "fill-opacity", FILL_OPACITY)
@@ -171,6 +194,59 @@ class StyleSpecDefaultsTest {
             checkNumber("paint_heatmap", "heatmap-opacity", HEATMAP_OPACITY)
             checkExpression("paint_heatmap", "heatmap-color", HEATMAP_COLOR)
 
+            checkBoolean("layout_symbol", "icon-allow-overlap", ICON_ALLOW_OVERLAP)
+            checkString("layout_symbol", "icon-anchor", ICON_ANCHOR)
+            checkBoolean("layout_symbol", "icon-ignore-placement", ICON_IGNORE_PLACEMENT)
+            checkBoolean("layout_symbol", "icon-keep-upright", ICON_KEEP_UPRIGHT)
+            checkNumberPair("layout_symbol", "icon-offset", ICON_OFFSET)
+            checkBoolean("layout_symbol", "icon-optional", ICON_OPTIONAL)
+            checkPadding("layout_symbol", "icon-padding", ICON_PADDING)
+            checkString("layout_symbol", "icon-pitch-alignment", ICON_PITCH_ALIGNMENT)
+            checkNumber("layout_symbol", "icon-rotate", ICON_ROTATE)
+            checkString("layout_symbol", "icon-rotation-alignment", ICON_ROTATION_ALIGNMENT)
+            checkNumber("layout_symbol", "icon-size", ICON_SIZE)
+            checkString("layout_symbol", "icon-text-fit", ICON_TEXT_FIT)
+            checkNumberPair("layout_symbol", "icon-text-fit-padding", ICON_TEXT_FIT_PADDING)
+            checkBoolean("layout_symbol", "symbol-avoid-edges", SYMBOL_AVOID_EDGES)
+            checkString("layout_symbol", "symbol-placement", SYMBOL_PLACEMENT)
+            checkNumber("layout_symbol", "symbol-spacing", SYMBOL_SPACING)
+            checkString("layout_symbol", "symbol-z-order", SYMBOL_Z_ORDER)
+            checkBoolean("layout_symbol", "text-allow-overlap", TEXT_ALLOW_OVERLAP)
+            checkString("layout_symbol", "text-anchor", TEXT_ANCHOR)
+            checkString("layout_symbol", "text-field", TEXT_FIELD)
+            checkStringList("layout_symbol", "text-font", TEXT_FONT)
+            checkBoolean("layout_symbol", "text-ignore-placement", TEXT_IGNORE_PLACEMENT)
+            checkString("layout_symbol", "text-justify", TEXT_JUSTIFY)
+            checkBoolean("layout_symbol", "text-keep-upright", TEXT_KEEP_UPRIGHT)
+            checkNumber("layout_symbol", "text-letter-spacing", TEXT_LETTER_SPACING)
+            checkNumber("layout_symbol", "text-line-height", TEXT_LINE_HEIGHT)
+            checkNumber("layout_symbol", "text-max-angle", TEXT_MAX_ANGLE)
+            checkNumber("layout_symbol", "text-max-width", TEXT_MAX_WIDTH)
+            checkNumberPair("layout_symbol", "text-offset", TEXT_OFFSET)
+            checkBoolean("layout_symbol", "text-optional", TEXT_OPTIONAL)
+            checkNumber("layout_symbol", "text-padding", TEXT_PADDING)
+            checkString("layout_symbol", "text-pitch-alignment", TEXT_PITCH_ALIGNMENT)
+            checkNumber("layout_symbol", "text-radial-offset", TEXT_RADIAL_OFFSET)
+            checkNumber("layout_symbol", "text-rotate", TEXT_ROTATE)
+            checkString("layout_symbol", "text-rotation-alignment", TEXT_ROTATION_ALIGNMENT)
+            checkNumber("layout_symbol", "text-size", TEXT_SIZE)
+            checkString("layout_symbol", "text-transform", TEXT_TRANSFORM)
+
+            checkColor("paint_symbol", "icon-color", ICON_COLOR)
+            checkNumber("paint_symbol", "icon-halo-blur", ICON_HALO_BLUR)
+            checkColor("paint_symbol", "icon-halo-color", ICON_HALO_COLOR)
+            checkNumber("paint_symbol", "icon-halo-width", ICON_HALO_WIDTH)
+            checkNumber("paint_symbol", "icon-opacity", ICON_OPACITY)
+            checkNumberPair("paint_symbol", "icon-translate", ICON_TRANSLATE)
+            checkString("paint_symbol", "icon-translate-anchor", ICON_TRANSLATE_ANCHOR)
+            checkColor("paint_symbol", "text-color", TEXT_COLOR)
+            checkNumber("paint_symbol", "text-halo-blur", TEXT_HALO_BLUR)
+            checkColor("paint_symbol", "text-halo-color", TEXT_HALO_COLOR)
+            checkNumber("paint_symbol", "text-halo-width", TEXT_HALO_WIDTH)
+            checkNumber("paint_symbol", "text-opacity", TEXT_OPACITY)
+            checkNumberPair("paint_symbol", "text-translate", TEXT_TRANSLATE)
+            checkString("paint_symbol", "text-translate-anchor", TEXT_TRANSLATE_ANCHOR)
+
             checkString("layout_fill", "visibility", VISIBILITY)
         }
 
@@ -203,6 +279,13 @@ class StyleSpecDefaultsTest {
             "layout_fill" to "fill-sort-key",
             "layout_line" to "line-sort-key",
             "layout_circle" to "circle-sort-key",
+            "layout_symbol" to "symbol-sort-key",
+            "layout_symbol" to "icon-image",
+            "layout_symbol" to "icon-overlap",
+            "layout_symbol" to "text-overlap",
+            "layout_symbol" to "text-variable-anchor",
+            "layout_symbol" to "text-variable-anchor-offset",
+            "layout_symbol" to "text-writing-mode",
         )
     }
 }

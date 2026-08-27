@@ -156,12 +156,40 @@ class CircleLayerPainterTest {
     }
 
     @Test
-    fun `line and polygon features are ignored`() = runTest {
-        val line = render(CirclePaint(circleColor = red), Mvt.lineFeature(listOf(0 to 0, 4096 to 4096)))
-        val polygon = render(CirclePaint(circleColor = red), Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 4096, 4096)))
+    fun `a circle is drawn at every vertex of a line`() = runTest {
+        // Upstream's `CircleBucket.addFeature` walks every vertex whatever the geometry type, so a
+        // circle layer over a line source draws one circle per vertex. Only the middle vertex is
+        // inside the tile here: the two ends sit exactly on its boundary.
+        val line = render(
+            CirclePaint(circleColor = red),
+            Mvt.lineFeature(listOf(0 to 0, 2048 to 2048, 4096 to 4096)),
+        )
+        assertColorEquals(Color.Red, line.pixelAt(SIZE / 2, SIZE / 2))
+        assertTrue(line.opaquePixelCount() > 0)
+    }
 
-        assertEquals(0, line.opaquePixelCount())
-        assertEquals(0, polygon.opaquePixelCount())
+    @Test
+    fun `a circle is drawn at every vertex of a polygon ring`() = runTest {
+        val polygon = render(
+            CirclePaint(circleColor = red),
+            Mvt.polygonFeature(Mvt.clockwiseRing(1024, 1024, 3072, 3072)),
+        )
+        // One circle per corner of the ring.
+        for (corner in listOf(16 to 16, 48 to 16, 48 to 48, 16 to 48)) {
+            assertColorEquals(Color.Red, polygon.pixelAt(corner.first, corner.second))
+        }
+    }
+
+    @Test
+    fun `a vertex outside the tile is not drawn`() = runTest {
+        // Upstream drops it so that a point the MVT buffer duplicated into a neighbouring tile is
+        // not drawn twice, doubling a translucent circle's alpha along every seam.
+        val outside = render(CirclePaint(circleColor = red), Mvt.pointFeature(-200 to 2048))
+        assertEquals(0, outside.opaquePixelCount())
+
+        // The right and bottom edges belong to the next tile.
+        val onEdge = render(CirclePaint(circleColor = red), Mvt.pointFeature(4096 to 2048))
+        assertEquals(0, onEdge.opaquePixelCount())
     }
 
     private fun centrePoint() = Mvt.pointFeature(2048 to 2048)
