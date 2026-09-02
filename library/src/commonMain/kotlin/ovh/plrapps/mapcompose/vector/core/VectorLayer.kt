@@ -142,9 +142,21 @@ internal class VectorLayer(
                     val zoomLvl = viewportInfo.zoom
                     /* Not the same number as the tile bitmap size above, and deliberately so:
                      * symbols are drawn by SymbolComposer as a viewport overlay, so they are laid
-                     * out in the pixel space a tile occupies on screen, not in the pixel space the
-                     * tile bitmap is rasterized at. */
-                    val layoutPx = mapState.tileSize
+                     * out in the pixel space a tile occupies *on screen*, not in the pixel space
+                     * the tile bitmap is rasterized at.
+                     *
+                     * It has to be the real on-screen size rather than `mapState.tileSize`, because
+                     * every length the symbol painters compare a tile's geometry against -- a
+                     * label's own width, `symbol-spacing`, `text-padding` -- is in device pixels
+                     * (one style pixel is one dp, times `density.density`). Laying out against the
+                     * unscaled tile size made a tile's geometry `relativeScale` times too small, so
+                     * `symbol-spacing` came out that many times too coarse and almost every road
+                     * fell through to a single label. `fullWidth * scale` is the world's width in
+                     * device pixels, the same quantity `mercatorToViewport` projects with. */
+                    val worldPx = viewportInfo.fullWidth.toDouble() * viewportInfo.scale
+                    val layoutPx = (worldPx / 2.0.pow(zoomLvl))
+                        .toInt()
+                        .coerceAtLeast(1)
 
                     val nextSymbols = rasterizer.produceSymbols(
                         viewport = viewportInfo.toMVTViewport(),

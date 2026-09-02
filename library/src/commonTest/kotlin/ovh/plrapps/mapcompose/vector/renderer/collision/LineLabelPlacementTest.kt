@@ -115,4 +115,74 @@ class LineLabelPlacementTest {
         assertEquals(null, LineLabelPlacement.centerPlacement(listOf(0f to 0f)))
         assertEquals(null, LineLabelPlacement.centerPlacement(listOf(0f to 0f, 0f to 0f)))
     }
+
+    @Test
+    fun `a long label pushes the spacing apart`() {
+        // Upstream's getAnchors: "If the label is long relative to the spacing, adjust the spacing
+        // so there is always a minimum space of spacing / 4 between label edges."
+        val points = listOf(0f to 0f, 2000f to 0f)
+        val placements = LineLabelPlacement.calculatePlacements(points, textWidth = 180f, spacing = 200f)
+        assertTrue(placements.size >= 2)
+        val gap = placements[1].first.first - placements[0].first.first
+        assertTrue(kotlin.math.abs(gap - 230f) < 0.01f, "expected a 230 px gap but was $gap")
+    }
+
+    @Test
+    fun `an anchor outside the tile is dropped`() {
+        // The line runs well past the tile, but only the part inside it may carry a label.
+        val points = listOf(0f to 50f, 1000f to 50f)
+        val placements = LineLabelPlacement.calculatePlacements(
+            points = points,
+            textWidth = 20f,
+            spacing = 100f,
+            tileExtent = 300f,
+        )
+        assertTrue(placements.isNotEmpty())
+        assertTrue(placements.all { it.first.first < 300f }, "an anchor landed outside the tile")
+    }
+
+    @Test
+    fun `a label that would run past the end of the line is dropped`() {
+        // 250 px of line, a 200 px label and a 100 px spacing: only the middle can hold it.
+        val points = listOf(0f to 0f, 250f to 0f)
+        val placements = LineLabelPlacement.calculatePlacements(points, textWidth = 200f, spacing = 100f)
+        for ((pos, _) in placements) {
+            assertTrue(pos.first - 100f >= -0.01f, "label starts before the line at ${pos.first}")
+            assertTrue(pos.first + 100f <= 250.01f, "label ends past the line at ${pos.first}")
+        }
+    }
+
+    @Test
+    fun `a short line that still fits its label falls back to the middle`() {
+        // The first anchor lands too near the end for the label to fit, so the regular walk finds
+        // nothing and upstream re-samples once at the middle of the line.
+        val points = listOf(10f to 50f, 130f to 50f)
+        val placements = LineLabelPlacement.calculatePlacements(
+            points = points,
+            textWidth = 100f,
+            spacing = 400f,
+            tileExtent = 300f,
+            fontSize = 25f,
+        )
+        assertEquals(1, placements.size)
+        assertTrue(
+            kotlin.math.abs(placements[0].first.first - 70f) < 0.01f,
+            "expected the middle of the line but was ${placements[0].first}",
+        )
+    }
+
+    @Test
+    fun `a line continued past the tile edge gets no middle fallback`() {
+        // Its first vertex sits exactly on the tile boundary, so the neighbouring tile carries the
+        // rest of this road and would place the same label a second time.
+        val points = listOf(0f to 50f, 120f to 50f)
+        val placements = LineLabelPlacement.calculatePlacements(
+            points = points,
+            textWidth = 100f,
+            spacing = 400f,
+            tileExtent = 300f,
+            fontSize = 25f,
+        )
+        assertTrue(placements.isEmpty())
+    }
 }
