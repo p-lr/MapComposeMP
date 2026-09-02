@@ -22,6 +22,14 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.math.max
 import kotlin.math.roundToInt
 
+/**
+ * An [ImageBitmap] from raw pixels.
+ *
+ * [argb] is **straight** (non-premultiplied) ARGB, one packed int per pixel -- the convention
+ * `Color.toArgb()` produces and Android's `Bitmap.setPixels` consumes, which is what every caller
+ * here hands over. Converting that to whatever the backend stores is the actual's job: Skia's
+ * raster surfaces are premultiplied, Android's `Bitmap` premultiplies on the way in.
+ */
 internal expect fun imageBitmapFromArgb(
     argb: IntArray,
     width: Int,

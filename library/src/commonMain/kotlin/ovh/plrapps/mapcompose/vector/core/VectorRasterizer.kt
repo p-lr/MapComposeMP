@@ -183,9 +183,20 @@ class VectorRasterizer(
         actualZoom: Double,
         x: Int,
         y: Int,
+        superSampling: Int = 1,
     ): ImageBitmap {
         val z = zoom.toInt()
-        val density = densityState.value ?: return emptyBitmap(tileSize)
+        val screenDensity = densityState.value ?: return emptyBitmap(tileSize)
+        /* Every style width a painter draws goes through `canvas.density`, and the whole tile is
+         * rasterized [superSampling] times larger than it will be handed on at. Leaving the draw
+         * scope at the screen density would therefore divide every `line-width`, `circle-radius` and
+         * `*-translate` by the super-sampling factor once the bitmap is filtered back down --
+         * super-sampling would thin the map instead of just smoothing it. */
+        val density = if (superSampling > 1) {
+            Density(screenDensity.density * superSampling, screenDensity.fontScale)
+        } else {
+            screenDensity
+        }
 
         // One tileCache lookup per source (not per style layer) — reduces mutex ops from
         // O(style_layers) to O(sources).
@@ -522,6 +533,7 @@ class VectorRasterizer(
             actualZoom = zoom,
             x = x,
             y = y,
+            superSampling = superSampling,
         )
 
         return if (superSampling > 1) downsample(rendered, tileSize / superSampling) else rendered

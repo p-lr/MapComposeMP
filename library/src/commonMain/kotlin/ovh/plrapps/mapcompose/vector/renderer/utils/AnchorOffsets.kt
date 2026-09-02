@@ -50,8 +50,9 @@ fun anchorCenterOffset(anchor: TextAnchor, width: Float, height: Float): Offset 
  * split over both axes by `1/sqrt(2)`, so every anchor sits the same distance from the point.
  *
  * **Divergence:** upstream also shifts the vertical component by a constant baseline correction, to
- * account for text being measured from its baseline rather than its box. Labels here are positioned
- * by their box, so there is no baseline to correct for and the term is omitted.
+ * account for its text being positioned from a pen offset rather than from a box. `GlyphLayout`
+ * folds that offset into the box it returns (see its `SHAPING_DEFAULT_OFFSET`), so the box is
+ * already centred on the ink and the term is omitted here.
  */
 fun radialOffsetEms(anchor: TextAnchor, radialOffset: Float): Offset {
     val radial = radialOffset.coerceAtLeast(0f)

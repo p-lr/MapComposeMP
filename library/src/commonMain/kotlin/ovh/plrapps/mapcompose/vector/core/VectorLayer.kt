@@ -25,22 +25,51 @@ import ovh.plrapps.mapcompose.utils.throttle
 import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.extension.toMVTViewport
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
+import kotlin.math.log2
+import kotlin.math.max
+import kotlin.math.pow
+import kotlin.math.round
 
 /**
  * The pixel size of the bitmap a vector tile is rasterized into.
  *
  * A tile is drawn into `mapState.tileSize * relativeScale` device pixels (see `TileCanvas`, where
  * `dstSize` is `tileSize / scaleForLevel` inside a `scale(scale)` transform), and `relativeScale` is
- * in `(0.5, 1.0]` because `VisibleTilesResolver.getLevel` rounds the level up. So rasterizing at
- * [tileSize] guarantees the bitmap is never smaller than the area it covers, whatever `tileSize` the
- * map was built with — the tile is always minified, never stretched.
+ * in `(2^(magnifyingFactor - 1), 2^magnifyingFactor]` because `VisibleTilesResolver.getLevel` rounds
+ * the level up after subtracting the factor. Sizing against the larger of [density] and
+ * `2^magnifyingFactor` is what guarantees the bitmap is never smaller than the area it covers, so a
+ * tile is always minified, never stretched.
  *
- * [density] only adds resolution: the destination size above is in device pixels and does not
- * depend on it. [superSampling] adds more still, to be filtered back down before the bitmap leaves
- * the rasterizer.
+ * Neither factor changes the *apparent* size of what is drawn -- the destination above is fixed by
+ * the map's geometry. [density] only adds resolution, and [superSampling] adds more still, to be
+ * filtered back down before the bitmap leaves the rasterizer. It is [magnifyingFactorForDensity],
+ * applied to the map itself, that puts a style pixel on a density-independent pixel.
  */
-internal fun vectorTileBitmapSize(tileSize: Int, density: Float, superSampling: Int): Int =
-    (tileSize * density.coerceAtLeast(1f)).toInt() * superSampling.coerceAtLeast(1)
+internal fun vectorTileBitmapSize(
+    tileSize: Int,
+    density: Float,
+    superSampling: Int,
+    magnifyingFactor: Int,
+): Int {
+    val resolution = max(density, 2f.pow(magnifyingFactor.coerceAtLeast(0))).coerceAtLeast(1f)
+    return (tileSize * resolution).toInt() * superSampling.coerceAtLeast(1)
+}
+
+/**
+ * The magnifying factor that puts one style pixel on one density-independent pixel.
+ *
+ * A vector style is authored in CSS pixels, which is what a `Dp` is here -- the same unit
+ * `PathApi`'s `width` and a marker's `DpOffset` are in. Tile content is drawn at
+ * `tileSize * relativeScale` device pixels whatever the density is, so without this a style pixel
+ * lands on one *device* pixel: the map renders at `1 / density` of its intended size while labels,
+ * paths and markers stay at dp, which is what makes correctly-sized labels look oversized next to a
+ * half-width road.
+ *
+ * Raising the factor drops the level `VisibleTilesResolver` picks, which also makes MapCompose ask
+ * for the same tile `z` MapLibre would for the same view.
+ */
+internal fun magnifyingFactorForDensity(density: Float): Int =
+    round(log2(density.coerceAtLeast(1f))).toInt().coerceAtLeast(0)
 
 internal class VectorLayer(
     private val mapState: MapState,
@@ -83,6 +112,7 @@ internal class VectorLayer(
                 tileSize = mapState.tileSize,
                 density = density.density,
                 superSampling = superSamplingFactor,
+                magnifyingFactor = mapState.visibleTilesResolver.magnifyingFactor,
             )
 
             val imageBitmap = rasterizer.getTile(

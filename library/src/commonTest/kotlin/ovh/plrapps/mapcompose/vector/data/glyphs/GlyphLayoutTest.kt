@@ -9,6 +9,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_UPPERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_HORIZONTAL
 import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -23,6 +24,14 @@ class GlyphLayoutTest {
 
     private companion object {
         const val ADVANCE = 12
+        /**
+         * A font's ascent in glyph units: how far a glyph's pen sits above the baseline.
+         *
+         * `Glyph.top` is negative-upward from the pen, so a real font stack has
+         * `top = height - ascent` -- the value decoded from any published range. A fixture with
+         * `top = height` has the opposite sign and hides a whole line of vertical error.
+         */
+        const val ASCENT = 22
         const val FONT_SIZE = 24f
         val STACK = listOf("Test Regular")
     }
@@ -35,7 +44,7 @@ class GlyphLayoutTest {
             else -> Glyph(
                 id = code,
                 bitmap = ByteArray((10 + 2 * GLYPH_BORDER) * (12 + 2 * GLYPH_BORDER)) { 0xFF.toByte() },
-                width = 10, height = 12, left = 1, top = 12, advance = ADVANCE,
+                width = 10, height = 12, left = 1, top = 12 - ASCENT, advance = ADVANCE,
             )
         }
     }
@@ -63,6 +72,51 @@ class GlyphLayoutTest {
         writingMode = writingMode,
         transform = transform,
     )
+
+    @Test
+    fun `a single line of ink is centred in the label box`() {
+        // The regression test for the pen origin. A glyph's `top` is negative-upward from the pen,
+        // so treating the pen as a baseline put every label about one line of text below its box --
+        // which on a line-placed label reads as the name sitting beside the road rather than on it.
+        val shaped = shape("Hi")
+
+        val inkTop = shaped.glyphs.minOf { it.inkTop }
+        val inkBottom = shaped.glyphs.maxOf { it.inkTop + it.inkHeight }
+        val inkCentre = (inkTop + inkBottom) / 2f
+        val boxCentre = shaped.height / 2f
+
+        assertTrue(
+            abs(inkCentre - boxCentre) < 0.2f * FONT_SIZE,
+            "ink centre $inkCentre should sit within a fifth of an em of the box centre $boxCentre"
+        )
+    }
+
+    @Test
+    fun `a two line block is centred in its box too`() {
+        val shaped = shape("aaa bbb", maxWidth = 2f)
+        assertEquals(2, shaped.lines.size, "the fixture is meant to wrap onto two lines")
+
+        val inkTop = shaped.glyphs.minOf { it.inkTop }
+        val inkBottom = shaped.glyphs.maxOf { it.inkTop + it.inkHeight }
+        val inkCentre = (inkTop + inkBottom) / 2f
+        val boxCentre = shaped.height / 2f
+
+        assertTrue(
+            abs(inkCentre - boxCentre) < 0.2f * FONT_SIZE,
+            "ink centre $inkCentre should sit within a fifth of an em of the box centre $boxCentre"
+        )
+    }
+
+    @Test
+    fun `the pen is the ascent line and not the baseline`() {
+        // Upstream's SHAPING_DEFAULT_OFFSET, restated as something observable: a cap-height glyph's
+        // ink starts below the pen, because `inkTop = pen - top` and a real `top` is negative.
+        val shaped = shape("H")
+        val glyph = shaped.glyphs.single()
+
+        assertTrue(glyph.inkTop > glyph.y, "ink starts below the pen, not above it")
+        assertEquals(ASCENT - 12f, glyph.inkTop - glyph.y, "by exactly the font's ascent above the ink")
+    }
 
     @Test
     fun `advances accumulate across a line`() {

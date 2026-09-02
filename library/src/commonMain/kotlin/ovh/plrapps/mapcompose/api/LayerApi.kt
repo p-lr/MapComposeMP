@@ -14,6 +14,10 @@ import ovh.plrapps.mapcompose.core.makeLayerId
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.swap
 import ovh.plrapps.mapcompose.vector.core.VectorLayer
+import ovh.plrapps.mapcompose.vector.core.magnifyingFactorForDensity
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 
 /**
@@ -71,13 +75,34 @@ fun MapState.addLayer(
  * trading `factor²` rasterization cost for cleaner hairlines and text. Tiles are already rasterized
  * at the size they are drawn at, so `1` — the default — is never stretched; raising it only refines
  * the minification that happens between pyramid levels.
+ * @param adaptTileScaleToDensity Sets the map's magnifying factor from the screen density, so that
+ * one style pixel lands on one density-independent pixel. A vector style is authored in CSS pixels,
+ * which is the unit a path's `width` and a marker's offset already use here; tile content, though,
+ * is drawn at `tileSize * relativeScale` *device* pixels whatever the density is. Without this the
+ * map renders at `1 / density` of its intended size — thin roads under correctly-sized labels — and
+ * MapCompose asks for a higher tile `z` than MapLibre would for the same view. Left at its default
+ * this is applied once, and only when the map is still at the default magnifying factor of `0`, so
+ * a caller that chose its own keeps it.
  */
 suspend fun MapState.addVectorLayer(
     vectorTileStreamProvider: VectorTileStreamProvider,
     initialOpacity: Float = 1f,
     placement: LayerPlacement = AboveAll,
     superSamplingFactor: Int = 1,
+    adaptTileScaleToDensity: Boolean = true,
 ): String {
+    if (adaptTileScaleToDensity && visibleTilesResolver.magnifyingFactor == 0) {
+        /* Launched rather than awaited: the density only arrives when MapUI first composes, and
+         * blocking here would deadlock a caller that awaits this layer's id before showing the map.
+         * setMagnifyingFactor re-resolves the visible tiles, so arriving late costs one re-render. */
+        scope.launch {
+            val density = densityState.filterNotNull().first()
+            if (visibleTilesResolver.magnifyingFactor == 0) {
+                setMagnifyingFactor(magnifyingFactorForDensity(density.density))
+            }
+        }
+    }
+
     val vectorLayer = VectorLayer(
         mapState = this,
         vectorTileStreamProvider = vectorTileStreamProvider,

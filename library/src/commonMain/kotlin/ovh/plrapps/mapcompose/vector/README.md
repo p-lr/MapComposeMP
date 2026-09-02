@@ -77,7 +77,14 @@ with the non-zero fill rule rather than identified explicitly.
 
 `line-color`, `-opacity`, `-width`, `-gap-width`, `-offset`, `-blur`, `-dasharray`, `-pattern`,
 `-gradient`, `-translate`, `-translate-anchor`, `line-cap`, `line-join`, `line-miter-limit`,
-`line-sort-key`. Supported. **Inert:** `line-round-limit`.
+`line-round-limit`, `line-sort-key`. All supported.
+
+A feature is tessellated into the triangle ribbon upstream's `line_bucket.ts` builds
+(`renderer/utils/LineTessellation.kt`) and drawn with `Canvas.drawVertices`, each vertex carrying the
+alpha `line.fragment.glsl` would have computed there (`renderer/utils/LineShading.kt`). That alpha is
+piecewise linear across the ribbon, so vertices at its slope changes reproduce the shader rather than
+approximate it. A dashed line is cut into its painted runs before tessellation
+(`renderer/utils/LineDash.kt`).
 
 ### circle — `renderer/CircleLayerPainter.kt`
 
@@ -89,6 +96,11 @@ A circle is drawn at *every vertex* of the feature, whatever its geometry type, 
 the tile are dropped — both straight from upstream's `CircleBucket.addFeature`.
 
 ### symbol — `renderer/SymbolLayerPainter.kt`, `renderer/TextLabelBuilder.kt`
+
+A glyph's `top` is negative-upward from its pen, so `inkTop = pen - top` and the pen is the font's
+ascent line rather than its baseline. `GlyphLayout` starts a line at
+`lineHeight / 2 + SHAPING_DEFAULT_OFFSET` (upstream's `-17`), which centres the ink in the box the
+painter anchors — the box convention this port uses in place of upstream's anchor-relative one.
 
 Layout: `icon-image`, `-size`, `-anchor`, `-offset`, `-rotate`, `-padding`, `-keep-upright`,
 `-allow-overlap`, `-overlap`, `-ignore-placement`, `-optional`, `-rotation-alignment`,
@@ -222,23 +234,32 @@ Parsing never throws: errors accumulate in `ParsingContext.errors` and surface a
 `MapLibreConfiguration.diagnostics`, and a property that fails to compile becomes
 `ExpressionOrValue.Invalid`, evaluates to null, and lets the painter's `?: default` apply.
 
+**Tile scale.** A style is authored in CSS pixels, which is what a `Dp` is here. Tile content is
+drawn into `mapState.tileSize * relativeScale` *device* pixels, so `addVectorLayer` sets the map's
+magnifying factor from the screen density (`magnifyingFactorForDensity`) to put one style pixel on
+one dp — matching the labels, which are sized in dp, and the `Dp` widths `PathApi` takes. Pass
+`adaptTileScaleToDensity = false` to keep a factor of your own.
+
 ## Divergences
 
 Every one of these is documented at the file that causes it; this is the index.
 
-**Forced by stroking on the CPU rather than tessellating on the GPU** — `renderer/LineLayerPainter.kt`:
+**Forced by tessellating on the CPU rather than on the GPU** — `renderer/LineLayerPainter.kt`:
 
-- `line-round-limit` is inert. Upstream degrades a round join to a miter at shallow angles during
-  tessellation; Compose picks one join for the whole stroke, so there is nothing to degrade per-join.
-- `line-blur` is concentric strokes, widest and faintest first, not the shader's per-fragment falloff.
-- `line-gradient` is resampled into fixed-length sub-segments; Compose cannot colour a stroke per
-  vertex.
-- `line-offset` moves each vertex along the averaged normal of its adjacent segments instead of
-  rebuilding the join, so very sharp corners self-intersect slightly.
-- `fill-antialias` draws an outline only when the style sets a distinct `fill-outline-color`.
-  Upstream falls that colour back to `fill-color` because the pass is how it antialiases GPU
-  triangles, but `drawPath` is antialiased already, so the same-coloured hairline would only fatten
-  every polygon and bleed into its neighbour.
+- A **round cap or round join** is real fan geometry. Upstream marks those vertices so its `dist`
+  becomes a Euclidean norm the fragment shader evaluates per pixel, which vertex interpolation cannot
+  reproduce; `roundStepCount` picks an angular step that keeps the chord within a quarter pixel.
+- **`line-pattern`** keeps the pre-mesh `Stroke` path, because a pattern lives in a `ShaderBrush` and
+  a shader in the paint is what would make `drawVertices` behave differently on Android, whose
+  Compose actual drops the blend mode. A patterned line is therefore wallpapered in canvas space
+  rather than mapped along the line, and gets none of what the mesh does better.
+- **A dashed line's ends** are the layer's `line-cap`, where upstream's dash texture is antialiased
+  along the line too. Sub-pixel.
+- **`fill-antialias`** draws an outline only when the style sets a distinct `fill-outline-color`
+  (`renderer/FillLayerPainter.kt`). Upstream falls that colour back to `fill-color` because the pass
+  is how it antialiases GPU triangles; Skia's coverage antialiasing already does that here, so the
+  same-coloured hairline would only fatten every polygon and bleed into its neighbour. The property
+  itself *is* honoured on the fill, which is drawn through an explicit `Paint`.
 
 **Forced by having no camera pitch or bearing at rasterization time:**
 

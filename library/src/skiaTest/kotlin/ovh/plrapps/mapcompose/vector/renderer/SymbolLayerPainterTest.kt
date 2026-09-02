@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Density
@@ -8,10 +9,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
-import kotlinx.io.write
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
-import ovh.plrapps.mapcompose.vector.data.glyphs.GLYPH_BORDER
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphPbfFixtures
 import ovh.plrapps.mapcompose.vector.spec.Tile
@@ -22,6 +21,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolPaint
 import ovh.plrapps.mapcompose.vector.utils.LruCache
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -44,6 +44,14 @@ class SymbolLayerPainterTest {
         const val CANVAS = 512
         const val EXTENT = 4096
         const val ADVANCE = 12
+        /**
+         * A font's ascent in glyph units: how far a glyph's pen sits above the baseline.
+         *
+         * `Glyph.top` is negative-upward from the pen, so a real font stack has
+         * `top = height - ascent` -- the value decoded from any published range. A fixture with
+         * `top = height` has the opposite sign and hides a whole line of vertical error.
+         */
+        const val ASCENT = 22
         val DENSITY = Density(1f)
         val STACK = listOf("Test Regular")
     }
@@ -57,7 +65,7 @@ class SymbolLayerPainterTest {
             range = "0-255",
             glyphs = (33..126).map { code ->
                 GlyphPbfFixtures.glyph(
-                    id = code, width = 10, height = 12, left = 1, top = 12, advance = ADVANCE,
+                    id = code, width = 10, height = 12, left = 1, top = 12 - ASCENT, advance = ADVANCE,
                     bitmap = GlyphPbfFixtures.solidBitmap(10, 12),
                 )
             } + GlyphPbfFixtures.glyph(id = 32, width = 0, height = 0, left = 0, top = 0, advance = ADVANCE),
@@ -128,6 +136,47 @@ class SymbolLayerPainterTest {
         density = DENSITY,
         layerIndex = 0,
     )
+
+    @Test
+    fun `a line label is drawn centred on the line it follows`() {
+        runTest {
+            // The end-to-end check for the pen origin. The box lands on the line, and the ink has to
+            // land on the box -- if the shaper puts the ink below its box, a rotated street name
+            // ends up beside the road instead of on it.
+            val line = Mvt.lineFeature(listOf(0 to EXTENT / 2, EXTENT to EXTENT / 2))
+            val symbols = produce(
+                layer("""{"text-field":"Street","text-font":["Test Regular"],"symbol-placement":"line"}"""),
+                feature = line,
+            )
+
+            val text = assertNotNull(symbols.filterIsInstance<Symbol.Text>().firstOrNull())
+            assertEquals(
+                CANVAS / 2f,
+                text.placement.textPlacement!!.position.y,
+                "the label's box sits on the line",
+            )
+
+            val art = text.value as LabelArt.Glyphs
+            val pixels = art.rendered.bitmap.toPixelMap()
+            var top = -1
+            var bottom = -1
+            for (y in 0 until pixels.height) {
+                val painted = (0 until pixels.width).any { pixels[it, y].alpha > 0.5f }
+                if (painted) {
+                    if (top < 0) top = y
+                    bottom = y
+                }
+            }
+            assertTrue(top >= 0, "the label drew nothing")
+
+            val inkCentre = (top + bottom) / 2f - art.rendered.boxTop
+            val boxCentre = art.rendered.boxHeight / 2f
+            assertTrue(
+                abs(inkCentre - boxCentre) < 0.2f * 16f,
+                "ink centre $inkCentre should sit within a fifth of an em of the box centre $boxCentre"
+            )
+        }
+    }
 
     // region text-field
 
