@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import ovh.plrapps.mapcompose.vector.renderer.assertColorEquals
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_CENTER
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
+import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -25,6 +26,14 @@ class GlyphRasterizerTest {
     private companion object {
         const val INK = 12
         const val ADVANCE = 24
+        /**
+         * A font's ascent in glyph units: how far a glyph's pen sits above the baseline.
+         *
+         * `Glyph.top` is negative-upward from the pen, so a real font stack has
+         * `top = height - ascent` -- the value decoded from any published range. A fixture with
+         * `top = height` has the opposite sign and hides a whole line of vertical error.
+         */
+        const val ASCENT = 22
         const val FONT_SIZE = 24f
     }
 
@@ -44,7 +53,7 @@ class GlyphRasterizerTest {
         }
         return Glyph(
             id = id, bitmap = bitmap, width = INK, height = INK,
-            left = 0, top = INK, advance = ADVANCE,
+            left = 0, top = INK - ASCENT, advance = ADVANCE,
         )
     }
 
@@ -88,6 +97,101 @@ class GlyphRasterizerTest {
             }
         }
         return count
+    }
+
+    /**
+     * A glyph whose distance field is encoded the way a real range is: [SDF_FILL_BUFFER] at the ink
+     * edge, moving by `1 / SDF_PX` per glyph unit. [blockGlyph]'s ramp is steeper than that, which
+     * makes it fine for "is there a halo at all" but useless for measuring how wide one is.
+     */
+    private fun sdfGlyph(id: Int = 'a'.code): Glyph {
+        val size = INK + 2 * GLYPH_BORDER
+        val bitmap = ByteArray(size * size)
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val inset = minOf(x, y, size - 1 - x, size - 1 - y)
+                val distance = (0.75f + (inset - GLYPH_BORDER) / 8f).coerceIn(0f, 1f)
+                bitmap[y * size + x] = (distance * 255f).toInt().toByte()
+            }
+        }
+        return Glyph(
+            id = id, bitmap = bitmap, width = INK, height = INK,
+            left = 0, top = INK - ASCENT, advance = ADVANCE,
+        )
+    }
+
+    @Test
+    fun `the halo is as wide as text-halo-width asks for`() {
+        // Pins the halo in pixels rather than by inequality: upstream's `buff` moves the threshold
+        // by one distance step per glyph unit of `halo_width / fontScale`, so a 3 px halo on a 48 px
+        // label -- fontScale 2 -- reaches 1.5 glyph units, which is 3 device pixels of ink.
+        val fontSize = 48f
+        val haloWidth = 3f
+        val label = GlyphLayout.shape(
+            sections = listOf(TextSection("a")),
+            glyphs = { _, _ -> sdfGlyph() },
+            defaultFontStack = listOf("Test"),
+            fontSize = fontSize,
+            letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
+            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+        )
+        val rendered = assertNotNull(
+            GlyphRasterizer.render(label, Color.Red, Color.Blue, haloWidth, 0f)
+        )
+
+        val pixels = rendered.bitmap.toPixelMap()
+        val glyph = label.glyphs.single()
+        val row = (rendered.boxTop + glyph.inkTop + glyph.inkHeight / 2f).toInt()
+            .coerceIn(0, pixels.height - 1)
+
+        var halo = 0
+        for (x in 0 until pixels.width) {
+            val pixel = pixels[x, row]
+            if (pixel.alpha > 0.5f && pixel.blue > pixel.red) halo++
+        }
+
+        // Both sides of the glyph, so twice the width; the field carries GLYPH_BORDER units, which
+        // at this font scale is 6 device pixels -- comfortably more than the 3 asked for.
+        val perSide = halo / 2f
+        assertTrue(
+            abs(perSide - haloWidth) <= 1f,
+            "expected about $haloWidth device pixels of halo per side, got $perSide"
+        )
+    }
+
+    @Test
+    fun `a halo wider than the distance field is clipped rather than saturated`() {
+        // The field only carries GLYPH_BORDER units of outside distance. Upstream lets the halo
+        // threshold run past the end of it and taper; clamping it at zero, as this used to, painted
+        // the whole border ring at full strength with a hard edge instead.
+        val fontSize = 24f
+        val label = GlyphLayout.shape(
+            sections = listOf(TextSection("a")),
+            glyphs = { _, _ -> sdfGlyph() },
+            defaultFontStack = listOf("Test"),
+            fontSize = fontSize,
+            letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
+            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+        )
+        val wide = assertNotNull(GlyphRasterizer.render(label, Color.Red, Color.Blue, 12f, 0f))
+        val wider = assertNotNull(GlyphRasterizer.render(label, Color.Red, Color.Blue, 24f, 0f))
+
+        fun haloPixels(rendered: RenderedLabel): Int {
+            val pixels = rendered.bitmap.toPixelMap()
+            var count = 0
+            for (y in 0 until pixels.height) {
+                for (x in 0 until pixels.width) {
+                    val pixel = pixels[x, y]
+                    if (pixel.alpha > 0.5f && pixel.blue > pixel.red) count++
+                }
+            }
+            return count
+        }
+
+        assertTrue(
+            haloPixels(wider) <= haloPixels(wide),
+            "past the field's reach a wider halo cannot cover more ground"
+        )
     }
 
     @Test

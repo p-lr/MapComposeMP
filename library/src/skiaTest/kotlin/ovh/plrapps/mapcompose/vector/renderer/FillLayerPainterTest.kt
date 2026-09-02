@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.spec.style.FillLayer
 import ovh.plrapps.mapcompose.vector.spec.style.fill.FillPaint
@@ -185,6 +186,46 @@ class FillLayerPainterTest {
         }
 
         assertColorEquals(Color.Green, bitmap.pixelAt(16, 16), message = "the pattern, not fill-color")
+    }
+
+    @Test
+    fun `fill-antialias false gives a hard edge`() = runTest {
+        // A right triangle whose hypotenuse runs corner to corner, so the edge crosses pixels at an
+        // angle. Upstream's fill pass is un-antialiased GPU triangles; `DrawScope.drawPath` is
+        // always antialiased, so the painter draws through an explicit Paint to honour this.
+        val triangle = Mvt.polygonFeature(listOf(0 to 0, 4096 to 0, 0 to 4096))
+
+        val smooth = render(
+            FillPaint(
+                fillColor = ExpressionOrValue.Value(Color.Red),
+                fillAntialias = ExpressionOrValue.Value(true),
+            ),
+            triangle,
+        )
+        val hard = render(
+            FillPaint(
+                fillColor = ExpressionOrValue.Value(Color.Red),
+                fillAntialias = ExpressionOrValue.Value(false),
+            ),
+            triangle,
+        )
+
+        assertTrue(partialPixels(smooth) > 0, "an antialiased edge covers pixels partly")
+        assertEquals(0, partialPixels(hard), "an aliased one does not")
+        assertColorEquals(Color.Red, hard.pixelAt(4, 4), message = "the fill itself is unchanged")
+    }
+
+    /** Counts pixels an edge only partly covers. One pixel map, not one per pixel -- wasm is slow. */
+    private fun partialPixels(bitmap: androidx.compose.ui.graphics.ImageBitmap): Int {
+        val pixels = bitmap.toPixelMap()
+        var count = 0
+        for (y in 0 until pixels.height) {
+            for (x in 0 until pixels.width) {
+                val alpha = pixels[x, y].alpha
+                if (alpha > 0.02f && alpha < 0.98f) count++
+            }
+        }
+        return count
     }
 
     private fun quadrant() = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048))

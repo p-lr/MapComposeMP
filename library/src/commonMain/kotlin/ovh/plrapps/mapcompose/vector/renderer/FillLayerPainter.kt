@@ -1,10 +1,11 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.PaintingStyle
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
@@ -28,12 +29,15 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * is on, which is the spec default -- a one-pixel outline whose alpha is
  * `outline_color * (alpha * opacity)`, as in `shaders/fill_outline.fragment.glsl`.
  *
+ * `fill-antialias` is honoured on the fill itself: the path is drawn through `drawIntoCanvas` with
+ * an explicit `Paint`, because `DrawScope.drawPath` builds its own paint and is always antialiased.
+ * Turning it off gives the hard, aliased edges upstream's un-antialiased triangles have.
+ *
  * **Divergence:** upstream falls the outline colour back to `fill-color` when `fill-outline-color`
- * is unset, because that pass is how it antialiases GPU-rasterized triangles. Compose's `drawPath`
- * is antialiased already, so a same-coloured hairline on top would only fatten every polygon and
- * bleed half a pixel into its neighbour -- it is skipped, and the outline is drawn only when the
- * style actually asks for a distinct `fill-outline-color`. `fill-antialias: false` still suppresses
- * it entirely, as upstream does.
+ * is unset, because that pass is how it antialiases GPU-rasterized triangles. Skia's coverage
+ * antialiasing already does that here, so a same-coloured hairline on top would only fatten every
+ * polygon and bleed half a pixel into its neighbour -- it is skipped, and the outline is drawn only
+ * when the style actually asks for a distinct `fill-outline-color`.
  */
 class FillLayerPainter(
     private val pathCache: LruCache<String, Any>? = null,
@@ -89,18 +93,29 @@ class FillLayerPainter(
         val outlineColor = paint.fillOutlineColor?.processAsColor(featureProperties, actualZoom)
 
         canvas.withTranslate(translate, translateAnchor) {
-            if (patternBrush != null) {
-                drawPath(path = path, brush = patternBrush, alpha = fillOpacity, style = Fill)
-            } else {
-                drawPath(path = path, color = fillColor.withOpacity(fillOpacity), style = Fill)
-            }
+            drawIntoCanvas { canvasHandle ->
+                val fill = Paint().apply {
+                    isAntiAlias = antialias
+                    this.style = PaintingStyle.Fill
+                }
+                if (patternBrush != null) {
+                    patternBrush.applyTo(size, fill, fillOpacity)
+                } else {
+                    fill.color = fillColor.withOpacity(fillOpacity)
+                }
+                canvasHandle.drawPath(path, fill)
 
-            if (antialias && outlineColor != null) {
-                drawPath(
-                    path = path,
-                    color = outlineColor.withOpacity(fillOpacity),
-                    style = Stroke(width = density)
-                )
+                if (antialias && outlineColor != null) {
+                    canvasHandle.drawPath(
+                        path,
+                        Paint().apply {
+                            isAntiAlias = true
+                            this.style = PaintingStyle.Stroke
+                            strokeWidth = density
+                            color = outlineColor.withOpacity(fillOpacity)
+                        },
+                    )
+                }
             }
         }
     }
