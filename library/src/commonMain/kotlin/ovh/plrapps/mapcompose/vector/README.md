@@ -292,10 +292,25 @@ Every one of these is documented at the file that causes it; this is the index.
 - Placement and collision run per *viewport*, in `VectorRasterizer.clearCollision`, over an R-tree of
   oriented bounding boxes. Upstream runs a global placement per frame with cross-frame fading; there
   is no fade here, and a label's chosen `text-variable-anchor` is kept stable across frames by a
-  coordinate-quantized cache rather than by upstream's placement history.
-- Line labels are de-duplicated across tiles by suppressing a repeat of the same text within
-  `MIN_LINE_LABEL_REPEAT_DIST` viewport pixels, because a road crossing a tile boundary is laid out
-  once per tile.
+  coordinate-quantized cache rather than by upstream's placement history. One tree stands in for
+  upstream's two `GridIndex`es: `*-ignore-placement` is the *insert* side only, as it is upstream
+  (`collision_index.ts`'s `grid` vs `ignoredGrid`) -- such a symbol blocks nobody but is still
+  tested against everybody, which is `*-allow-overlap`'s job and not this property's.
+- Line labels are de-duplicated *within* a tile by upstream's own `anchorIsTooClose` -- a repeat of
+  the same text within half a `symbol-spacing` of an anchor already taken is dropped before it
+  reaches collision -- and *across* tiles by suppressing a repeat within
+  `MIN_LINE_LABEL_REPEAT_DIST` viewport pixels, which stands in for the un-ported
+  `cross_tile_symbol_index.ts`.
+- Line anchors are upstream's: `renderer/collision/LineLabelPlacement.kt` transcribes
+  `symbol/get_anchors.ts` (the spacing enlargement for a long label, the first-anchor offset, the
+  in-tile test, the "does the whole label fit on the line" test and the single retry at the middle
+  of a line that is not continued), and `SymbolsProducer` runs `renderer/utils/MergeLines.kt` --
+  upstream's `merge_lines.ts` -- over a `symbol-placement: line` layer's features first, so a road
+  arriving as one MVT feature per block is labelled as one long line. `renderer/utils/ClipLine.kt`
+  clips those lines to the tile beforehand, as `symbol_layout.ts` does; `line-center` deliberately
+  does not clip.
+- `symbol-avoid-edges` is honoured, dropping a label whose padded box crosses the tile edge.
+  Upstream declares the property and never reads it, relying on its cross-tile index instead.
 - Text is shaped in logical order: there is no bidirectional reordering (upstream delegates that to
   an optional `rtl-text-plugin`) and no Arabic contextual shaping.
 - A codepoint the glyph server has no glyph for is dropped, where upstream falls back to a locally
@@ -316,8 +331,13 @@ A tile is rasterized at `vectorTileBitmapSize(mapState.tileSize, density, superS
 `relativeScale ∈ (0.5, 1.0]` because `VisibleTilesResolver.getLevel` rounds the level up. Deriving the
 bitmap size from `mapState.tileSize` is what keeps it ≥ the destination. `addVectorLayer`'s
 `superSamplingFactor` renders larger still and filters back down in `VectorRasterizer.getTile`,
-costing `factor²` fill. `VectorLayer` passes `mapState.tileSize` *unscaled* to `produceSymbols`:
-symbols are a viewport overlay, so they are laid out in on-screen pixels, not in the bitmap's.
+costing `factor²` fill. `VectorLayer` passes the size a tile occupies **on screen**
+(`fullWidth * scale / 2^zoom`) to `produceSymbols`, not `mapState.tileSize` and not the bitmap size:
+symbols are a viewport overlay, so they are laid out in on-screen pixels. That is also the space
+every length the symbol painters measure against a tile's geometry lives in -- a label's own width,
+`symbol-spacing`, `text-padding`, all of them style pixels times `density.density` -- so laying out
+against the unscaled tile size made the geometry `relativeScale` times too small and
+`symbol-spacing` that many times too coarse.
 
 ## Testing
 

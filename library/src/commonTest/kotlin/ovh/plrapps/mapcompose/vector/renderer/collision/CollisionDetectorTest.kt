@@ -112,8 +112,35 @@ class CollisionDetectorTest {
         val p1 = label("A", 0f, 0f, 10f, 10f, ignorePlacement = true)
         val p2 = label("B", 5f, 5f, 10f, 10f, OverlapMode.Never)
 
-        assertTrue(detector.tryPlaceLabel(p1))  // ignore-placement is always placed
+        assertTrue(detector.tryPlaceLabel(p1))  // nothing placed yet
         assertTrue(detector.tryPlaceLabel(p2))  // p1 not in tree → doesn't block p2
+    }
+
+    @Test
+    fun testIgnorePlacementIsStillTestedAgainstOthers() {
+        // `*-ignore-placement` means "others may overlap me", not "I may overlap others":
+        // upstream's insertCollisionBox only routes the box to ignoredGrid, and placeCollisionBox
+        // still hit-tests it against the real grid.
+        val detector = CollisionDetector()
+        val p1 = label("A", 0f, 0f, 10f, 10f, OverlapMode.Never)
+        val p2 = label("B", 5f, 5f, 10f, 10f, OverlapMode.Never, ignorePlacement = true)
+
+        assertTrue(detector.tryPlaceLabel(p1))
+        assertFalse(detector.tryPlaceLabel(p2))
+    }
+
+    @Test
+    fun testIgnorePlacementWithAllowOverlapIsAlwaysPlaced() {
+        // Only `*-allow-overlap` exempts a symbol from the test; combined with ignore-placement it
+        // is both unconditionally placed and invisible to everyone else.
+        val detector = CollisionDetector()
+        val p1 = label("A", 0f, 0f, 10f, 10f, OverlapMode.Never)
+        val p2 = label("B", 5f, 5f, 10f, 10f, OverlapMode.Always, ignorePlacement = true)
+        val p3 = label("C", 5f, 5f, 10f, 10f, OverlapMode.Never)
+
+        assertTrue(detector.tryPlaceLabel(p1))
+        assertTrue(detector.tryPlaceLabel(p2))
+        assertFalse(detector.tryPlaceLabel(p3)) // blocked by p1, never by p2
     }
 
     @Test

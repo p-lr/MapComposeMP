@@ -30,6 +30,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsImageName
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsStringList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
 import ovh.plrapps.mapcompose.vector.renderer.utils.drawStretchedImage
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite as SpriteInfo
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
@@ -40,6 +41,7 @@ import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.renderer.utils.anchorAlignment
 import ovh.plrapps.mapcompose.vector.renderer.utils.anchorCenterOffset
 import ovh.plrapps.mapcompose.vector.renderer.utils.iconTextFitSize
+import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
 import ovh.plrapps.mapcompose.vector.renderer.utils.radialOffsetEms
 import ovh.plrapps.mapcompose.vector.renderer.utils.variableAnchorOffsets
 import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_PLACEMENT_LINE
@@ -376,6 +378,10 @@ class SymbolLayerPainter(
      * A MultiPoint is several symbols, not one: upstream's `symbol_layout` iterates every point of
      * every ring. Only the first used to be read, so a feature carrying a handful of stops produced
      * a single label.
+     *
+     * A point outside the tile is dropped, which is upstream's `addSymbolAtAnchor`: *"Symbol layers
+     * are drawn across tile boundaries, We filter out symbols outside our tile boundaries (which may
+     * be included in vector tile buffers) to prevent double-drawing symbols."*
      */
     private fun calculatePointPlacements(
         feature: Tile.Feature,
@@ -383,6 +389,7 @@ class SymbolLayerPainter(
         canvasSize: Int
     ): List<SymbolPlacement> =
         geometryDecoders.decodePoint(geometry = feature.geometry, extent = extent, canvasSize = canvasSize)
+            .filter { isInsideTile(it.x, it.y, canvasSize) }
             .map { SymbolPlacement(position = ObbPoint(it.x.toFloat(), it.y.toFloat()), angle = 0f) }
 
     private val regexForSubProcess = "\\{([^}]+)\\}".toRegex()
@@ -594,6 +601,49 @@ class SymbolLayerPainter(
             (offset.getOrNull(0) ?: 0.0).toFloat() * scale,
             (offset.getOrNull(1) ?: 0.0).toFloat() * scale,
         )
+    }
+
+    /**
+     * The feature's `symbol-placement`, for a caller that has to group line features before layout.
+     *
+     * Upstream reads it once per layer; it is evaluated per feature here because this port lets a
+     * layout property be data-driven throughout.
+     */
+    fun symbolPlacementOf(
+        style: SymbolLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+    ): String = style.layout?.let { placementModeOf(it, featureProperties, actualZoom) }
+        ?: StyleSpecDefaults.SYMBOL_PLACEMENT
+
+    /**
+     * The plain text of `text-field`, which is the key upstream's `mergeLines` stitches lines on.
+     *
+     * Null when the layer has no label at all -- such a feature takes no part in a merge.
+     */
+    fun mergeTextOf(
+        style: SymbolLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+    ): String? = style.layout
+        ?.let { textFieldOf(it, featureProperties, actualZoom) }
+        ?.sections?.joinToString("") { it.text }
+        ?.takeIf { it.isNotEmpty() }
+
+    /** The feature's lines in canvas pixels, before clipping and merging. */
+    fun decodeLines(
+        feature: Tile.Feature,
+        extent: Int,
+        canvasSize: Int,
+    ): List<List<Pair<Float, Float>>>? = when (feature.type) {
+        Tile.GeomType.LINESTRING ->
+            geometryDecoders.decodeLine(feature.geometry, extent = extent, canvasSize = canvasSize)
+
+        Tile.GeomType.POLYGON ->
+            geometryDecoders.decodePolygons(feature.geometry, extent = extent, canvasSize = canvasSize)
+                .flatten()
+
+        else -> null
     }
 
     private fun placementModeOf(
@@ -905,7 +955,7 @@ class SymbolLayerPainter(
         val textOverlap = resolveTextOverlapMode(layout, featureProperties, actualZoom)
         val textIgnorePlacement = layout.textIgnorePlacement?.processAsBoolean(featureProperties, actualZoom)
             ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT
-        val plainText = textArt.plainTextFor(spriteId)
+        val plainText = textArt.text
 
         val spriteLabelPlacement = labelPlacementOf(
             text = "sprite_$spriteId",
@@ -1066,7 +1116,8 @@ class SymbolLayerPainter(
         tileX: Int,
         tileY: Int,
         density: Density,
-        layerIndex: Int
+        layerIndex: Int,
+        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<Symbol> {
         val layout = style.layout ?: return emptyList()
         val paint = style.paint ?: return emptyList()
@@ -1093,7 +1144,9 @@ class SymbolLayerPainter(
                 zoom = zoom,
                 canvasSize = canvasSize,
                 density = density,
-                layerIndex = layerIndex
+                layerIndex = layerIndex,
+                fontSize = textStyle.fontSize,
+                compareText = compareText,
             )
         } else {
             listOfNotNull(
@@ -1139,6 +1192,8 @@ class SymbolLayerPainter(
         canvasSize: Int,
         density: Density,
         layerIndex: Int,
+        fontSize: Float,
+        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>?,
     ): List<Symbol> {
         val textWidth = art.width
         val textHeight = art.height
@@ -1157,7 +1212,7 @@ class SymbolLayerPainter(
         val overlapMode = resolveTextOverlapMode(layout, featureProperties, actualZoom)
         val ignorePlacement = layout.textIgnorePlacement?.processAsBoolean(featureProperties, actualZoom)
             ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT
-        val plainText = art.plainTextFor(id)
+        val plainText = art.text
 
         val centerOnly = placementModeOf(layout, featureProperties, actualZoom) ==
             SYMBOL_PLACEMENT_LINE_CENTER
@@ -1172,13 +1227,23 @@ class SymbolLayerPainter(
             val placements = if (centerOnly) {
                 LineLabelPlacement.centerPlacement(line)?.let { listOf(it) } ?: emptyList()
             } else {
-                LineLabelPlacement.calculatePlacements(line, textWidth, symbolSpacing, maxAngleDeg)
+                LineLabelPlacement.calculatePlacements(
+                    points = line,
+                    textWidth = textWidth,
+                    spacing = symbolSpacing,
+                    maxAngleDeg = maxAngleDeg,
+                    tileExtent = canvasSize.toFloat(),
+                    fontSize = fontSize,
+                )
             }
 
             placements.forEachIndexed { index, (pos, angle) ->
-                val distToStart = distance(pos, line.first())
-                val distToEnd = distance(pos, line.last())
-                if (distToStart < textWidth / 2 || distToEnd < textWidth / 2) return@forEachIndexed
+                /* Upstream's `anchorIsTooClose`: a repeat of the same text within half a
+                 * `symbol-spacing` of an anchor already taken in this tile is dropped before it ever
+                 * reaches collision detection, so one road does not carry its name twice over. */
+                if (!centerOnly && compareText != null &&
+                    anchorIsTooClose(compareText, plainText, symbolSpacing / 2f, pos)
+                ) return@forEachIndexed
                 val x = pos.first + dx
                 val y = pos.second + dy
                 val displayAngle = if (keepUpright) makeTextUpright(angle) else angle
@@ -1215,45 +1280,29 @@ class SymbolLayerPainter(
             }
         }
 
-        if (out.isNotEmpty()) return out
+        return out
+    }
 
-        /* Nothing fitted the spacing walk -- a short line, or every step rejected for a sharp
-         * corner. Upstream would simply drop the label; one is placed at the longest line's middle
-         * instead, because a road that is only visible for one tile still wants its name. */
-        val longest = lineStrings.filter { it.size >= 2 }.maxByOrNull { lineLengthOf(it) } ?: return emptyList()
-        if (lineLengthOf(longest) < textWidth) return emptyList()
-        val (pos, angle) = LineLabelPlacement.centerPlacement(longest) ?: return emptyList()
-        val x = pos.first + dx
-        val y = pos.second + dy
-        if (distance(pos, longest.first()) < textWidth / 2 || distance(pos, longest.last()) < textWidth / 2) {
-            return emptyList()
+    /**
+     * Upstream's `anchorIsTooClose` (`symbol/symbol_layout.ts`): whether [text] already has an
+     * anchor within [repeatDistance] of [anchor] in this tile. Records [anchor] when it does not,
+     * so the caller only has to ask.
+     *
+     * The map is bucket-scoped upstream -- one per tile per style layer -- which is where
+     * `SymbolsProducer` keeps it.
+     */
+    private fun anchorIsTooClose(
+        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>,
+        text: String,
+        repeatDistance: Float,
+        anchor: Pair<Float, Float>,
+    ): Boolean {
+        val otherAnchors = compareText.getOrPut(text) { mutableListOf() }
+        for (k in otherAnchors.indices.reversed()) {
+            if (distance(anchor, otherAnchors[k]) < repeatDistance) return true
         }
-        val displayAngle = if (keepUpright) makeTextUpright(angle) else angle
-        val normalizedPoint = tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), zoom, canvasSize)
-        val labelPlacement = labelPlacementOf(
-            text = plainText,
-            center = ObbPoint(x, y),
-            width = textWidth,
-            height = textHeight,
-            padding = textPadding,
-            angle = displayAngle + textRotateDeg,
-            layerIndex = layerIndex,
-            layout = layout,
-            featureProperties = featureProperties,
-            actualZoom = actualZoom,
-            overlapMode = overlapMode,
-            ignorePlacement = ignorePlacement,
-        )
-        if (avoidEdges && crossesTileEdge(labelPlacement.bounds, canvasSize)) return emptyList()
-        return listOf(
-            Symbol.Text(
-                id = "LF${tileX}_${tileY}_${id}_${x.toInt()}_${y.toInt()}",
-                global = Point(normalizedPoint.x, normalizedPoint.y),
-                placement = CompoundLabelPlacement(labelPlacement, labelPlacement),
-                value = art,
-                viewportAligned = textViewportAligned,
-            )
-        )
+        otherAnchors.add(anchor)
+        return false
     }
 
     private fun lineLengthOf(line: List<Pair<Float, Float>>): Float =
@@ -1307,7 +1356,7 @@ class SymbolLayerPainter(
         val pointTextAngle = placement.angle + textRotateDeg
 
         val labelPlacement = labelPlacementOf(
-            text = art.plainTextFor(id),
+            text = art.text,
             center = textPosition,
             width = textWidth,
             height = textHeight,
@@ -1364,6 +1413,8 @@ class SymbolLayerPainter(
         tileY: Int = 0,
         density: Density,
         layerIndex: Int = 0,
+        preDecodedLines: List<List<Pair<Float, Float>>>? = null,
+        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<Symbol> {
         val layout = style.layout ?: return emptyList()
         style.paint ?: return emptyList()
@@ -1380,8 +1431,12 @@ class SymbolLayerPainter(
             pointPlacements = calculatePointPlacements(feature, extent, canvasSize)
         } else if (placementMode.isLinePlacement()) {
             /* Both LineString and Polygon carry lines a label can follow: a polygon's rings are what
-             * upstream labels when a `line`-placed layer is pointed at an area source. */
-            lineStrings = when (feature.type) {
+             * upstream labels when a `line`-placed layer is pointed at an area source.
+             *
+             * [preDecodedLines] is the same geometry already decoded, and merged with its same-text
+             * neighbours by `SymbolsProducer`; upstream merges in `SymbolBucket.populate`, before
+             * layout ever sees a feature. */
+            val decoded = preDecodedLines ?: when (feature.type) {
                 Tile.GeomType.LINESTRING ->
                     geometryDecoders.decodeLine(feature.geometry, extent = extent, canvasSize = canvasSize)
 
@@ -1390,7 +1445,19 @@ class SymbolLayerPainter(
                         .flatten()
 
                 else -> null
-            }?.filter { it.size >= 2 }?.takeIf { it.isNotEmpty() }
+            }
+
+            /* `symbol-placement: line` clips to the tile first, so an anchor never lands in the MVT
+             * buffer and gets placed a second time by the neighbour that shares it. `line-center`
+             * deliberately does not -- upstream: "No clipping, multiple lines per feature are
+             * allowed". */
+            lineStrings = decoded
+                ?.let {
+                    if (placementMode == SYMBOL_PLACEMENT_LINE) {
+                        clipLine(it, 0f, 0f, canvasSize.toFloat(), canvasSize.toFloat())
+                    } else it
+                }
+                ?.filter { it.size >= 2 }?.takeIf { it.isNotEmpty() }
 
             pointPlacements = lineStrings?.firstOrNull()?.firstOrNull()?.let {
                 listOf(SymbolPlacement(position = ObbPoint(it.first, it.second), angle = 0f))
@@ -1455,7 +1522,8 @@ class SymbolLayerPainter(
                     tileX = tileX,
                     tileY = tileY,
                     density = density,
-                    layerIndex = layerIndex
+                    layerIndex = layerIndex,
+                    compareText = compareText,
                 )
             }
         }
@@ -1468,13 +1536,3 @@ class SymbolLayerPainter(
 private fun String.isLinePlacement(): Boolean =
     this == SYMBOL_PLACEMENT_LINE || this == SYMBOL_PLACEMENT_LINE_CENTER
 
-/**
- * A label's text, for the collision record's own bookkeeping.
- *
- * Cross-tile de-duplication keys off it, so it has to identify the label; the glyph path has no
- * string left by the time it is a bitmap, hence the fallback to the symbol's id.
- */
-private fun LabelArt.plainTextFor(id: String): String = when (this) {
-    is LabelArt.Measured -> layout.layoutInput.text.text
-    is LabelArt.Glyphs -> id
-}

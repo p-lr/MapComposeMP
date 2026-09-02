@@ -27,8 +27,11 @@ sealed class LabelArt {
     /** Draws the label with its box's top-left corner at [topLeft]. */
     abstract fun draw(scope: DrawScope, topLeft: Offset)
 
+    /** The label's text, which is what cross-tile and repeat-distance de-duplication key on. */
+    abstract val text: String
+
     /** SDF glyphs from the style's glyph server. */
-    class Glyphs(val rendered: RenderedLabel) : LabelArt() {
+    class Glyphs(val rendered: RenderedLabel, override val text: String) : LabelArt() {
         override val width: Float get() = rendered.boxWidth
         override val height: Float get() = rendered.boxHeight
 
@@ -43,6 +46,7 @@ sealed class LabelArt {
 
     /** Compose-measured text, the fallback for a style with no glyph server. */
     class Measured(val layout: TextLayoutResult) : LabelArt() {
+        override val text: String get() = layout.layoutInput.text.text
         override val width: Float get() = layout.size.width.toFloat()
         override val height: Float get() = layout.size.height.toFloat()
 

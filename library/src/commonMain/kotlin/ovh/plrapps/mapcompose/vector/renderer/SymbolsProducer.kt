@@ -7,7 +7,10 @@ import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import ovh.plrapps.mapcompose.vector.renderer.utils.MergeableFeature
+import ovh.plrapps.mapcompose.vector.renderer.utils.mergeLines
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_PLACEMENT_LINE
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 
@@ -24,6 +27,14 @@ class SymbolsProducer(
         configuration = configuration,
         pathCache = pathCache,
         mutex = pathCacheMutex
+    )
+
+    /** A `symbol-placement: line` feature held back until the layer's lines have been merged. */
+    private class LineFeature(
+        val feature: Tile.Feature,
+        val featureProperties: EvalFeature?,
+        val extent: Int,
+        val id: String,
     )
 
     suspend fun produce(
@@ -55,6 +66,16 @@ class SymbolsProducer(
         // we do not know. Therefore, if the points match, then the text should be placed under the sprite, and if it is a sprite, then draw it above the text
         val symbols = mutableListOf<Symbol>()
 
+        /* Upstream's `SymbolBucket.compareText`, which `anchorIsTooClose` reads: bucket-scoped, i.e.
+         * one map per tile per style layer, which is exactly this call. */
+        val compareText = mutableMapOf<String, MutableList<Pair<Float, Float>>>()
+
+        /* `symbol-placement: line` features are held back so their lines can be merged first --
+         * upstream does it in `SymbolBucket.populate`, before layout sees any feature: "Merge
+         * adjacent lines with the same text to improve labeling. It's better to place labels on one
+         * long line than on many short segments." */
+        val lineFeatures = mutableListOf<MergeableFeature<LineFeature>>()
+
         // Feature geometry is only decoded when a `within`/`distance` expression reads it.
         val needGeometry = styleLayer.filter?.filter?.needGeometry == true
 
@@ -71,9 +92,24 @@ class SymbolsProducer(
             if (!isShouldRenderFeature) continue
 
             val extent = tileLayer.extent ?: 4096
+            val id = feature.id?.toString() ?: "unknown_${feature.hashCode()}"
+
+            if (feature.type != Tile.GeomType.POINT &&
+                symbolsPainter.symbolPlacementOf(styleLayer, featureProperties, actualZoom) == SYMBOL_PLACEMENT_LINE
+            ) {
+                val lines = symbolsPainter.decodeLines(feature, extent = extent, canvasSize = canvasSize)
+                if (lines != null) {
+                    lineFeatures += MergeableFeature(
+                        text = symbolsPainter.mergeTextOf(styleLayer, featureProperties, actualZoom),
+                        lines = lines.mapTo(mutableListOf()) { it.toMutableList() },
+                        value = LineFeature(feature, featureProperties, extent, id),
+                    )
+                    continue
+                }
+            }
 
             symbolsPainter.produceSymbol(
-                id = feature.id?.toString() ?: "unknown_${feature.hashCode()}",
+                id = id,
                 feature = feature,
                 style = styleLayer,
                 canvasSize = canvasSize,
@@ -84,11 +120,35 @@ class SymbolsProducer(
                 tileX = tileX,
                 tileY = tileY,
                 density = density,
-                layerIndex = layerIndex
-            ).let { symbol->
+                layerIndex = layerIndex,
+                compareText = compareText,
+            ).let { symbol ->
                 symbols.addAll(symbol)
             }
         }
+
+        for (merged in mergeLines(lineFeatures)) {
+            val held = merged.value
+            symbolsPainter.produceSymbol(
+                id = held.id,
+                feature = held.feature,
+                style = styleLayer,
+                canvasSize = canvasSize,
+                extent = held.extent,
+                zoom = zoom,
+                featureProperties = held.featureProperties,
+                actualZoom = actualZoom,
+                tileX = tileX,
+                tileY = tileY,
+                density = density,
+                layerIndex = layerIndex,
+                preDecodedLines = merged.lines,
+                compareText = compareText,
+            ).let { symbol ->
+                symbols.addAll(symbol)
+            }
+        }
+
         return symbols
     }
 }

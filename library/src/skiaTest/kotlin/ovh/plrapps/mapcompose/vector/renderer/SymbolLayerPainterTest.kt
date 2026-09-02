@@ -121,6 +121,7 @@ class SymbolLayerPainterTest {
         layer: SymbolLayer,
         feature: Tile.Feature = point(),
         properties: Map<String, Any?> = emptyMap(),
+        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<Symbol> = painter().produceSymbol(
         feature = feature,
         style = layer,
@@ -135,6 +136,7 @@ class SymbolLayerPainterTest {
         id = "f1",
         density = DENSITY,
         layerIndex = 0,
+        compareText = compareText,
     )
 
     @Test
@@ -496,6 +498,56 @@ class SymbolLayerPainterTest {
             )
             assertEquals(3, symbols.filterIsInstance<Symbol.Sprite>().size)
             assertEquals(3, symbols.map { it.id }.toSet().size)
+        }
+    }
+
+    @Test
+    fun `a repeat of the same label within half a symbol-spacing is dropped`() {
+        runTest {
+            // Upstream's `anchorIsTooClose`, bucket-scoped: the same map is shared by every feature
+            // of one style layer in one tile, so a road split into two MVT features does not carry
+            // its name twice over the same stretch.
+            val style = layer(
+                """{"text-field":"ab","text-font":["Test Regular"],"symbol-placement":"line",""" +
+                    """"symbol-spacing":4000}"""
+            )
+            val shared = mutableMapOf<String, MutableList<Pair<Float, Float>>>()
+            val first = produce(
+                style,
+                feature = Mvt.lineFeature(listOf(200 to 2048, 3900 to 2048)),
+                compareText = shared,
+            )
+            val second = produce(
+                style,
+                feature = Mvt.lineFeature(listOf(200 to 2100, 3900 to 2100)),
+                compareText = shared,
+            )
+            assertTrue(first.filterIsInstance<Symbol.Text>().isNotEmpty())
+            assertTrue(
+                second.filterIsInstance<Symbol.Text>().isEmpty(),
+                "the second copy of the label should have been suppressed",
+            )
+        }
+    }
+
+    @Test
+    fun `a line reaching past the tile is clipped before it is labelled`() {
+        runTest {
+            // The MVT buffer carries a road beyond the tile; an anchor out there belongs to the
+            // neighbour, which lays it out itself.
+            val symbols = produce(
+                layer(
+                    """{"text-field":"ab","text-font":["Test Regular"],"symbol-placement":"line",""" +
+                        """"symbol-spacing":60}"""
+                ),
+                feature = Mvt.lineFeature(listOf(-2000 to 2048, 6000 to 2048)),
+            )
+            val texts = symbols.filterIsInstance<Symbol.Text>()
+            assertTrue(texts.isNotEmpty())
+            assertTrue(
+                texts.all { it.placement.spritePlacement.position.x in 0f..CANVAS.toFloat() },
+                "an anchor landed outside the tile",
+            )
         }
     }
 
