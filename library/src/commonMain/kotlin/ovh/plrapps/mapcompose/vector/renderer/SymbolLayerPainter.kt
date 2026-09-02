@@ -328,17 +328,23 @@ class SymbolLayerPainter(
     }
 
     /**
-     * Transformation to normalized Mercator coordinates
+     * Transformation to normalized Mercator coordinates.
+     *
+     * [tileZ] is the zoom of the tile the coordinates belong to, which is *not* the zoom style
+     * expressions are evaluated at: an overzoomed source is laid out over its ancestor, so
+     * [tileX]/[tileY]/[tileZ] and [tileSize] describe the ancestor while the layer is evaluated at
+     * the display zoom. That is upstream's `OverscaledTileID`, where the canonical id positions the
+     * tile and `overscaledZ` parameterises its content.
      */
     private fun tileCoordToNormalized(
         tileX: Int,
         tileY: Int,
         pixelX: Double,
         pixelY: Double,
-        zoom: Double,
+        tileZ: Double,
         tileSize: Int
     ): Point {
-        val n = 2.0.pow(zoom)
+        val n = 2.0.pow(tileZ)
 
         val normalizedX = (tileX * tileSize + pixelX) / (tileSize * n)
         val normalizedY = (tileY * tileSize + pixelY) / (tileSize * n)
@@ -738,7 +744,7 @@ class SymbolLayerPainter(
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-        zoom: Double,
+        tileZ: Double,
         id: String,
         canvasSize: Int,
         tileX: Int,
@@ -797,7 +803,7 @@ class SymbolLayerPainter(
             tileY = tileY,
             pixelX = spritePosition.x.toDouble(),
             pixelY = spritePosition.y.toDouble(),
-            zoom = zoom,
+            tileZ = tileZ,
             tileSize = canvasSize
         )
 
@@ -872,7 +878,7 @@ class SymbolLayerPainter(
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-        zoom: Double,
+        tileZ: Double,
         canvasSize: Int,
         tileX: Int,
         tileY: Int,
@@ -943,7 +949,7 @@ class SymbolLayerPainter(
             tileY = tileY,
             pixelX = spritePosition.x.toDouble(),
             pixelY = spritePosition.y.toDouble(),
-            zoom = zoom,
+            tileZ = tileZ,
             tileSize = canvasSize
         )
 
@@ -1038,7 +1044,7 @@ class SymbolLayerPainter(
             val dy = anchorOffset.y + clearance.y + userOffset.y + textTranslate.y
             val cx = spritePosition.x + dx
             val cy = spritePosition.y + dy
-            val norm = tileCoordToNormalized(tileX, tileY, cx.toDouble(), cy.toDouble(), zoom, canvasSize)
+            val norm = tileCoordToNormalized(tileX, tileY, cx.toDouble(), cy.toDouble(), tileZ, canvasSize)
             TextPlacementCandidate(
                 labelPlacement = labelPlacementOf(
                     text = plainText,
@@ -1109,7 +1115,7 @@ class SymbolLayerPainter(
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-        zoom: Double,
+        tileZ: Double,
         lineStrings: List<List<Pair<Float, Float>>>? = null,
         id: String,
         canvasSize: Int,
@@ -1141,7 +1147,7 @@ class SymbolLayerPainter(
                 tileX = tileX,
                 tileY = tileY,
                 art = art,
-                zoom = zoom,
+                tileZ = tileZ,
                 canvasSize = canvasSize,
                 density = density,
                 layerIndex = layerIndex,
@@ -1158,7 +1164,7 @@ class SymbolLayerPainter(
                     dy = offset.y,
                     tileX = tileX,
                     tileY = tileY,
-                    zoom = zoom,
+                    tileZ = tileZ,
                     canvasSize = canvasSize,
                     layout = layout,
                     featureProperties = featureProperties,
@@ -1188,7 +1194,7 @@ class SymbolLayerPainter(
         tileX: Int,
         tileY: Int,
         art: LabelArt,
-        zoom: Double,
+        tileZ: Double,
         canvasSize: Int,
         density: Density,
         layerIndex: Int,
@@ -1249,7 +1255,7 @@ class SymbolLayerPainter(
                 val displayAngle = if (keepUpright) makeTextUpright(angle) else angle
 
                 val normalizedPoint =
-                    tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), zoom, canvasSize)
+                    tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), tileZ, canvasSize)
 
                 val lineTextAngle = displayAngle + textRotateDeg
                 val labelPlacement = labelPlacementOf(
@@ -1324,7 +1330,7 @@ class SymbolLayerPainter(
         dy: Float,
         tileX: Int,
         tileY: Int,
-        zoom: Double,
+        tileZ: Double,
         canvasSize: Int,
         layout: SymbolLayout,
         featureProperties: EvalFeature?,
@@ -1347,7 +1353,7 @@ class SymbolLayerPainter(
             tileY = tileY,
             pixelX = textPosition.x.toDouble(),
             pixelY = textPosition.y.toDouble(),
-            zoom = zoom,
+            tileZ = tileZ,
             tileSize = canvasSize
         )
 
@@ -1405,7 +1411,7 @@ class SymbolLayerPainter(
         style: SymbolLayer,
         canvasSize: Int,
         extent: Int,
-        zoom: Double,
+        tileZ: Double,
         featureProperties: EvalFeature?,
         actualZoom: Double,
         id: String,
@@ -1480,7 +1486,7 @@ class SymbolLayerPainter(
                     style = style,
                     featureProperties = featureProperties,
                     actualZoom = actualZoom,
-                    zoom = zoom,
+                    tileZ = tileZ,
                     canvasSize = canvasSize,
                     tileX = tileX,
                     tileY = tileY,
@@ -1500,7 +1506,7 @@ class SymbolLayerPainter(
                     style = style,
                     featureProperties = featureProperties,
                     actualZoom = actualZoom,
-                    zoom = zoom,
+                    tileZ = tileZ,
                     canvasSize = canvasSize,
                     tileX = tileX,
                     tileY = tileY,
@@ -1516,7 +1522,7 @@ class SymbolLayerPainter(
                     style = style,
                     featureProperties = featureProperties,
                     actualZoom = actualZoom,
-                    zoom = zoom,
+                    tileZ = tileZ,
                     lineStrings = lineStrings,
                     canvasSize = canvasSize,
                     tileX = tileX,

@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.data.geojson
 
 import kotlinx.serialization.json.Json
+import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.GeometryDecoders
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import kotlin.test.Test
@@ -168,9 +169,25 @@ class GeoJsonTilerTest {
             minZoom = 2,
             maxZoom = 4,
         )
-        assertNull(source.tile(1, 1, 1))
+        assertNull(source.resolve(1, 1, 1))
+        assertEquals(TileRef.whole(z = 2, x = 2, y = 2), source.resolve(2, 2, 2))
         assertNotNull(source.tile(2, 2, 2))
-        assertNull(source.tile(5, 16, 16))
+    }
+
+    @Test
+    fun `a source above its maxzoom is overzoomed onto its deepest ancestor`() {
+        val source = GeoJsonSource(
+            features = GeoJson.parse(Json.parseToJsonElement("""{"type":"Point","coordinates":[0,0]}""")),
+            minZoom = 2,
+            maxZoom = 4,
+        )
+        // geojson-vt stops cutting at maxzoom, so z6 reads the z4 tile that contains it.
+        assertEquals(
+            TileRef(z = 4, x = 8, y = 8, subX = 1, subY = 2, span = 4),
+            source.resolve(6, 33, 34),
+        )
+        // The point at (0, 0) lands in the z4 tile (8, 8), so the overzoomed tile carries it.
+        assertNotNull(source.tile(6, 33, 34))
     }
 
     private fun countMoveTo(geometry: List<Int>): Int {

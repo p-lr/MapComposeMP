@@ -3,6 +3,7 @@ package ovh.plrapps.mapcompose.vector.renderer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.evaluateSortKey
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
@@ -32,6 +33,15 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  *
  * A `heatmap` layer reads [heatmapNeighbours] in addition to [tile]: its kernels reach past the
  * tile they belong to, so the neighbouring tiles' points contribute too. See [HeatmapLayerPainter].
+ *
+ * When the source is *overzoomed* -- [tileRef] carries `span > 1`, so [tile] is an ancestor tile
+ * covering `span x span` map tiles -- the geometry is decoded at `canvasSize * span` and the
+ * destination is *translated* by `-(subX, subY) * canvasSize`. That is upstream's magnification of
+ * a canonical tile (`reparseOverscaled`), and translating rather than scaling is what keeps every
+ * style width -- `line-width`, `circle-radius`, a pattern's period -- in screen pixels. It also
+ * makes `isInsideTile` the *canonical* tile's bounds, which is the rule upstream's
+ * `CircleBucket.addFeature` applies: a vertex in a neighbouring sub-square is still drawn, and
+ * merely clipped by the bitmap.
  */
 class TileRenderer(
     configuration: MapLibreConfiguration,
@@ -67,16 +77,27 @@ class TileRenderer(
         tileY: Int = 0,
         tileX: Int = 0,
         heatmapNeighbours: List<NeighbourTile> = emptyList(),
+        tileRef: TileRef = TileRef.whole(z = zoom.toInt(), x = tileX, y = tileY),
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
 
+        /* The space a source's geometry is decoded into. Identical to the tile bitmap unless the
+         * source is overzoomed, in which case it is the ancestor tile magnified over its span. */
+        val span = tileRef.span.coerceAtLeast(1)
+        val geometrySize = canvasSize * span
+        val geometryTileX = if (span > 1) tileRef.x else tileX
+        val geometryTileY = if (span > 1) tileRef.y else tileY
+
         /* Patterns are anchored to the world and sized in screen pixels, so they need to know which
-         * tile they are being drawn into and how much it will be magnified. See PatternBrushCache. */
+         * tile they are being drawn into and how much it will be magnified. See PatternBrushCache.
+         * The layer types drawn from decoded geometry are painted in the ancestor's space when the
+         * source is overzoomed, so their phase is the ancestor's world offset. */
+        val inGeometrySpace = styleLayer is FillLayer || styleLayer is LineLayer || styleLayer is CircleLayer
         patternBrushes.configure(
-            tileX = tileX,
-            tileY = tileY,
-            canvasSize = canvasSize,
+            tileX = if (inGeometrySpace) geometryTileX else tileX,
+            tileY = if (inGeometrySpace) geometryTileY else tileY,
+            canvasSize = if (inGeometrySpace) geometrySize else canvasSize,
             tileZoom = zoom,
             actualZoom = actualZoom,
             density = canvas.density,
@@ -92,7 +113,9 @@ class TileRenderer(
                 heatmapPainter.paint(
                     canvas = canvas,
                     style = styleLayer,
-                    points = heatmapPoints(tile, heatmapNeighbours, styleLayer, zoom, canvasSize),
+                    points = heatmapPoints(
+                        tile, heatmapNeighbours, styleLayer, zoom, canvasSize, tileRef
+                    ),
                     canvasSize = canvasSize,
                     actualZoom = actualZoom,
                 )
@@ -170,23 +193,37 @@ class TileRenderer(
                     visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
                 }
 
-                for (entry in visible) {
-                    when (styleLayer) {
-                        is CircleLayer -> painterFor(styleLayer).paint(
-                            canvas, entry.feature, styleLayer, canvasSize, extent, zoom,
-                            entry.properties, actualZoom, entry.cacheKey
-                        )
+                /* A translate, never a scale: the geometry is already decoded at [geometrySize], and
+                 * scaling here would multiply every style width by the span too. */
+                val nativeCanvas = canvas.drawContext.canvas
+                if (span > 1) {
+                    nativeCanvas.save()
+                    nativeCanvas.translate(
+                        -tileRef.subX.toFloat() * canvasSize,
+                        -tileRef.subY.toFloat() * canvasSize,
+                    )
+                }
+                try {
+                    for (entry in visible) {
+                        when (styleLayer) {
+                            is CircleLayer -> painterFor(styleLayer).paint(
+                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
+                                entry.properties, actualZoom, entry.cacheKey
+                            )
 
-                        is FillLayer -> painterFor(styleLayer).paint(
-                            canvas, entry.feature, styleLayer, canvasSize, extent, zoom,
-                            entry.properties, actualZoom, entry.cacheKey
-                        )
+                            is FillLayer -> painterFor(styleLayer).paint(
+                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
+                                entry.properties, actualZoom, entry.cacheKey
+                            )
 
-                        is LineLayer -> painterFor(styleLayer).paint(
-                            canvas, entry.feature, styleLayer, canvasSize, extent, zoom,
-                            entry.properties, actualZoom, entry.cacheKey
-                        )
+                            is LineLayer -> painterFor(styleLayer).paint(
+                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
+                                entry.properties, actualZoom, entry.cacheKey
+                            )
+                        }
                     }
+                } finally {
+                    if (span > 1) nativeCanvas.restore()
                 }
             }
         }
@@ -206,15 +243,24 @@ class TileRenderer(
         styleLayer: HeatmapLayer,
         zoom: Double,
         canvasSize: Int,
+        tileRef: TileRef,
     ): List<HeatmapPoint> {
         val points = mutableListOf<HeatmapPoint>()
-        if (tile != null) addHeatmapPoints(points, tile, 0, 0, styleLayer, zoom, canvasSize)
+        if (tile != null) addHeatmapPoints(points, tile, 0, 0, styleLayer, zoom, canvasSize, tileRef)
         for (neighbour in neighbours) {
-            addHeatmapPoints(points, neighbour.tile, neighbour.dx, neighbour.dy, styleLayer, zoom, canvasSize)
+            addHeatmapPoints(
+                points, neighbour.tile, neighbour.dx, neighbour.dy, styleLayer, zoom, canvasSize, tileRef
+            )
         }
         return points
     }
 
+    /**
+     * The heatmap is the one layer type that is not drawn through a translated canvas: its density
+     * field is a quarter of the *bitmap* in each axis, so the points have to arrive in bitmap space.
+     * The ancestor's magnification therefore shows up here as the decode size and an explicit
+     * offset, and a neighbour is a neighbour of the ancestor, one [geometrySize] away.
+     */
     private fun addHeatmapPoints(
         into: MutableList<HeatmapPoint>,
         tile: Tile,
@@ -223,12 +269,15 @@ class TileRenderer(
         styleLayer: HeatmapLayer,
         zoom: Double,
         canvasSize: Int,
+        tileRef: TileRef,
     ) {
         val tileLayer = tileLayerFor(tile, styleLayer) ?: return
         val extent = tileLayer.extent ?: DEFAULT_EXTENT
         val needGeometry = styleLayer.filter?.filter?.needGeometry == true
-        val offsetX = dx.toDouble() * canvasSize
-        val offsetY = dy.toDouble() * canvasSize
+        val span = tileRef.span.coerceAtLeast(1)
+        val geometrySize = canvasSize * span
+        val offsetX = dx.toDouble() * geometrySize - tileRef.subX.toDouble() * canvasSize
+        val offsetY = dy.toDouble() * geometrySize - tileRef.subY.toDouble() * canvasSize
 
         for (feature in tileLayer.features) {
             if (feature.type != Tile.GeomType.POINT) continue
@@ -236,12 +285,12 @@ class TileRenderer(
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, properties)) continue
 
             val decoded = geometryDecoders.decodePoint(
-                feature.geometry, extent = extent, canvasSize = canvasSize
+                feature.geometry, extent = extent, canvasSize = geometrySize
             )
             for (point in decoded) {
                 // See `isInsideTile`: a point the MVT buffer duplicated into a neighbouring tile
                 // would otherwise be accumulated twice, once from each tile carrying it.
-                if (!isInsideTile(point.x, point.y, canvasSize)) continue
+                if (!isInsideTile(point.x, point.y, geometrySize)) continue
                 into.add(HeatmapPoint(point.x + offsetX, point.y + offsetY, properties))
             }
         }

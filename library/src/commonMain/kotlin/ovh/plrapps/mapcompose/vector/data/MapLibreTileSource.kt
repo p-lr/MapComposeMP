@@ -41,21 +41,8 @@ class MapLibreTileSource(
      * [TileRef.subX] / [TileRef.subY] / [TileRef.span] say which of its `span x span` sub-squares
      * the requested tile is.
      */
-    fun resolve(z: Int, x: Int, y: Int): TileRef? {
-        if (z < minZoom) return null
-        if (z <= maxZoom) return TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
-
-        val dz = z - maxZoom
-        val span = 1 shl dz
-        return TileRef(
-            z = maxZoom,
-            x = x shr dz,
-            y = y shr dz,
-            subX = x and (span - 1),
-            subY = y and (span - 1),
-            span = span,
-        )
-    }
+    fun resolve(z: Int, x: Int, y: Int): TileRef? =
+        resolveOverscaled(z = z, x = x, y = y, minZoom = minZoom, maxZoom = maxZoom)
 
     fun getTileUrl(ref: TileRef): String = getTileUrl(z = ref.z, x = ref.x, y = ref.y)
 
@@ -79,6 +66,31 @@ class MapLibreTileSource(
 }
 
 /**
+ * The tile of a source with zoom range [minZoom]..[maxZoom] that covers the map tile at [z]/[x]/[y].
+ *
+ * Shared by every source type, because upstream's rule is the same for all of them: below a source's
+ * `minzoom` there is nothing to draw (`covering_tiles.ts` returns no tiles at all), and above its
+ * `maxzoom` the requested zoom is clamped to `maxzoom` while the *display* zoom is remembered
+ * separately -- MapLibre's `OverscaledTileID`, where `canonical.z` is the clamped one and
+ * `overscaledZ` the requested one.
+ */
+internal fun resolveOverscaled(z: Int, x: Int, y: Int, minZoom: Int, maxZoom: Int): TileRef? {
+    if (z < minZoom) return null
+    if (z <= maxZoom) return TileRef.whole(z = z, x = x, y = y)
+
+    val dz = z - maxZoom
+    val span = 1 shl dz
+    return TileRef(
+        z = maxZoom,
+        x = x shr dz,
+        y = y shr dz,
+        subX = x and (span - 1),
+        subY = y and (span - 1),
+        span = span,
+    )
+}
+
+/**
  * A tile of a source, and which part of it a map tile needs.
  *
  * [span] is 1 for the common case, where the source has the requested zoom and the whole tile is
@@ -92,4 +104,13 @@ data class TileRef(
     val subX: Int,
     val subY: Int,
     val span: Int,
-)
+) {
+    /** Whether this is the requested tile itself rather than a sub-square of an ancestor. */
+    val isWholeTile: Boolean get() = span <= 1
+
+    companion object {
+        /** The identity ref: the tile at [z]/[x]/[y] itself, used wherever nothing is overzoomed. */
+        fun whole(z: Int, x: Int, y: Int): TileRef =
+            TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
+    }
+}

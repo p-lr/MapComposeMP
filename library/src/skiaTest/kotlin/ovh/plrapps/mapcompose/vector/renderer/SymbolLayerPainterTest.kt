@@ -127,7 +127,7 @@ class SymbolLayerPainterTest {
         style = layer,
         canvasSize = CANVAS,
         extent = EXTENT,
-        zoom = 10.0,
+        tileZ = 10.0,
         featureProperties = EvalFeature(
             type = if (feature.type == Tile.GeomType.POINT) "Point" else "LineString",
             properties = properties,
@@ -138,6 +138,35 @@ class SymbolLayerPainterTest {
         layerIndex = 0,
         compareText = compareText,
     )
+
+    @Test
+    fun `an overzoomed bucket positions its symbols from the ancestor tile`() = runTest {
+        /* Upstream lays a symbol layer out over the *canonical* tile and magnifies it
+         * (`reparseOverscaled`), so an overzoomed bucket is addressed by the ancestor: its x/y/z and
+         * its on-screen size, which is one map tile's size times the span. The layer is still
+         * evaluated at the display zoom -- that is `actualZoom` here, and it is deliberately not the
+         * ancestor's. */
+        val span = 4
+        val symbols = painter(sprites = null).produceSymbol(
+            feature = point(),
+            style = layer("""{"text-field":"A","text-font":["Test Regular"],"text-size":16}"""),
+            canvasSize = CANVAS * span,
+            extent = EXTENT,
+            tileZ = 14.0,
+            featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
+            actualZoom = 16.0,
+            id = "f1",
+            tileX = 3,
+            tileY = 5,
+            density = DENSITY,
+            layerIndex = 0,
+        )
+
+        val symbol = symbols.single()
+        val worldTiles = 1 shl 14
+        assertEquals(3.5 / worldTiles, symbol.global.x, 1e-9, "the ancestor's centre column")
+        assertEquals(5.5 / worldTiles, symbol.global.y, 1e-9, "the ancestor's centre row")
+    }
 
     @Test
     fun `a line label is drawn centred on the line it follows`() {
@@ -379,7 +408,7 @@ class SymbolLayerPainterTest {
                 style = layer("""{"icon-image":"marker"}"""),
                 canvasSize = CANVAS,
                 extent = EXTENT,
-                zoom = 10.0,
+                tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0,
                 id = "f1",
@@ -398,7 +427,7 @@ class SymbolLayerPainterTest {
             val faded = painter().produceSymbol(
                 feature = point(),
                 style = layer("""{"icon-image":"marker"}""", """{"icon-opacity":0.5}"""),
-                canvasSize = CANVAS, extent = EXTENT, zoom = 10.0,
+                canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
             )
@@ -412,7 +441,7 @@ class SymbolLayerPainterTest {
             val symbols = painter().produceSymbol(
                 feature = point(),
                 style = layer("""{"icon-image":"marker"}""", """{"icon-opacity":0}"""),
-                canvasSize = CANVAS, extent = EXTENT, zoom = 10.0,
+                canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
             )
@@ -445,7 +474,7 @@ class SymbolLayerPainterTest {
             val symbols = painter().produceSymbol(
                 feature = point(),
                 style = layer("""{"icon-image":"marker"}""", """{"icon-translate":[4,6]}"""),
-                canvasSize = CANVAS, extent = EXTENT, zoom = 10.0,
+                canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
             )
