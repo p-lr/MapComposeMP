@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.json
+import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.data.resolveOverscaled
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Source
 
@@ -28,11 +30,21 @@ class GeoJsonSource(
 ) {
     private val tiler = GeoJsonTiler(features)
 
+    /**
+     * Which tile of this source covers the map tile at [z]/[x]/[y], and which part of it.
+     *
+     * geojson-vt stops cutting at the source's `maxzoom`, so above it MapLibre overzooms the same
+     * way it does a served vector source -- see [resolveOverscaled]. The tiler here could cut at any
+     * zoom, but doing so would drop the simplification the spec's `maxzoom` is there to fix.
+     */
+    fun resolve(z: Int, x: Int, y: Int): TileRef? =
+        resolveOverscaled(z = z, x = x, y = y, minZoom = minZoom, maxZoom = maxZoom)
+
+    /** The tile [ref] names, or `null` where it is empty. */
+    fun tile(ref: TileRef): Tile? = tiler.tile(ref.z, ref.x, ref.y)
+
     /** The tile at `(z, x, y)`, or `null` outside the source's zoom range or where it is empty. */
-    fun tile(z: Int, x: Int, y: Int): Tile? {
-        if (z < minZoom || z > maxZoom) return null
-        return tiler.tile(z, x, y)
-    }
+    fun tile(z: Int, x: Int, y: Int): Tile? = resolve(z, x, y)?.let { tile(it) }
 
     companion object {
         /**

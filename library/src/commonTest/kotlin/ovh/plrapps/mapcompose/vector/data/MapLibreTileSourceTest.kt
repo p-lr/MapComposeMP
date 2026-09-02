@@ -14,6 +14,10 @@ import kotlin.test.assertTrue
  * `Source.type` used to be parsed and dropped, so every source was fetched and pbf-decoded as MVT.
  * These pin the three things that changed: the type reaches [MapLibreTileSource], `scheme` is
  * honoured, and [MapLibreTileSource.resolve] clamps a request to the zooms a source publishes.
+ *
+ * The clamp is the same for every source type, as it is in maplibre-gl-js -- `covering_tiles.ts`
+ * knows nothing about what a source serves. What differs is what the renderer does with the
+ * ancestor: an image source is stretched, a vector source is re-rendered at the display zoom.
  */
 class MapLibreTileSourceTest {
 
@@ -228,6 +232,23 @@ class MapLibreTileSourceTest {
             assertNotNull(configuration.tileSources["plain"]).demUnpack,
             "only a raster-dem source's channels mean elevation",
         )
+    }
+
+    @Test
+    fun `a vector source overzooms like a raster one`() {
+        /* The behaviour this used to lack: above its maxzoom a vector source resolved to the tile it
+         * was asked for, the server had none, and the layer went blank. MapLibre keeps the deepest
+         * ancestor and re-parses it at the display zoom (`reparseOverscaled`). */
+        val tileSource = source(maxzoom = 14, type = SourceType.VECTOR)
+
+        val ref = assertNotNull(tileSource.resolve(z = 18, x = 137, y = 91))
+        assertEquals(14, ref.z)
+        assertEquals(137 shr 4, ref.x)
+        assertEquals(91 shr 4, ref.y)
+        assertEquals(16, ref.span)
+        assertEquals(137 % 16, ref.subX)
+        assertEquals(91 % 16, ref.subY)
+        assertTrue(ref.isWholeTile.not(), "an overzoomed ref names a sub-square, not a whole tile")
     }
 
     @Test

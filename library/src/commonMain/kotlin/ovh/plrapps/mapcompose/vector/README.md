@@ -172,16 +172,45 @@ being a whitelist rather than "everything that is not raster".
 
 | Type | Honoured | Not honoured |
 |---|---|---|
-| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row) | overzoom above `maxzoom` — see below |
-| `raster` | the above, plus overzoom to a magnified ancestor | `bounds`, `tileSize` |
+| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), overzoom | — |
+| `raster` | the above, but overzoomed by stretching | `bounds`, `tileSize` |
 | `raster-dem` | the above, plus `encoding` (`mapbox` / `terrarium` / `custom`, per `DemUnpack`) | `bounds` |
-| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom` | `cluster*`, `lineMetrics`, `promoteId`, `tolerance` |
+| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, overzoom | `cluster*`, `lineMetrics`, `promoteId`, `tolerance` |
 | `image`, `video` | — | recognised, never fetched |
 
-**Overzooming is applied to image sources only.** Cropping a magnified ancestor image is enough,
-whereas reusing an ancestor *vector* tile would mean rescaling and translating every feature's
-tile-local geometry, which the painters do not do; a vector source keeps asking for the tile it was
-asked for and renders nothing when the server has none.
+### Overzooming
+
+Above a source's `maxzoom` there are no tiles to fetch, and MapLibre does not drop the layer: it
+clamps the requested zoom to `maxzoom` for the *canonical* tile coordinates and remembers the
+requested one separately (`covering_tiles.ts`, `OverscaledTileID`). `MapLibreTileSource.resolve`
+returns exactly that as a `TileRef` — the ancestor's `z/x/y`, plus which of its `span x span`
+sub-squares the requested tile is.
+
+What happens to the ancestor depends on the source, and here it follows upstream's
+`reparseOverscaled` flag:
+
+- an **image** source (`raster`, `raster-dem`) is *stretched*: the ancestor is cropped to the
+  sub-square and drawn over the whole tile (`RasterTileImage.of`, `HillshadeLayerPainter`);
+- a **vector** or **geojson** source is *re-rendered at the display zoom*: `TileRenderer` decodes the
+  ancestor's geometry at `canvasSize * span` and **translates** the destination by
+  `-(subX, subY) * canvasSize`. Translating rather than scaling is the point — the geometry grows
+  with the span while `line-width`, `circle-radius`, `text-size` and a pattern's period stay in
+  screen pixels, which is what upstream's re-parse achieves by rebuilding the bucket. It also makes
+  `isInsideTile` the *canonical* tile's bounds, so `CircleBucket.addFeature`'s rule reads as upstream
+  writes it: a vertex in a neighbouring sub-square is drawn and merely clipped.
+
+Filters and paint properties see the **requested** zoom, not the ancestor's — that is
+`reparseOverscaled: true`, which posts `zoom: tileID.overscaledZ` to upstream's worker. A symbol
+layer is laid out once per *canonical* tile, as one `SymbolBucket` is, so `mergeLines`, `clipLine`,
+the line-anchor walk and `anchorIsTooClose` all see the geometry `symbol_layout.ts` would see.
+
+The pyramid has to be deep enough to ask: MapCompose's `levelCount` is the map's maximum tile `z`,
+and it should be chosen for the deepest zoom an app wants to offer rather than for a source's
+`maxzoom`.
+
+Known cost: a sub-square tessellates its ancestor's whole geometry. The path cache is keyed by the
+ancestor and the span, so a feature's `Path` is built once and shared by all `span²` sub-squares, but
+each of them still draws the full-size path under the bitmap's clip.
 
 `heatmapSourceNames` is a fourth, overlapping set: the vector sources a `heatmap` layer reads, whose
 neighbouring tiles are fetched too. It is gated on a heatmap layer actually drawing at the current

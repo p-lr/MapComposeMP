@@ -19,7 +19,11 @@ class SwissMapVectorDemoVM : ViewModel() {
         styleUrl = "https://vectortiles.geo.admin.ch/styles/ch.swisstopo.basemap.vt/style.json" // ch.swisstopo.basemap.vt
     )
 
-    private val maxLevel = 15
+    /* The deepest tile z the map offers, *not* the style's source `maxzoom` (both swisstopo sources
+     * stop at 14). Above a source's `maxzoom` the rasterizer overzooms it -- the ancestor tile is
+     * re-rendered at the display zoom, as maplibre-gl-js does with `reparseOverscaled` -- so the
+     * pyramid is free to go deeper than the data. 512 px tiles overflow `fullWidth` past level 21. */
+    private val maxLevel = 20
     private val minLevel = 7
     private val tileSize = 512
     private val mapSize = mapSizeAtLevel(maxLevel, tileSize = tileSize)
