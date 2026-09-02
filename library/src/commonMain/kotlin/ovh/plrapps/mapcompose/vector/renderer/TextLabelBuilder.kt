@@ -97,7 +97,7 @@ class TextLabelBuilder(
         val key = style.cacheKey(plainText)
         mutex.withLock { cache.get(key) as? LabelArt }?.let { return it }
 
-        val art = renderWithGlyphs(formatted, style) ?: measureWithCompose(plainText, style, density)
+        val art = renderWithGlyphs(formatted, style, plainText) ?: measureWithCompose(plainText, style, density)
         if (art != null) mutex.withLock { cache.put(key, art) }
         return art
     }
@@ -109,7 +109,11 @@ class TextLabelBuilder(
      * a font the server does not have, or a script outside the ranges it publishes. Either way the
      * caller falls back rather than dropping the label.
      */
-    private suspend fun renderWithGlyphs(formatted: Formatted, style: ResolvedTextStyle): LabelArt? {
+    private suspend fun renderWithGlyphs(
+        formatted: Formatted,
+        style: ResolvedTextStyle,
+        plainText: String,
+    ): LabelArt? {
         val manager = glyphManager?.takeIf { it.isConfigured } ?: return null
 
         /* One `["format", ...]` section may override the font stack, so every stack the label uses
@@ -156,7 +160,7 @@ class TextLabelBuilder(
             haloBlur = style.haloBlur,
             opacity = style.opacity,
         ) ?: return null
-        return LabelArt.Glyphs(rendered)
+        return LabelArt.Glyphs(rendered, plainText)
     }
 
     /**
