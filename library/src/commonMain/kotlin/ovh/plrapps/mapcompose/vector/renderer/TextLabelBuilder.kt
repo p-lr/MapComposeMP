@@ -184,12 +184,13 @@ class TextLabelBuilder(
             },
             /* A blur behind the glyphs, not a dilated outline: Compose cannot stroke text, so this
              * is the closest the fallback gets to `text-halo-width`. The glyph path above does it
-             * properly. */
+             * properly. The radius is the halo's own width plus its blur -- doubling it, as this
+             * used to, made a fallback label's halo twice what the style asked for. */
             shadow = if (style.haloWidth > 0f) {
                 Shadow(
                     color = style.haloColor,
                     offset = Offset.Zero,
-                    blurRadius = style.haloWidth * 2f + style.haloBlur,
+                    blurRadius = style.haloWidth + style.haloBlur,
                 )
             } else {
                 null

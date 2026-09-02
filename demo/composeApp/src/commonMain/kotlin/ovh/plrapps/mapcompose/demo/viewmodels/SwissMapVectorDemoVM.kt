@@ -16,7 +16,7 @@ import kotlin.math.pow
  */
 class SwissMapVectorDemoVM : ViewModel() {
     private val vectorTileStreamProvider = OSMVectorTileStreamProvider(
-        styleUrl = "https://vectortiles.geo.admin.ch/styles/ch.swisstopo.lightbasemap.vt/style.json" // ch.swisstopo.basemap.vt
+        styleUrl = "https://vectortiles.geo.admin.ch/styles/ch.swisstopo.basemap.vt/style.json" // ch.swisstopo.basemap.vt
     )
 
     private val maxLevel = 15

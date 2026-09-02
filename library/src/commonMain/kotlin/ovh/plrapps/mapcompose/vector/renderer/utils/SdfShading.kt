@@ -46,10 +46,16 @@ const val SDF_FILL_BUFFER = (256f - 64f) / 256f
  * Upstream: `(6.0 - u_halo_width / fontScale) / SDF_PX`. A wider halo means a *lower* threshold,
  * because a lower distance is further outside the shape. A zero halo lands on [SDF_FILL_BUFFER], so
  * the halo pass contributes nothing -- which is why no special case is needed for it.
+ *
+ * The result is deliberately **not** clamped at zero, as upstream's is not. A distance field only
+ * carries `GLYPH_BORDER` units of outside distance, so a halo wider than that is already clipped by
+ * the field; clamping the threshold to zero on top of that turned every sample in the border ring
+ * into full-strength halo with a hard edge, rather than letting the smoothstep run off the end of
+ * the field and taper.
  */
 fun sdfHaloBuffer(haloWidth: Float, fontScale: Float): Float {
     if (fontScale <= 0f) return SDF_FILL_BUFFER
-    return ((6f - haloWidth / fontScale) / SDF_PX).coerceIn(0f, 1f)
+    return (6f - haloWidth / fontScale) / SDF_PX
 }
 
 /** Half the width of the antialiased ramp, widened by `*-halo-blur` on the halo pass. */

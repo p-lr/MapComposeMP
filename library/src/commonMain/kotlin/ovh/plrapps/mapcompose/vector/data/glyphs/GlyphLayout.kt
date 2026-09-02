@@ -73,15 +73,26 @@ class ShapedLabel(
 object GlyphLayout {
 
     /**
-     * Where a line's baseline sits within its line box, as a fraction of the line height.
+     * Upstream's `SHAPING_DEFAULT_OFFSET`, `src/symbol/shaping.ts`.
      *
-     * **Divergence:** upstream positions glyphs relative to the label's *anchor*, offsetting the
-     * first baseline by a constant `yOffset` and letting `align()` shift the block afterwards. Here
-     * a shaped label is a plain box with its top-left at the origin, and anchoring it to a point is
-     * the painter's job -- one convention for text and icons alike. Three quarters down the line box
-     * puts a cap-height glyph's ink roughly centred in it, which is what the constant buys.
+     * A glyph's pen position is **not** its baseline. `Glyph.top` is negative-upward from the pen --
+     * upstream's `quads.ts` places a glyph quad at `y1 = (-top - rectBuffer) * scale`, so the ink
+     * starts at `pen - top`, which is what [ShapedGlyph.inkTop] computes. In a real font stack every
+     * glyph satisfies `height - top = ascent`, so the pen sits on the ascent line and the baseline
+     * is the better part of an em below it. Treating the pen as the baseline drops every label by
+     * roughly one line of text.
+     *
+     * Upstream places the first line at this offset from the anchor and lets `align()` add
+     * `-verticalAlign * lines * lineHeight + 0.5 * lineHeight`. A shaped label here is a plain box
+     * with its top-left at the origin -- anchoring it is the painter's job, one convention for text
+     * and icons alike -- and for the centred box that `anchorCenterOffset` produces those two shifts
+     * collapse to a per-line pen of `i * lineHeight + lineHeight / 2 + SHAPING_DEFAULT_OFFSET`,
+     * independent of the line count.
      */
-    private const val BASELINE_FRACTION = 0.75f
+    private const val SHAPING_DEFAULT_OFFSET = -17f
+
+    /** The pen position of the first line within the label's box, in glyph units. */
+    private fun firstPenY(lineHeight: Float): Float = 0.5f * lineHeight + SHAPING_DEFAULT_OFFSET
 
     /**
      * Shapes [sections] into positioned glyphs.
@@ -181,7 +192,7 @@ object GlyphLayout {
         if (start < chars.size) lineRanges += start until chars.size
 
         val laidOut = mutableListOf<Pair<MutableList<ShapedGlyph>, Float>>()
-        var y = BASELINE_FRACTION * lineHeight
+        var y = firstPenY(lineHeight)
         for (range in lineRanges) {
             // A break consumes its whitespace, exactly as upstream's `trim` does.
             val line = chars.slice(range).dropLastWhile { isWhitespace(it.codePoint) }
@@ -233,7 +244,7 @@ object GlyphLayout {
 
     /** One glyph per line, top to bottom: `text-writing-mode: [vertical]` for CJK labels. */
     private fun shapeVertical(chars: List<Char>, scale: Float, lineHeight: Float): ShapedLabel {
-        var y = BASELINE_FRACTION * lineHeight
+        var y = firstPenY(lineHeight)
         val lines = mutableListOf<ShapedLine>()
         var maxWidth = 0f
         for (char in chars) {
