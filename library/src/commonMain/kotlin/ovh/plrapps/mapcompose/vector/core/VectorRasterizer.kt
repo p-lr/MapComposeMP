@@ -141,8 +141,15 @@ class VectorRasterizer(
     private val TILE_SOURCE_TYPES =
         setOf(SourceType.VECTOR, SourceType.RASTER, SourceType.RASTER_DEM)
 
-    // Minimum viewport-pixel distance between repetitions of the same line label across tiles.
-    // Mirrors MapLibre's default symbol-spacing (250px).
+    /**
+     * Minimum viewport-pixel distance between repetitions of the same line label *across tiles*.
+     *
+     * Within one tile this is upstream's own rule, `anchorIsTooClose`, applied at layout time from
+     * that layer's `symbol-spacing`. What is left here is the cross-tile half of the job, which
+     * upstream gives to `cross_tile_symbol_index.ts` -- not ported -- so a road whose name is laid
+     * out once per tile it crosses does not carry it twice at the seam. The value mirrors the
+     * default `symbol-spacing` (250 px); the layer's own value is not available at this point.
+     */
     private val MIN_LINE_LABEL_REPEAT_DIST = 250f
 
     private val stableAnchorCache = LruCache<String, Int>(maxSize = 1000)
@@ -600,7 +607,9 @@ class VectorRasterizer(
             expandedTiles[adjRow] = (refCols.min() - 1).coerceAtLeast(0)..(refCols.max() + 1).coerceAtMost(maxTileIndex)
         }
 
-        for ((y, colRange) in expandedTiles) {
+        // Sorted so the placement pass's final tie-break (production order) is stable run to run;
+        // upstream orders its tiles too (`style.ts` sorts by overscaledZ then tile id).
+        for ((y, colRange) in expandedTiles.entries.sortedBy { it.key }) {
             for (x in colRange) {
                 // Loading PBF for the tile. Symbols only ever come from vector sources, so image
                 // tiles are not fetched here at all.
