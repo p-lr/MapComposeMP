@@ -46,6 +46,7 @@ class SymbolsProducer(
         actualZoom: Double,
         tileX: Int = 0,
         tileY: Int = 0,
+        tileZ: Double = zoom,
         density: Density,
         localPropCache: MutableMap<String, EvalFeature>
     ): List<Symbol> {
@@ -114,7 +115,7 @@ class SymbolsProducer(
                 style = styleLayer,
                 canvasSize = canvasSize,
                 extent = extent,
-                zoom = zoom,
+                tileZ = tileZ,
                 featureProperties = featureProperties,
                 actualZoom = actualZoom,
                 tileX = tileX,
@@ -135,7 +136,7 @@ class SymbolsProducer(
                 style = styleLayer,
                 canvasSize = canvasSize,
                 extent = held.extent,
-                zoom = zoom,
+                tileZ = tileZ,
                 featureProperties = held.featureProperties,
                 actualZoom = actualZoom,
                 tileX = tileX,
