@@ -63,6 +63,7 @@ import pbandk.decodeFromByteArray
 import kotlin.collections.component1
 import kotlin.collections.component2
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -158,6 +159,37 @@ class VectorRasterizer(
         return "$sourceName-$z-$x-$y"
     }
 
+    /** The key of the tile [ref] names -- the tile actually fetched, not the one requested. */
+    private fun getTileKey(sourceName: String, ref: TileRef): String =
+        getTileKey(sourceName, ref.z, ref.x, ref.y)
+
+    /**
+     * The key a *rendered* tile's per-feature work is cached under.
+     *
+     * It names the fetched tile rather than the requested one, so the `span x span` map tiles of an
+     * overzoomed source share one decode, one evaluated-property cache and -- because the geometry
+     * is decoded in the ancestor's space -- one built [androidx.compose.ui.graphics.Path]. The span
+     * belongs in the key because it is what that space is scaled by.
+     */
+    private fun getRenderKey(sourceName: String, ref: TileRef): String =
+        "$sourceName-${ref.z}-${ref.x}-${ref.y}-s${ref.span}"
+
+    /**
+     * Which tile of every source covers the map tile at [z]/[x]/[y], and which part of it.
+     *
+     * A source that does not reach [z] -- below its `minzoom` -- is absent from the result and draws
+     * nothing, as upstream's `covering_tiles.ts` returns no tiles for it. Above its `maxzoom` the
+     * ref names an ancestor and the sub-square this map tile is; see [resolveOverscaled].
+     */
+    private fun resolveRefs(z: Int, x: Int, y: Int): Map<String, TileRef> = buildMap {
+        for ((name, source) in configuration.tileSources) {
+            source.resolve(z = z, x = x, y = y)?.let { put(name, it) }
+        }
+        for ((name, source) in configuration.geoJsonSources) {
+            source.resolve(z = z, x = x, y = y)?.let { put(name, it) }
+        }
+    }
+
     fun decodePBFFromByteArray(bytes: ByteArray): Tile? {
         return try {
             Tile.decodeFromByteArray(bytes)
@@ -185,6 +217,7 @@ class VectorRasterizer(
 
     private suspend fun renderTile(
         fetched: Map<String, FetchedTile>,
+        refs: Map<String, TileRef>,
         zoom: Double,
         tileSize: Int,
         actualZoom: Double,
@@ -210,11 +243,15 @@ class VectorRasterizer(
         /* A geojson source is not fetched: its tile is cut out of the loaded document here, and
          * from `TileRenderer`'s point of view it is an ordinary vector tile from then on. */
         val geoJsonForSource: Map<String, Tile?> = geoJsonSourceNames.associateWith { sourceName ->
-            configuration.geoJsonSources[sourceName]?.tile(z = z, x = x, y = y)
+            val ref = refs[sourceName] ?: return@associateWith null
+            configuration.geoJsonSources[sourceName]?.tile(ref)
         }
 
+        /* Keyed by the tile actually fetched, like the raster and DEM caches below: an overzoomed
+         * source's sibling map tiles share one ancestor and must share its single decode. */
         val tileForSource: Map<String, Tile?> = vectorSourceNames.associateWith { sourceName ->
-            val key = getTileKey(sourceName, z, x, y)
+            val ref = refs[sourceName] ?: return@associateWith null
+            val key = getTileKey(sourceName, ref)
             tileCacheMutex.withLock { tileCache.get(key) }
                 ?: fetched[sourceName]?.let { tile ->
                     decodePBFFromByteArray(tile.bytes)?.also { t ->
@@ -257,7 +294,9 @@ class VectorRasterizer(
                 it is HeatmapLayer && tileRenderer.isLayerVisible(it) && tileRenderer.isZoomInRange(it, zoom)
             } -> emptyMap()
 
-            else -> heatmapSourceNames.associateWith { neighbourVectorTiles(it, z = z, x = x, y = y) }
+            else -> heatmapSourceNames.associateWith { sourceName ->
+                refs[sourceName]?.let { neighbourVectorTiles(sourceName, it) } ?: emptyList()
+            }
         }
 
         val imageBitmap = ImageBitmap(tileSize, tileSize)
@@ -272,7 +311,8 @@ class VectorRasterizer(
         ) {
             for (styleLayer in configuration.style.layers) {
                 val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() }
-                val tileKey = sourceName?.let { getTileKey(it, z, x, y) }
+                val ref = sourceName?.let { refs[it] } ?: TileRef.whole(z = z, x = x, y = y)
+                val tileKey = sourceName?.let { getRenderKey(it, ref) }
                 val tile = sourceName?.let { tileForSource[it] ?: geoJsonForSource[it] }
 
                 tileRenderer.render(
@@ -290,6 +330,7 @@ class VectorRasterizer(
                     heatmapNeighbours = sourceName
                         ?.let { heatmapNeighboursForSource[it] }
                         ?: emptyList(),
+                    tileRef = ref,
                 )
             }
         }
@@ -306,11 +347,8 @@ class VectorRasterizer(
      */
     private suspend fun neighbourVectorTiles(
         sourceName: String,
-        z: Int,
-        x: Int,
-        y: Int,
+        centre: TileRef,
     ): List<NeighbourTile> {
-        val centre = TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
         return supervisorScope {
             neighbourRefs(centre)
                 .map { (offset, ref) -> offset to async { decodeVectorTile(sourceName, ref) } }
@@ -402,9 +440,7 @@ class VectorRasterizer(
                 val ny = ref.y + dy
                 if (ny < 0 || ny >= tiles) continue
                 val nx = ((ref.x + dx) % tiles + tiles) % tiles
-                result.add(
-                    (dx to dy) to TileRef(z = ref.z, x = nx, y = ny, subX = 0, subY = 0, span = 1)
-                )
+                result.add((dx to dy) to TileRef.whole(z = ref.z, x = nx, y = ny))
             }
         }
         return result
@@ -445,29 +481,25 @@ class VectorRasterizer(
     private class FetchedTile(val bytes: ByteArray, val ref: TileRef)
 
     /**
-     * Fetches the tile at [z]/[x]/[y] from every source of one of [types], concurrently.
+     * Fetches the tile each of [refs] names, for every source of one of [types], concurrently.
      *
-     * Overzooming -- falling back to a magnified ancestor tile above a source's `maxzoom` -- is
-     * applied to raster sources only. Cropping an image is all it takes there, whereas reusing an
-     * ancestor *vector* tile would mean rescaling and translating every feature's tile-local
-     * geometry, which the painters do not do. A vector source therefore keeps asking for the tile it
-     * was asked for and simply renders nothing when the server has none.
+     * Every source type overzooms, which is upstream: `covering_tiles.ts` clamps the requested zoom
+     * to the source's `maxzoom` for the canonical tile coordinates whatever the source serves. What
+     * differs is what is done with the ancestor. An image source is *stretched* -- upstream's
+     * `reparseOverscaled: false`, here a crop plus a scaled `drawImage`. A vector or geojson source
+     * is *re-parsed at the display zoom* -- `reparseOverscaled: true` -- which here means the
+     * ancestor's geometry is decoded at `canvasSize * span` while filters and paint properties keep
+     * seeing the requested zoom. See [TileRenderer].
      */
     private suspend fun fetch(
-        z: Int,
-        x: Int,
-        y: Int,
+        refs: Map<String, TileRef>,
         types: Set<SourceType>,
     ): Result<Map<String, FetchedTile>> = supervisorScope {
         try {
             // Kick off concurrent fetches per source without failing the whole scope on one error
             val deferred = configuration.tileSources.mapNotNull { (sourceName, ts) ->
                 if (ts.type !in types) return@mapNotNull null
-                val ref = when (ts.type) {
-                    SourceType.RASTER,
-                    SourceType.RASTER_DEM -> ts.resolve(z = z, x = x, y = y) ?: return@mapNotNull null
-                    else -> TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = 1)
-                }
+                val ref = refs[sourceName] ?: return@mapNotNull null
                 sourceName to async {
                     // Ensure still active before heavy work
                     coroutineContext.ensureActive()
@@ -528,13 +560,15 @@ class VectorRasterizer(
         superSampling: Int = 1,
     ): ImageBitmap {
         val z = zoom.toInt()
-        val fetched = fetch(z = z, x = x, y = y, types = TILE_SOURCE_TYPES).getOrElse { e ->
+        val refs = resolveRefs(z = z, x = x, y = y)
+        val fetched = fetch(refs = refs, types = TILE_SOURCE_TYPES).getOrElse { e ->
             println("ERROR: ${e.message}")
             return emptyBitmap(tileSize)
         }
 
         val rendered = renderTile(
             fetched = fetched,
+            refs = refs,
             zoom = zoom,
             tileSize = tileSize,
             actualZoom = zoom,
@@ -607,62 +641,113 @@ class VectorRasterizer(
             expandedTiles[adjRow] = (refCols.min() - 1).coerceAtLeast(0)..(refCols.max() + 1).coerceAtMost(maxTileIndex)
         }
 
-        // Sorted so the placement pass's final tie-break (production order) is stable run to run;
-        // upstream orders its tiles too (`style.ts` sorts by overscaledZ then tile id).
-        for ((y, colRange) in expandedTiles.entries.sortedBy { it.key }) {
+        /* One bucket per *canonical* tile, as upstream. A symbol layer reading an overzoomed source
+         * is laid out once over the whole ancestor rather than once per sub-square, so
+         * `mergeLines`, `clipLine`, the line-anchor walk and `anchorIsTooClose` all see the geometry
+         * `symbol_layout.ts` would see. Deduplicating on the ancestor also costs less than one
+         * bucket per visible map tile. */
+        val symbolLayers = configuration.style.layers.withIndex()
+            .mapNotNull { (index, layer) -> (layer as? SymbolLayer)?.let { index to it } }
+        if (symbolLayers.isEmpty()) return@withContext Result.success(symbols)
+
+        val refsForSource = mutableMapOf<String, MutableSet<TileRef>>()
+        for ((y, colRange) in expandedTiles) {
             for (x in colRange) {
-                // Loading PBF for the tile. Symbols only ever come from vector sources, so image
-                // tiles are not fetched here at all.
-                val fetched = fetch(z = z.toInt(), x = x, y = y, types = setOf(SourceType.VECTOR))
-                    .getOrElse { e ->
-                        println("ERROR: ${e.message}")
-                        return@withContext Result.failure(e)
-                    }
-
-                // One tileCache lookup per source (not per style layer).
-                val tileForSource: Map<String, Tile?> = vectorSourceNames.associateWith { sourceName ->
-                    val key = getTileKey(sourceName, z.toInt(), x, y)
-                    tileCacheMutex.withLock { tileCache.get(key) }
-                        ?: fetched[sourceName]?.let { tile ->
-                            decodePBFFromByteArray(tile.bytes)?.also { t ->
-                                tileCacheMutex.withLock { tileCache.put(key, t) }
-                            }
-                        }
-                }
-
-                // Labels come from geojson sources too; they are cut rather than fetched.
-                val geoJsonForSource: Map<String, Tile?> = geoJsonSourceNames.associateWith { sourceName ->
-                    configuration.geoJsonSources[sourceName]?.tile(z = z.toInt(), x = x, y = y)
-                }
-
-                val localPropCache = HashMap<String, EvalFeature>()
-
-                // Use withIndex() to avoid O(n²) indexOf in the loop.
-                for ((layerIndex, styleLayer) in configuration.style.layers.withIndex()) {
-                    if (styleLayer !is SymbolLayer) continue
-                    val tile = styleLayer.source.takeIf { !it.isNullOrBlank() }
-                        ?.let { tileForSource[it] ?: geoJsonForSource[it] } ?: continue
-
-                    symbolsProducer.produce(
-                        tile = tile,
-                        styleLayer = styleLayer,
-                        layerIndex = layerIndex,
-                        zoom = z,
-                        canvasSize = tileSize,
-                        actualZoom = z,
-                        tileX = x,
-                        tileY = y,
-                        density = density,
-                        localPropCache = localPropCache
-                    ).let {
-                        symbols.addAll(it)
-                    }
+                val refs = resolveRefs(z = z.toInt(), x = x, y = y)
+                for ((_, styleLayer) in symbolLayers) {
+                    val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() } ?: continue
+                    val ref = refs[sourceName] ?: continue
+                    // The sub-square is what differs between the map tiles sharing one ancestor.
+                    refsForSource.getOrPut(sourceName) { mutableSetOf() }
+                        .add(ref.copy(subX = 0, subY = 0))
                 }
             }
         }
 
-        Result.success(symbols)
+        // Sorted so the placement pass's final tie-break (production order) is stable run to run;
+        // upstream orders its tiles too (`style.ts` sorts by overscaledZ then tile id). With nothing
+        // overzoomed this is exactly the old tile-outer, layer-inner order.
+        val buckets = symbolLayers.flatMap { (layerIndex, styleLayer) ->
+            val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() }
+                ?: return@flatMap emptyList()
+            refsForSource[sourceName].orEmpty().map { ref ->
+                SymbolBucket(ref = ref, layerIndex = layerIndex, styleLayer = styleLayer, sourceName = sourceName)
+            }
+        }.sortedWith(compareBy({ it.ref.z }, { it.ref.y }, { it.ref.x }, { it.layerIndex }))
+
+        /* Fetched concurrently, as the per-tile fetch used to be: the bucket loop below is
+         * sequential, and awaiting one source's tile before starting the next would serialize a
+         * multi-source style's requests. */
+        val tiles: Map<String, Tile> = supervisorScope {
+            buckets.map { it.sourceName to it.ref }.distinct()
+                .map { (sourceName, ref) ->
+                    getTileKey(sourceName, ref) to async {
+                        when (sourceName) {
+                            in geoJsonSourceNames -> configuration.geoJsonSources[sourceName]?.tile(ref)
+                            // Symbols only come from vector sources; image tiles are never fetched here.
+                            in vectorSourceNames -> decodeVectorTile(sourceName, ref)
+                            else -> null
+                        }
+                    }
+                }
+                .mapNotNull { (key, deferred) ->
+                    val tile = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
+                    key to tile
+                }
+                .toMap()
+        }
+
+        val propCaches = mutableMapOf<String, HashMap<String, EvalFeature>>()
+        for (bucket in buckets) {
+            val ref = bucket.ref
+            val tile = tiles[getTileKey(bucket.sourceName, ref)] ?: continue
+
+            symbolsProducer.produce(
+                tile = tile,
+                styleLayer = bucket.styleLayer,
+                layerIndex = bucket.layerIndex,
+                zoom = z,
+                /* [tileSize] is one map tile's size on screen, so the ancestor's is that many times
+                 * larger -- the space every label width, `symbol-spacing` and `text-padding` is
+                 * measured against. */
+                canvasSize = tileSize * ref.span,
+                actualZoom = z,
+                tileX = ref.x,
+                tileY = ref.y,
+                tileZ = ref.z.toDouble(),
+                density = density,
+                localPropCache = propCaches.getOrPut(getTileKey(bucket.sourceName, ref)) { HashMap() },
+            ).let {
+                symbols.addAll(it)
+            }
+        }
+
+        /* Upstream's collision index is the screen's, not the world's (`collision_index.ts`), so a
+         * symbol that does not project into the padded viewport is never placed. An overzoomed
+         * ancestor can be many screens wide, so without this the R-tree would fill with symbols
+         * nobody can see. Nothing is overzoomed in the common case, where a bucket is the map tile
+         * itself and every symbol it produced is inside it already. */
+        if (buckets.none { it.ref.span > 1 }) return@withContext Result.success(symbols)
+
+        val worldTiles = 2.0.pow(z)
+        val left = expandedTiles.values.minOf { it.first } / worldTiles
+        val right = (expandedTiles.values.maxOf { it.last } + 1) / worldTiles
+        val top = expandedTiles.keys.min() / worldTiles
+        val bottom = (expandedTiles.keys.max() + 1) / worldTiles
+        Result.success(
+            symbols.filterTo(mutableListOf()) {
+                it.global.x in left..right && it.global.y in top..bottom
+            }
+        )
     }
+
+    /** One style layer laid out over one canonical tile -- upstream's `SymbolBucket`. */
+    private class SymbolBucket(
+        val ref: TileRef,
+        val layerIndex: Int,
+        val styleLayer: SymbolLayer,
+        val sourceName: String,
+    )
 
     fun updateSymbols(nextSymbols: List<Symbol>, state: MapState, viewportInfo: ViewportInfo) {
         // run collision detection if enabled

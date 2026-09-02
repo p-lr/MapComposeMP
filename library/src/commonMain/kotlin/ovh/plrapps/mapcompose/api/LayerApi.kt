@@ -71,6 +71,13 @@ fun MapState.addLayer(
 /**
  * Adds a layer rendered from MapLibre vector tiles.
  *
+ * The map's `levelCount` is the deepest tile `z` this layer will be asked for, and it should be
+ * chosen for the deepest zoom the app wants to offer rather than for the style's sources' `maxzoom`.
+ * A source that runs out of tiles is *overzoomed*, as it is in maplibre-gl-js: the deepest ancestor
+ * tile is re-rendered at the display zoom rather than the layer going blank. Setting `levelCount` to
+ * a source's `maxzoom + 1` therefore caps the map at that source's data, which is almost never what
+ * a vector style wants.
+ *
  * @param superSamplingFactor Renders each tile this many times larger and filters it back down,
  * trading `factor²` rasterization cost for cleaner hairlines and text. Tiles are already rasterized
  * at the size they are drawn at, so `1` — the default — is never stretched; raising it only refines
