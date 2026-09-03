@@ -73,26 +73,35 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
 
         val fillColor = color.withOpacity(opacity)
 
+        /* A radial gradient is positioned in draw-scope coordinates rather than relative to the
+         * shape it fills, so the brush itself has to be rebuilt per circle -- but its colour stops
+         * do not depend on the centre, and a feature is commonly hundreds of vertices. */
+        val stops = blurColorStops(fillColor, blur)
+        val strokePaintColor = strokeColor.withOpacity(strokeOpacity)
+        val strokeStyle = if (strokeWidth > 0f) Stroke(width = strokeWidth) else null
+
         canvas.withTranslate(translate, translateAnchor) {
             for (point in points) {
                 val center = Offset(point.x.toFloat(), point.y.toFloat())
 
-                // The gradient has to be rebuilt per circle: a radial gradient is positioned in
-                // draw-scope coordinates, not relative to the shape it fills.
-                val fillBrush = blurBrush(fillColor, blur, radius, center)
-                if (fillBrush != null) {
+                if (stops != null) {
+                    val fillBrush = Brush.radialGradient(
+                        colorStops = stops,
+                        center = center,
+                        radius = radius,
+                    )
                     drawCircle(brush = fillBrush, radius = radius, center = center, style = Fill)
                 } else {
                     drawCircle(color = fillColor, radius = radius, center = center, style = Fill)
                 }
 
-                if (strokeWidth > 0f) {
+                if (strokeStyle != null) {
                     // The stroke sits outside the fill, so its centreline is half a stroke out.
                     drawCircle(
-                        color = strokeColor.withOpacity(strokeOpacity),
+                        color = strokePaintColor,
                         radius = radius + strokeWidth / 2f,
                         center = center,
-                        style = Stroke(width = strokeWidth)
+                        style = strokeStyle
                     )
                 }
             }
@@ -100,22 +109,21 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
     }
 
     /**
-     * The feathered fill for a non-zero `circle-blur`, or `null` when the circle is solid.
+     * The colour stops of the feathered fill for a non-zero `circle-blur`, or `null` when the
+     * circle is solid.
      *
      * The shader keeps the disc at full opacity out to `1 / (1 + blur)` of the radius and fades to
-     * nothing at the edge, so a blur of 1 leaves only the centre point opaque.
+     * nothing at the edge, so a blur of 1 leaves only the centre point opaque. Nothing here depends
+     * on the circle's centre or radius, which is why the caller builds the stops once per feature
+     * and only the `Brush` per vertex.
      */
-    private fun blurBrush(color: Color, blur: Float, radius: Float, center: Offset): Brush? {
+    private fun blurColorStops(color: Color, blur: Float): Array<Pair<Float, Color>>? {
         if (blur <= 0f) return null
         val solidStop = (1f / (1f + blur)).coerceIn(0f, 0.999f)
-        return Brush.radialGradient(
-            colorStops = arrayOf(
-                0f to color,
-                solidStop to color,
-                1f to color.copy(alpha = 0f),
-            ),
-            center = center,
-            radius = radius,
+        return arrayOf(
+            0f to color,
+            solidStop to color,
+            1f to color.copy(alpha = 0f),
         )
     }
 }
