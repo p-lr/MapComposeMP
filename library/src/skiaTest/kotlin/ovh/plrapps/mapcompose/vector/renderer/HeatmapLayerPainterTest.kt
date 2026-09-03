@@ -62,6 +62,35 @@ class HeatmapLayerPainterTest {
     }
 
     @Test
+    fun `pixels beyond every kernel are the ramp's density-0 colour`() = runTest {
+        // The resample loop only covers the cells a kernel actually reached; everywhere else the
+        // field is zero, so `sampleColorRamp` at 0 -- `ramp[0]` -- is what must come out. A ramp
+        // that is *opaque* at density 0 is the case that catches a skipped fill rather than a
+        // skipped sample.
+        val opaqueAtZero =
+            """"heatmap-color":["interpolate",["linear"],["heatmap-density"],""" +
+                """0,"rgba(0, 0, 255, 1)",1,"rgba(255, 0, 0, 1)"],"heatmap-radius":12"""
+
+        val bitmap = render(heatmapLayer(opaqueAtZero), listOf(point(8.0, 8.0)))
+
+        assertColorEquals(Color.Blue, bitmap.pixelAt(SIZE - 1, SIZE - 1), message = "far corner")
+        assertColorEquals(Color.Blue, bitmap.pixelAt(SIZE - 1, 0), message = "far along x")
+        assertColorEquals(Color.Blue, bitmap.pixelAt(0, SIZE - 1), message = "far along y")
+        assertTrue(bitmap.pixelAt(8, 8).red > 0.2f, "the point itself must still be hot")
+    }
+
+    @Test
+    fun `a small kernel in one corner leaves the opposite corner clear`() = runTest {
+        val bitmap = render(
+            heatmapLayer("""$densityRamp,"heatmap-radius":12"""),
+            listOf(point(8.0, 8.0)),
+        )
+
+        assertTrue(bitmap.pixelAt(8, 8).alpha > 0.2f, "the point itself must be hot")
+        assertEquals(0f, bitmap.pixelAt(SIZE - 1, SIZE - 1).alpha, "far corner")
+    }
+
+    @Test
     fun `density falls off with distance from the point`() = runTest {
         val bitmap = render(heatmapLayer(densityRamp), listOf(point(32.0, 32.0)))
 

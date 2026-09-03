@@ -11,7 +11,9 @@ import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 /**
  * `fill-pattern` / `line-pattern` / `background-pattern` scaling and world anchoring.
@@ -170,6 +172,57 @@ class PatternBrushCacheTest {
         for (x in 0 until 4) {
             assertColorEquals(stripes[(x + 1) % 4], rolled.pixelAt(x, 0), message = "x=$x")
         }
+    }
+
+    @Test
+    fun `a re-configure with the same scale and phase keeps the built brushes`() {
+        // `TileRenderer` configures the cache before every style layer, not once per tile, and most
+        // of a style's layers are drawn in the same space. Dropping the entries each time would
+        // rebuild the pattern bitmap -- an allocation and four draws -- for every one of them.
+        val sprites = spriteManager(stripeSprite())
+        val cache = PatternBrushCache()
+
+        cache.configure(tileX = 2, tileY = 3, canvasSize = 8, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+        val first = assertNotNull(cache.get(sprites, "stripes"))
+
+        cache.configure(tileX = 2, tileY = 3, canvasSize = 8, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+        assertSame(first, cache.get(sprites, "stripes"))
+    }
+
+    @Test
+    fun `a re-configure with a different phase drops the built brushes`() {
+        val sprites = spriteManager(stripeSprite())
+        val cache = PatternBrushCache()
+
+        cache.configure(tileX = 2, tileY = 3, canvasSize = 6, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+        val first = assertNotNull(cache.get(sprites, "stripes"))
+
+        cache.configure(tileX = 3, tileY = 3, canvasSize = 6, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+        assertNotSame(first, cache.get(sprites, "stripes"))
+    }
+
+    @Test
+    fun `a re-configure with a different scale drops the built brushes`() {
+        val sprites = spriteManager(stripeSprite())
+        val cache = PatternBrushCache()
+
+        cache.configure(tileX = 0, tileY = 0, canvasSize = 8, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+        val first = assertNotNull(cache.get(sprites, "stripes"))
+
+        cache.configure(tileX = 0, tileY = 0, canvasSize = 8, tileZoom = 10.0, actualZoom = 10.0, density = 2f)
+        assertNotSame(first, cache.get(sprites, "stripes"))
+    }
+
+    @Test
+    fun `the first configure always takes effect`() {
+        // The fields start at a reachable configuration -- scale 1, phase 0 -- so "unchanged" must
+        // not be inferred from them, or a cache configured with exactly those would never be armed.
+        val sprites = spriteManager(stripeSprite())
+        val cache = PatternBrushCache()
+        cache.configure(tileX = 0, tileY = 0, canvasSize = 8, tileZoom = 10.0, actualZoom = 10.0, density = 1f)
+
+        val row = rowOf(cache, sprites, 8)
+        for (x in 0 until 8) assertColorEquals(stripes[x % 4], row[x], message = "x=$x")
     }
 
     @Test
