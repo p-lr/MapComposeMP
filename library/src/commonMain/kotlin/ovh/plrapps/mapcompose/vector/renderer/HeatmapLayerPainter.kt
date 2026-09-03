@@ -108,6 +108,13 @@ class HeatmapLayerPainter {
         val density = canvas.density
 
         var anyContribution = false
+        /* The cells any kernel actually reached. Outside them the field stays zero, so the resample
+         * below would only write the ramp's density-0 colour over and over. */
+        var touchedMinCol = dim
+        var touchedMaxCol = -1
+        var touchedMinRow = dim
+        var touchedMaxRow = -1
+
         for (point in points) {
             val weight = paint?.heatmapWeight.processAsDouble(point.properties, actualZoom)
                 ?: StyleSpecDefaults.HEATMAP_WEIGHT
@@ -134,6 +141,10 @@ class HeatmapLayerPainter {
                     if (distanceInRadii > extentInRadii) continue
                     field[row * dim + col] += kernelValue(weight, intensity, distanceInRadii).toFloat()
                     anyContribution = true
+                    if (col < touchedMinCol) touchedMinCol = col
+                    if (col > touchedMaxCol) touchedMaxCol = col
+                    if (row < touchedMinRow) touchedMinRow = row
+                    if (row > touchedMaxRow) touchedMaxRow = row
                 }
             }
         }
@@ -144,13 +155,31 @@ class HeatmapLayerPainter {
          * the usual transparent-at-0 ramp is skipped rather than filled with transparent pixels. */
         if (!anyContribution && ramp[0] ushr 24 == 0) return
 
-        val pixels = IntArray(canvasSize * canvasSize)
-        for (y in 0 until canvasSize) {
+        /* Everywhere the field is zero, `bilinearSample` returns 0 and `sampleColorRamp` returns
+         * `ramp[0]` exactly, so the whole tile outside the touched cells is one flat colour. The
+         * usual ramp is transparent there and a zeroed array already says so; a ramp that is opaque
+         * at density 0 still tints the tile, as upstream's full-screen quad does. */
+        val background = ramp[0]
+        val pixels = if (background == 0) {
+            IntArray(canvasSize * canvasSize)
+        } else {
+            IntArray(canvasSize * canvasSize) { background }
+        }
+
+        /* Two cells of margin covers `bilinearSample`'s neighbouring tap in either direction, with
+         * room to spare -- one cell is DENSITY_DOWNSCALE pixels. */
+        val xFrom = floor((touchedMinCol - 2) * cell).toInt().coerceAtLeast(0)
+        val xTo = ceil((touchedMaxCol + 3) * cell).toInt().coerceAtMost(canvasSize - 1)
+        val yFrom = floor((touchedMinRow - 2) * cell).toInt().coerceAtLeast(0)
+        val yTo = ceil((touchedMaxRow + 3) * cell).toInt().coerceAtMost(canvasSize - 1)
+
+        for (y in yFrom..yTo) {
             val sampleY = (y + 0.5) / cell - 0.5
-            for (x in 0 until canvasSize) {
+            val rowOffset = y * canvasSize
+            for (x in xFrom..xTo) {
                 val sampleX = (x + 0.5) / cell - 0.5
                 val t = bilinearSample(field, dim, sampleX, sampleY)
-                pixels[y * canvasSize + x] = sampleColorRamp(ramp, t)
+                pixels[rowOffset + x] = sampleColorRamp(ramp, t)
             }
         }
 

@@ -78,14 +78,11 @@ class VectorRasterizer(
     // Keep size modest; raw bytes remain available in byteCache for cheap re-decoding.
     private val tileCache = LruCache<String, Tile>(maxSize = 30)
     private val byteCache = LruCache<String, ByteArray>(maxSize = 100)
-    // Rendered tile output (PNG bytes). Cache hit avoids full geometry re-render.
-    private val renderedByteCache = LruCache<String, ByteArray>(maxSize = 50)
     private val pathCache = LruCache<String, Any>(maxSize = 200)
     // Separate mutexes per cache eliminate cross-cache contention when tiles render concurrently.
     private val byteCacheMutex = Mutex()
     private val tileCacheMutex = Mutex()
     private val pathCacheMutex = Mutex()
-    private val renderedByteCacheMutex = Mutex()
 
     // Decoded raster tiles. Small: an image tile is megabytes once decoded, and the encoded bytes
     // stay in byteCache for a cheap re-decode.

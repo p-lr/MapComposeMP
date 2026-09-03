@@ -37,7 +37,12 @@ VectorTileStreamProvider (interface)
         → SymbolsProducer  symbols, produced separately so collision runs across the viewport
               → SymbolLayerPainter → TextLabelBuilder → GlyphLayout + GlyphRasterizer
         → CollisionDetector  R-tree over oriented bounding boxes
+  → ImageBitmap.toBytes()  uncompressed BMP, handed to MapCompose's ordinary tile pipeline
 ```
+
+The last step is not decoration. `addVectorLayer` builds a plain `TileStreamProvider`, so a
+rasterized tile has to cross a **byte** boundary and be decoded again by `TileCollector` even though
+both ends hold an `ImageBitmap`. See [Tile encoding](#tile-encoding).
 
 ## Decoders
 
@@ -290,6 +295,24 @@ Every one of these is documented at the file that causes it; this is the index.
   same-coloured hairline would only fatten every polygon and bleed into its neighbour. The property
   itself *is* honoured on the fill, which is drawn through an explicit `Paint`.
 
+**Forced by having no reachable GPU context** — the whole raster path:
+
+- A tile is **rasterized on the CPU into an `ImageBitmap`**, never drawn as geometry into the live
+  canvas and never sampled as a texture. This is structural, not an oversight. A skiko
+  `Surface.makeRenderTarget` needs a `DirectContext`; Compose Multiplatform creates one per window
+  on its own render thread and exposes no accessor, and tiles are rasterized on
+  `IODispatcher.limitedParallelism` workers — background threads with no bound GL or Metal context.
+  On Android a `RenderNode` + `HardwareRenderer` + `ImageReader` pass would run on the GPU but has to
+  read the buffer straight back to the CPU, since the pipeline boundary is bytes; and the heatmap,
+  hillshade and glyph painters are pixel loops that need CPU pixels either way.
+- Drawing the geometry live each frame instead would not be a shortcut round it: `TileCanvas` costs
+  one `drawImageRect` per tile per frame today, where a live path would re-run `LineTessellation`,
+  the heatmap and hillshade loops and the SDF compositing on every frame. It buys crispness at
+  fractional zoom at the cost of frame rate.
+- The consequences that show are listed in their own painters — `raster-fade-duration` and
+  `heatmap-opacity` cannot animate, a raster source is resampled twice, and everything under the
+  bearing group below.
+
 **Forced by having no camera pitch or bearing at rasterization time:**
 
 - `circle-pitch-scale`, `circle-pitch-alignment`, `icon-pitch-alignment`, `text-pitch-alignment` are
@@ -355,10 +378,12 @@ result, recomputed. `cluster` and `lineMetrics` are not supported.
 
 ## Tile resolution
 
-A tile is rasterized at `vectorTileBitmapSize(mapState.tileSize, density, superSamplingFactor)`
+A tile is rasterized at
+`vectorTileBitmapSize(mapState.tileSize, density, superSamplingFactor, magnifyingFactor)`
 (`core/VectorLayer.kt`) and drawn into `mapState.tileSize * relativeScale` device pixels, with
-`relativeScale ∈ (0.5, 1.0]` because `VisibleTilesResolver.getLevel` rounds the level up. Deriving the
-bitmap size from `mapState.tileSize` is what keeps it ≥ the destination. `addVectorLayer`'s
+`relativeScale ∈ (2^(mf-1), 2^mf]` because `VisibleTilesResolver.getLevel` rounds the level up after
+subtracting the magnifying factor. Sizing against `max(density, 2^magnifyingFactor)` is what keeps
+the bitmap ≥ the destination, so a tile is always minified and never stretched. `addVectorLayer`'s
 `superSamplingFactor` renders larger still and filters back down in `VectorRasterizer.getTile`,
 costing `factor²` fill. `VectorLayer` passes the size a tile occupies **on screen**
 (`fullWidth * scale / 2^zoom`) to `produceSymbols`, not `mapState.tileSize` and not the bitmap size:
@@ -367,6 +392,33 @@ every length the symbol painters measure against a tile's geometry lives in -- a
 `symbol-spacing`, `text-padding`, all of them style pixels times `density.density` -- so laying out
 against the unscaled tile size made the geometry `relativeScale` times too small and
 `symbol-spacing` that many times too coarse.
+
+## Tile encoding
+
+`addVectorLayer` returns an ordinary `TileStreamProvider`, so a rasterized tile leaves this package
+as **bytes** and MapCompose's `TileCollector` decodes it back into an `ImageBitmap`. Nothing in the
+vector package controls that boundary; the only thing it controls is the format.
+
+That format is an **uncompressed 32-bit BMP** (`data/extension/BmpEncoder.kt`), not PNG. Deflating a
+tile and inflating it again is by far the most expensive thing that happens to it: on a synthetic
+map-like tile, a 1024×1024 PNG round trip measures ~600 ms against ~13 ms for BMP, almost all of it
+in the encoder. BMP costs bytes instead — 4 MB for that tile against ~1.2 MB — but they live only
+between the encode and the decode. Both decoders on the other side read BMP natively: Android's
+`BitmapFactory` lists it among the supported formats, and Skia has `SkBmpCodec`.
+
+Two things about the encoder are load-bearing:
+
+- **The pixel data is straight alpha.** A tile `ImageBitmap` is `PREMUL`, so both actuals ask for
+  unpremultiplied pixels explicitly — a Skia `readPixels` into `BGRA_8888` / `UNPREMUL`,
+  `Bitmap.getPixels` on Android. Writing the bitmap's own bytes out as if they were straight alpha
+  passes every opaque assertion and saturates every translucent one, which is the same trap
+  `imageBitmapFromArgb` records.
+- **Rows are top-down**, via BMP's negative-height convention, and the alpha channel needs a
+  `BITMAPV4HEADER` with `BI_BITFIELDS` — the older `BITMAPINFOHEADER` has no way to declare an alpha
+  mask at all.
+
+Skia has no BMP *encoder* (`Image.encodeToData` honours only JPEG, PNG and WEBP), which is why this
+one is hand-rolled. It is a 122-byte header plus one pixel copy.
 
 ## Testing
 
@@ -383,6 +435,14 @@ Two source sets, split by what needs a graphics backend:
   an off-screen bitmap and assert `toPixelMap()` colours. Plain `kotlin.test` — never
   `runComposeUiTest`, which fails on androidHostTest and times out on wasm. Support is in
   `skiaTest/.../renderer/PainterTestSupport.kt`.
+
+`BmpRoundTripTest` (in `skiaTest`) is what decides the tile encoding, and it is deliberately
+written against **core's own `decodeFirstLayer`** rather than a re-implementation of it: nothing in
+this package decodes what `toBytes()` writes. Because it runs on all three skia targets it is also
+the answer to "does skiko's wasm build ship a BMP codec" — if it ever fails there alone, the actual
+moves out of `skiaMain` into `desktopMain` + `iosMain` and wasm goes back to PNG. Android has no
+unit-test route at all (androidHostTest cannot allocate an `ImageBitmap`), so its decode is checked
+by running the demo APK.
 
 `*UpstreamTest.kt` files are transcriptions of MapLibre's own unit tests, each naming its upstream
 path and keeping upstream's wording, so a failure can be traced back to a `describe`/`test` block by

@@ -75,8 +75,12 @@ fun isViewportAnchor(anchor: String?): Boolean = anchor == ANCHOR_VIEWPORT
  *   bitmap is therefore rolled by the tile's world offset modulo the pattern's period, which puts
  *   the same phase at the same world position and removes the seam.
  *
- * [configure] is called once per tile before anything is painted. One [TileRenderer] serves one
- * tile, so its cache is per-tile too and the phase never has to key the entries.
+ * [configure] is called once per style layer, before that layer is painted. One [TileRenderer]
+ * serves one tile, so the cache is per-tile and the phase never has to key the entries -- but the
+ * scale and phase do differ between the layer types drawn in geometry space and those drawn in tile
+ * space (see `TileRenderer.render`), so the entries are dropped when either actually changes rather
+ * than on every call. Rebuilding them is not free: [patternTile] allocates a bitmap and draws the
+ * sprite into it four times.
  */
 class PatternBrushCache(maxSize: Int = 64) {
     private val cache = LruCache<String, Brush>(maxSize)
@@ -84,6 +88,10 @@ class PatternBrushCache(maxSize: Int = 64) {
     private var scale: Float = 1f
     private var phaseX: Int = 0
     private var phaseY: Int = 0
+
+    /* The defaults above are a reachable configuration, so "unchanged" cannot be inferred from them
+     * alone -- the first configure() has to take effect whatever it is handed. */
+    private var configured: Boolean = false
 
     /**
      * Sets the tile the following patterns are drawn into.
@@ -101,9 +109,16 @@ class PatternBrushCache(maxSize: Int = 64) {
         actualZoom: Double,
         density: Float,
     ) {
-        scale = density * patternZoomScale(tileZoom, actualZoom)
-        phaseX = tileX * canvasSize
-        phaseY = tileY * canvasSize
+        val nextScale = density * patternZoomScale(tileZoom, actualZoom)
+        val nextPhaseX = tileX * canvasSize
+        val nextPhaseY = tileY * canvasSize
+
+        if (configured && nextScale == scale && nextPhaseX == phaseX && nextPhaseY == phaseY) return
+
+        configured = true
+        scale = nextScale
+        phaseX = nextPhaseX
+        phaseY = nextPhaseY
         cache.clear()
     }
 
