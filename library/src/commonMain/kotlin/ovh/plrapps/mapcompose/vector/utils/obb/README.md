@@ -45,6 +45,9 @@ OBB intersection test uses the Separating Axis Theorem (SAT):
 ## Performance
 - O(n) complexity for intersection test, where n is the number of axes to check
 - For 2D OBB, we need to check 4 axes (2 from each OBB)
+- An OBB is immutable, so its corners, axes and enclosing AABB are computed once in the constructor.
+  `intersects` used to rebuild the corner list once per projection axis, which cost four lists and
+  sixteen points per box per pair test on the collision detector's hot path.
 - Much more precise than AABB, but slower
 - Best used after AABB/R-tree filtering
 

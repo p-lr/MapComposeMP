@@ -880,7 +880,12 @@ class VectorRasterizer(
      * Detects collisions and determines whether the element can be placed or not.
      */
     private fun clearCollision(symbols: List<Symbol>, viewportInfo: ViewportInfo): List<Symbol> {
-        val collisionDetector = CollisionDetector()
+        /* Upstream's collision index is the screen's, padded by `viewportPadding`; a symbol whose
+         * box lands outside that padded rectangle is refused rather than indexed. */
+        val collisionDetector = CollisionDetector(
+            viewportWidth = viewportInfo.size.width.toFloat(),
+            viewportHeight = viewportInfo.size.height.toFloat(),
+        )
         val sortedSymbols = sortForPlacement(symbols)
         val acceptedSymbols = mutableListOf<Symbol>()
         val mapRotationDeg = viewportInfo.angleRad * (180f / kotlin.math.PI.toFloat())
@@ -935,7 +940,7 @@ class VectorRasterizer(
                                             global = Point(candidate.mercatorX, candidate.mercatorY),
                                             placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
                                             spriteAnchorGlobal = symbol.global,
-                                            textOffset = Pair(candidate.dx, candidate.dy),
+                                            textOffset = Offset(candidate.dx, candidate.dy),
                                         )
                                     )
                                     acceptedSymbols.add(
@@ -977,14 +982,9 @@ class VectorRasterizer(
                         }
                     } else {
                         val textViewportPlacement = textPlacement?.let { textPlace ->
-                            val spriteHeight = symbol.spriteSize.height.toFloat()
-                            val verticalGap = symbol.verticalGap
-                            val textHeight = symbol.textSize.height.toFloat()
-
-                            val textOffsetY = spriteHeight / 2f + verticalGap + textHeight / 2f
-                            // SpriteWithText is viewport-aligned: text is always directly below the
-                            // sprite in screen space, regardless of map rotation.
-                            val textViewportPos = Offset(viewportPos.x, viewportPos.y + textOffsetY)
+                            // SpriteWithText is viewport-aligned: the label keeps its offset from
+                            // the sprite in screen space, regardless of map rotation.
+                            val textViewportPos = viewportPos + symbol.textOffset
 
                             createViewportLabelPlacement(
                                 center = textViewportPos,

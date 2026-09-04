@@ -8,6 +8,23 @@ import kotlin.test.assertTrue
 
 class RtreeTest {
     @Test
+    fun `test findSeeds picks the two most distant boxes`() {
+        // The quadratic split maximises wasted area, which is negative for disjoint boxes. Seeded
+        // with Float.MIN_VALUE -- the smallest *positive* float -- the comparison never fired and
+        // the seeds were always entries 0 and 1.
+        val rtree = Rtree<String>()
+        val boxes = listOf(
+            AABB(0f, 0f, 10f, 10f),     // 0, adjacent to 1
+            AABB(11f, 0f, 21f, 10f),    // 1
+            AABB(0f, 900f, 10f, 910f),  // 2, far from everything
+            AABB(900f, 0f, 910f, 10f),  // 3, far from everything
+        )
+
+        val (seed1, seed2) = rtree.findSeeds(boxes) { it }
+        assertEquals(setOf(2, 3), setOf(seed1, seed2))
+    }
+
+    @Test
     fun `test basic insertion and search`() {
         val rtree = Rtree<String>()
         val aabb1 = AABB(0f, 0f, 10f, 10f)

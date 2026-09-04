@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.spec.style.props
 
 import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import ovh.plrapps.mapcompose.vector.data.json
@@ -50,6 +51,37 @@ class ExpressionOrValueTest {
         assertEquals("medium", expr.processAsString(zoom = 10.0))
         assertEquals("medium", expr.processAsString(zoom = 14.9))
         assertEquals("large", expr.processAsString(zoom = 15.0))
+    }
+
+    @Test
+    fun interpolateOverNumberArraysCompiles() {
+        /* `text-offset` is `array<number, 2>` in the style spec, but the expected type derived here
+         * from the property's Kotlin serializer (`List<Double>`) carries no length, and upstream's
+         * own check rejects a length-less array as not interpolatable. `Interpolate` therefore takes
+         * the output type from its stops -- a literal pair types as `array<number, 2>`. Without
+         * that, every zoom-driven `text-offset` in a real style failed to compile and the property
+         * silently fell back to its spec default of `[0, 0]`. */
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(ListSerializer(Double.serializer())),
+            """["interpolate",["exponential",0.8],["zoom"],13,["literal",[0,1.1]],18,["literal",[0,1.7]]]""",
+        )
+        assertTrue(expr is ExpressionOrValue.Expression)
+        // Below the first stop the value is clamped, as it is for a scalar.
+        assertEquals(listOf(0.0, 1.1), expr.processAsDoubleList(zoom = 12.0))
+        assertEquals(listOf(0.0, 1.7), expr.processAsDoubleList(zoom = 18.0))
+        val middle = expr.processAsDoubleList(zoom = 15.5)!!
+        assertEquals(0.0, middle[0])
+        assertTrue(middle[1] > 1.1 && middle[1] < 1.7, "expected an interpolated offset, got $middle")
+    }
+
+    @Test
+    fun interpolateOverAnUninterpolatableTypeStillFails() {
+        // The length-less-array allowance must not turn the type check off altogether.
+        val expr = bare.decodeFromString(
+            ExpressionOrValueSerializer(ListSerializer(String.serializer())),
+            """["interpolate",["linear"],["zoom"],0,["literal",["a"]],1,["literal",["b"]]]""",
+        )
+        assertTrue(expr is ExpressionOrValue.Invalid)
     }
 
     @Test

@@ -129,6 +129,10 @@ class Interpolate(
 
         private val INTERPOLATABLE_TYPES = listOf(NumberType, ColorType)
 
+        /** An `array<number>` whose length the property's expected type did not carry. */
+        private fun isLengthlessNumberArray(type: ExprType): Boolean =
+            type is ArrayType && type.itemType == NumberType && type.n == null
+
         fun parser(operator: String): (List<Any?>, ParsingContext) -> Expression? = { args, context ->
             parse(operator, args, context)
         }
@@ -177,11 +181,22 @@ class Interpolate(
             val stops = mutableListOf<Pair<Double, Expression>>()
 
             var outputType: ExprType? = null
+            val expected = context.expectedType
             if (operator == "interpolate-hcl" || operator == "interpolate-lab") {
                 outputType = ColorType
-            } else if (context.expectedType != null && context.expectedType != ValueType) {
-                outputType = context.expectedType
+            } else if (expected != null && expected != ValueType && !isLengthlessNumberArray(expected)) {
+                outputType = expected
             }
+            /* **Divergence, forced by how a property's expected type is derived.** Upstream reads it
+             * from the style spec, where `text-offset` is `array<number, 2>` and `icon-text-fit-
+             * padding` is `array<number, 4>`; here it comes from the property's Kotlin serializer
+             * (`ExpressionOrValueSerializer.descriptorToType`), and a `List<Double>` carries no
+             * length. Forcing that length-less `array<number>` on as the output type fails the
+             * `resolved.n != null` test below -- upstream's own -- so every `["interpolate", ...,
+             * ["literal", [0, 1.1]], ...]` in a real style was rejected and the property fell back to
+             * its spec default. Leaving the output type to the stops recovers it: a literal pair
+             * types as `array<number, 2>`, and the remaining stops are checked against that, which is
+             * exactly what upstream does when a property has no expected type. */
 
             val rest = args.drop(3)
             var i = 0

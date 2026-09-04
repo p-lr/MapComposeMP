@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextMeasurer
@@ -16,6 +17,7 @@ import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphPbfFixtures
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
 import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
+import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
@@ -122,7 +124,8 @@ class SymbolLayerPainterTest {
         feature: Tile.Feature = point(),
         properties: Map<String, Any?> = emptyMap(),
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
-    ): List<Symbol> = painter().produceSymbol(
+        sprites: SpriteManager? = spriteManager(),
+    ): List<Symbol> = painter(sprites).produceSymbol(
         feature = feature,
         style = layer,
         canvasSize = CANVAS,
@@ -721,6 +724,101 @@ class SymbolLayerPainterTest {
                 listOf(true, true, false),
                 combined.textCandidates.map { it.dy != 0f },
             )
+        }
+    }
+
+    @Test
+    fun `the icon's size does not enter the label's offset`() {
+        runTest {
+            /* Upstream's `symbol_layout.ts` anchors the icon and the label at the *same* point: the
+             * label is moved by `text-anchor` and `text-offset` alone, never by how big the icon
+             * beside it is. This port used to add half the icon's height on top, which hung every
+             * label about a line too low. */
+            val style = layer(
+                """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                    """"text-anchor":"top"}"""
+            )
+            val small = produce(style, sprites = spriteManager(width = 16, height = 16))
+                .filterIsInstance<Symbol.SpriteWithText>().single()
+            val large = produce(style, sprites = spriteManager(width = 64, height = 64))
+                .filterIsInstance<Symbol.SpriteWithText>().single()
+
+            assertTrue(large.spriteSize.height > small.spriteSize.height)
+            // A `top` anchor lands the box's top edge on the point, so its centre is half a box down.
+            assertEquals(small.textSize.height / 2f, small.textOffset.y)
+            assertEquals(small.textOffset, large.textOffset)
+        }
+    }
+
+    @Test
+    fun `the default text-anchor draws the label on the icon`() {
+        runTest {
+            val combined = produce(
+                layer("""{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"]}""")
+            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            // `text-anchor`'s spec default is `center`: the label's box is centred on the point,
+            // which is the icon's own centre. Nothing pushes it clear -- that is `text-offset`'s job.
+            assertEquals(Offset.Zero, combined.textOffset)
+        }
+    }
+
+    @Test
+    fun `text-offset moves the label by ems of text-size`() {
+        runTest {
+            val combined = produce(
+                layer(
+                    """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                        """"text-anchor":"top","text-offset":[0,1]}"""
+                )
+            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            // One em of the default `text-size`, at density 1, below the top-anchored box's centre.
+            assertEquals(combined.textSize.height / 2f + StyleSpecDefaults.TEXT_SIZE.toFloat(), combined.textOffset.y)
+        }
+    }
+
+    @Test
+    fun `the composite box lands the icon on the feature's point`() {
+        runTest {
+            /* SymbolComposer draws a symbol from its box's top-left corner, offset by `align`, so
+             * `align` has to name where the icon's centre sits within the union of the two boxes. */
+            val combined = produce(
+                layer(
+                    """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                        """"text-anchor":"top"}"""
+                )
+            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            val size = combined.getInPixels()
+
+            assertEquals(
+                maxOf(combined.spriteSize.width, combined.textSize.width) / 2f,
+                -combined.align.x * size.width,
+            )
+            assertEquals(combined.spriteSize.height / 2f, -combined.align.y * size.height)
+            // The label hangs below, so the box is the icon's height plus what the label adds.
+            assertEquals(
+                combined.spriteSize.height / 2f + combined.textOffset.y + combined.textSize.height / 2f,
+                size.height,
+            )
+        }
+    }
+
+    @Test
+    fun `a zoom-driven text-offset reaches the label`() {
+        runTest {
+            /* Real styles express `text-offset` as an `interpolate` over `["literal", [x, y]]`
+             * stops -- swisstopo's `poi_lm` is one. That failed to compile against the length-less
+             * `array<number>` this port derives for a `List<Double>` property, so the offset was
+             * silently the spec default and the label sat on its icon. */
+            val combined = produce(
+                layer(
+                    """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                        """"text-anchor":"top","text-size":16,""" +
+                        """"text-offset":["interpolate",["exponential",0.8],["zoom"],""" +
+                        """13,["literal",[0,1.1]],18,["literal",[0,1.7]]]}"""
+                )
+            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            // `produce` renders at zoom 10, below the first stop, so the offset clamps to 1.1 em.
+            assertEquals(combined.textSize.height / 2f + 1.1f * 16f, combined.textOffset.y)
         }
     }
 
