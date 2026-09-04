@@ -38,7 +38,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolPaint
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.TextAnchor
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlinx.coroutines.sync.Mutex
-import ovh.plrapps.mapcompose.vector.renderer.utils.anchorAlignment
 import ovh.plrapps.mapcompose.vector.renderer.utils.anchorCenterOffset
 import ovh.plrapps.mapcompose.vector.renderer.utils.iconTextFitSize
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
@@ -53,6 +52,7 @@ import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import kotlin.collections.zipWithNext
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -102,7 +102,8 @@ sealed class Symbol(
         val value: LabelArt,
         viewportAligned: Boolean = true,
         val spriteAnchorGlobal: Point? = null,
-        val textOffset: Pair<Float, Float>? = null,
+        /** See [SpriteWithText.textOffset]: the label's offset from the icon it was split from. */
+        val textOffset: Offset? = null,
     ) : Symbol(id, global, placement, viewportAligned = viewportAligned)
 
     class SpriteWithText(
@@ -115,7 +116,15 @@ sealed class Symbol(
         val text: LabelArt,
         val spriteSize: IntSize,
         val textSize: IntSize,
-        val verticalGap: Float,
+        /**
+         * Where the label's centre sits relative to the icon's, in device pixels.
+         *
+         * The icon and the label share the feature's anchor, as upstream's `symbol_layout.ts` has
+         * them do: this is `text-anchor` plus `text-offset` / `text-radial-offset` /
+         * `text-variable-anchor-offset` and `text-translate`, and nothing else -- the icon's own
+         * size never enters it.
+         */
+        val textOffset: Offset,
         val iconOptional: Boolean,
         val textOptional: Boolean,
         val iconOpacity: Float = 1f,
@@ -143,7 +152,7 @@ sealed class Symbol(
             global: Point,
             placement: CompoundLabelPlacement,
             spriteAnchorGlobal: Point? = null,
-            textOffset: Pair<Float, Float>? = null,
+            textOffset: Offset? = null,
         ): Text = Text(
             id = id,
             global = global,
@@ -153,6 +162,9 @@ sealed class Symbol(
             spriteAnchorGlobal = spriteAnchorGlobal,
             textOffset = textOffset,
         )
+
+        /** See [spriteWithTextBounds]. */
+        val bounds: Rect get() = spriteWithTextBounds(spriteSize, textSize, textOffset)
     }
 
     fun draw(drawScope: DrawScope) {
@@ -185,30 +197,27 @@ sealed class Symbol(
 
                 is SpriteWithText -> {
                     rotate(placement.spritePlacement.angle, pivot = symbolCenter) {
-                        // For SpriteWithText offset is already taken into account in the position, you need to correctly place the elements inside the Canvas
-                        // The sprite should be horizontally centered
-                        val spriteLeft = (s.width - spriteSize.width) / 2f
-                        val spriteTop = 0f
-
-                        val textLeft = (s.width - textSize.width) / 2f
-                        /* With icon-text-fit the icon was stretched *around* the label, so the label
-                         * is centred on it; otherwise it hangs below, separated by the gap. */
-                        val textTop = if (textInsideIcon) {
-                            (s.height - textSize.height) / 2f
-                        } else {
-                            spriteSize.height + verticalGap
-                        }
-
+                        /* The drawn box is the union of the icon's and the label's, so each is
+                         * placed by its own centre within it. Where the label sits -- below the
+                         * icon, beside it, or on it -- is entirely [textOffset]'s business. */
+                        val iconCenter = -bounds.topLeft
                         drawStretchedImage(
                             image = sprite,
                             sprite = spriteMeta,
-                            dstOffset = Offset(spriteLeft, spriteTop),
+                            dstOffset = Offset(
+                                iconCenter.x - spriteSize.width / 2f,
+                                iconCenter.y - spriteSize.height / 2f,
+                            ),
                             dstSize = Size(spriteSize.width.toFloat(), spriteSize.height.toFloat()),
                             alpha = iconOpacity,
                         )
-
-                        // Draw text under the sprite
-                        text.draw(this, Offset(textLeft, textTop))
+                        text.draw(
+                            this,
+                            Offset(
+                                iconCenter.x + textOffset.x - textSize.width / 2f,
+                                iconCenter.y + textOffset.y - textSize.height / 2f,
+                            ),
+                        )
                     }
                 }
             }
@@ -217,13 +226,7 @@ sealed class Symbol(
 
     fun getInPixels(): Size {
         return when (this) {
-            is SpriteWithText -> if (textInsideIcon) {
-                Size(spriteSize.width.toFloat(), spriteSize.height.toFloat())
-            } else {
-                val totalWidth = max(spriteSize.width, textSize.width)
-                val totalHeight = (spriteSize.height + verticalGap + textSize.height)
-                Size(totalWidth.toFloat(), totalHeight)
-            }
+            is SpriteWithText -> bounds.size
 
             is Sprite -> Size(drawSize.width.toFloat(), drawSize.height.toFloat())
 
@@ -235,6 +238,20 @@ sealed class Symbol(
         val IN_CENTER = Offset(-0.5f, -0.5f)
     }
 }
+
+/**
+ * The box a [Symbol.SpriteWithText] occupies, in coordinates relative to the **icon's** centre.
+ *
+ * It is the union of the icon's box, centred on the feature's anchor, and the label's, centred on
+ * [textOffset] from it. `SymbolComposer` places a symbol by that box's top-left corner, so the box
+ * is what `align` and `draw` are both written against.
+ */
+fun spriteWithTextBounds(spriteSize: IntSize, textSize: IntSize, textOffset: Offset): Rect = Rect(
+    left = min(-spriteSize.width / 2f, textOffset.x - textSize.width / 2f),
+    top = min(-spriteSize.height / 2f, textOffset.y - textSize.height / 2f),
+    right = max(spriteSize.width / 2f, textOffset.x + textSize.width / 2f),
+    bottom = max(spriteSize.height / 2f, textOffset.y + textSize.height / 2f),
+)
 
 data class SymbolPlacement(
     val position: ObbPoint,
@@ -869,8 +886,10 @@ class SymbolLayerPainter(
     /**
      * Builds the combined icon-and-label symbol for a point feature.
      *
-     * With `icon-text-fit` the label sits *inside* the icon, which is stretched around it; without
-     * it the label hangs below the icon and `text-anchor` / `text-variable-anchor` decide where.
+     * The icon and the label share the feature's anchor: `text-anchor` / `text-variable-anchor` and
+     * `text-offset` alone say where the label goes, which is upstream's model and what a style's
+     * offsets are authored against. With `icon-text-fit` the label sits *inside* the icon, which is
+     * stretched around it, so every anchor candidate collapses onto the icon's own centre.
      */
     private suspend fun produceSpriteWithText(
         id: String,
@@ -985,32 +1004,7 @@ class SymbolLayerPainter(
         }
 
         /* With icon-text-fit the label is part of the icon, so it neither hangs below it nor takes
-         * a position of its own; the gap and every anchor candidate collapse onto the icon. */
-        val verticalGap = if (textInsideIcon) 0f else 2.0f * density.density
-        val textPosition = if (textInsideIcon) {
-            spritePosition
-        } else {
-            ObbPoint(
-                spritePosition.x,
-                spritePosition.y + spriteSize.height / 2f + verticalGap + textSize.height / 2f,
-            )
-        }
-
-        val textLabelPlacement = labelPlacementOf(
-            text = plainText,
-            center = textPosition,
-            width = textSize.width.toFloat(),
-            height = textSize.height.toFloat(),
-            padding = textPadding,
-            angle = textRotateDeg,
-            layerIndex = layerIndex,
-            layout = layout,
-            featureProperties = featureProperties,
-            actualZoom = actualZoom,
-            overlapMode = textOverlap,
-            ignorePlacement = textIgnorePlacement,
-        )
-
+         * a position of its own: every anchor candidate collapses onto the icon. */
         val anchors: List<TextAnchor> = when {
             textInsideIcon -> listOf(TextAnchor.Center)
             else -> layout.textVariableAnchor?.processAsStringList(featureProperties, actualZoom)
@@ -1022,26 +1016,19 @@ class SymbolLayerPainter(
         val textCandidates: List<TextPlacementCandidate> = anchors.map { candidateAnchor ->
             /* The label is placed by its box: the anchor names the side of the box that lands on
              * the point, and `text-offset` / `text-radial-offset` push it away from there. The icon
-             * takes up room in between, so the box also clears the icon's half-size. */
+             * shares that point and takes no room of its own -- upstream's `symbol_layout.ts` never
+             * adds the icon's size to the text offset, and a style's `text-offset` is authored to
+             * clear the icon it is drawn with. */
             val anchorOffset = anchorCenterOffset(
                 candidateAnchor,
                 textSize.width.toFloat(),
                 textSize.height.toFloat(),
             )
-            val alignment = anchorAlignment(candidateAnchor)
-            val clearance = if (textInsideIcon) {
-                Offset.Zero
-            } else {
-                Offset(
-                    (0.5f - alignment.x) * 2f * (spriteSize.width / 2f + verticalGap),
-                    (0.5f - alignment.y) * 2f * (spriteSize.height / 2f + verticalGap),
-                )
-            }
             val userOffset = textOffsetPx(
                 layout, featureProperties, actualZoom, candidateAnchor, textStyle.fontSize
             )
-            val dx = anchorOffset.x + clearance.x + userOffset.x + textTranslate.x
-            val dy = anchorOffset.y + clearance.y + userOffset.y + textTranslate.y
+            val dx = anchorOffset.x + userOffset.x + textTranslate.x
+            val dy = anchorOffset.y + userOffset.y + textTranslate.y
             val cx = spritePosition.x + dx
             val cy = spritePosition.y + dy
             val norm = tileCoordToNormalized(tileX, tileY, cx.toDouble(), cy.toDouble(), tileZ, canvasSize)
@@ -1067,16 +1054,19 @@ class SymbolLayerPainter(
             )
         }
 
-        /* SymbolComposer positions a symbol by its box's centre; the drawn stack's own centre is
-         * the icon's when the label is inside it, and the icon's centre within the stack otherwise. */
-        val totalHeight = if (textInsideIcon) {
-            spriteSize.height.toFloat()
-        } else {
-            spriteSize.height + verticalGap + textSize.height
-        }
+        /* The label's own placement is the first candidate's -- the style's `text-anchor`, or the
+         * first of its `text-variable-anchor` list. Deriving it here rather than recomputing the
+         * offset keeps one formula for where the label sits. */
+        val primary = textCandidates.first()
+        val primaryOffset = Offset(primary.dx, primary.dy)
+        val textLabelPlacement = primary.labelPlacement
+
+        /* SymbolComposer positions a symbol by its box's top-left corner, which is the icon's centre
+         * shifted by the box's own origin. */
+        val bounds = spriteWithTextBounds(spriteSize, textSize, primaryOffset)
         val centerOffset = Offset(
-            x = -0.5f,
-            y = -((spriteSize.height.toFloat() / 2f) / totalHeight),
+            x = bounds.left / bounds.width,
+            y = bounds.top / bounds.height,
         )
 
         val viewportAligned = resolveViewportAligned(
@@ -1097,7 +1087,7 @@ class SymbolLayerPainter(
             text = textArt,
             spriteSize = spriteSize,
             textSize = textSize,
-            verticalGap = verticalGap,
+            textOffset = primaryOffset,
             iconOptional = layout.iconOptional?.processAsBoolean(featureProperties, actualZoom)
                 ?: StyleSpecDefaults.ICON_OPTIONAL,
             textOptional = layout.textOptional?.processAsBoolean(featureProperties, actualZoom)

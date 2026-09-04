@@ -17,13 +17,17 @@ class OBB(
     private val cos = cos(rotationRad).toFloat()
     private val sin = sin(rotationRad).toFloat()
 
-    // Get the four corners of the OBB
-    fun getCorners(): List<ObbPoint> {
+    /*
+     * Corners, axes and the enclosing AABB are computed once and kept. An OBB is immutable, and
+     * `intersects` used to rebuild the corner list once per projection axis -- four lists and
+     * sixteen points per box per pair test, on the collision detector's hot path.
+     */
+    private val corners: List<ObbPoint> = run {
         val halfWidth = size.width / 2
         val halfHeight = size.height / 2
 
         // Calculate the corners before rotation
-        val corners = listOf(
+        val local = listOf(
             ObbPoint(-halfWidth, -halfHeight),
             ObbPoint(halfWidth, -halfHeight),
             ObbPoint(halfWidth, halfHeight),
@@ -31,7 +35,7 @@ class OBB(
         )
 
         // Rotate and translate each corner
-        return corners.map { corner ->
+        local.map { corner ->
             ObbPoint(
                 x = center.x + corner.x * cos - corner.y * sin,
                 y = center.y + corner.x * sin + corner.y * cos
@@ -39,41 +43,56 @@ class OBB(
         }
     }
 
+    private val axes: List<ObbPoint> = listOf(
+        ObbPoint(cos, sin),      // First axis
+        ObbPoint(-sin, cos)      // Second axis (perpendicular to first)
+    )
+
+    private val aabb: AABB = AABB(
+        minX = corners.minOf { it.x },
+        minY = corners.minOf { it.y },
+        maxX = corners.maxOf { it.x },
+        maxY = corners.maxOf { it.y }
+    )
+
+    // Get the four corners of the OBB
+    fun getCorners(): List<ObbPoint> = corners
+
     // Get the axes of the OBB (normalized)
-    fun getAxes(): List<ObbPoint> {
-        return listOf(
-            ObbPoint(cos, sin),      // First axis
-            ObbPoint(-sin, cos)      // Second axis (perpendicular to first)
-        )
-    }
+    fun getAxes(): List<ObbPoint> = axes
 
     // Project a point onto an axis
     private fun projectPoint(obbPoint: ObbPoint, axis: ObbPoint): Float {
         return obbPoint.x * axis.x + obbPoint.y * axis.y
     }
 
-    // Project all corners onto an axis
-    private fun projectOBB(axis: ObbPoint): Pair<Float, Float> {
-        val corners = getCorners()
-        val projections = corners.map { projectPoint(it, axis) }
-        return Pair(
-            projections.minOrNull() ?: 0f,
-            projections.maxOrNull() ?: 0f
-        )
+    // Project all corners onto an axis, without allocating
+    private fun projectOnto(axis: ObbPoint, into: FloatArray) {
+        var min = Float.MAX_VALUE
+        var max = -Float.MAX_VALUE
+        for (corner in corners) {
+            val p = projectPoint(corner, axis)
+            if (p < min) min = p
+            if (p > max) max = p
+        }
+        into[0] = min
+        into[1] = max
     }
 
     // Check if two OBBs intersect using Separating Axis Theorem
     fun intersects(other: OBB): Boolean {
-        // Get all axes to check
-        val axes = getAxes() + other.getAxes()
+        val a = FloatArray(2)
+        val b = FloatArray(2)
 
-        // Project both OBBs onto each axis
-        for (axis in axes) {
-            val (min1, max1) = projectOBB(axis)
-            val (min2, max2) = other.projectOBB(axis)
+        // Project both OBBs onto each of the four axes
+        for (i in 0 until 4) {
+            val axis = if (i < 2) axes[i] else other.axes[i - 2]
+            projectOnto(axis, a)
+            other.projectOnto(axis, b)
 
-            // If there is a gap, the OBBs do not intersect
-            if (max1 < min2 || max2 < min1) {
+            // If there is a gap, the OBBs do not intersect. Touching counts as intersecting, which
+            // is what upstream's `_queryCell` box test does with its inclusive bounds.
+            if (a[1] < b[0] || b[1] < a[0]) {
                 return false
             }
         }
@@ -83,16 +102,5 @@ class OBB(
     }
 
     // Get the AABB that contains this OBB
-    fun getAABB(): AABB {
-        val corners = getCorners()
-        val xs = corners.map { it.x }
-        val ys = corners.map { it.y }
-        
-        return AABB(
-            minX = xs.minOrNull() ?: 0f,
-            minY = ys.minOrNull() ?: 0f,
-            maxX = xs.maxOrNull() ?: 0f,
-            maxY = ys.maxOrNull() ?: 0f
-        )
-    }
+    fun getAABB(): AABB = aabb
 }
