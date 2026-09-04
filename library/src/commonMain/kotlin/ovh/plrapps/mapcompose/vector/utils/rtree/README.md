@@ -76,6 +76,11 @@ val depth = rtree.depth()
 ```
 
 ## Notes
+- The quadratic split's seed pair is Guttman's: the two entries whose union wastes the most area,
+  `area(union) - area(a) - area(b)`. That expression was inverted and `maxDistance` was seeded with
+  `Float.MIN_VALUE` (the smallest *positive* float) rather than `-Float.MAX_VALUE`, so the
+  comparison never fired and every split silently took entries 0 and 1. Both are fixed; `findSeeds`
+  is `internal` so the choice can be asserted directly.
 - Implementation uses Kotlin Compose structures
 - R-tree is used for fast candidate selection by AABB
 - Precise intersection checks should be performed separately (e.g., using OBB) only for selected candidates

@@ -77,15 +77,29 @@ class Rtree<T>(
         return bestChild
     }
 
-    private fun <T> findSeeds(items: List<T>, getBounds: (T) -> AABB): Pair<Int, Int> {
-        var maxDistance = Float.MIN_VALUE
+    /**
+     * The quadratic split's seed pair: the two entries whose combined bounding box wastes the most
+     * area, i.e. the two that most want to be in different nodes.
+     *
+     * Two things were wrong here. The wasted area is `area(union) - area(a) - area(b)`, and the
+     * expression had that subtraction the other way round, so it was scoring the *closest* pair
+     * highest. And `maxDistance` started at `Float.MIN_VALUE`, the smallest *positive* float, while
+     * every score the flipped expression produced was negative -- so the comparison never fired at
+     * all and the split silently took entries 0 and 1, whatever they were. Between them the two
+     * defects cancelled into "never actually choose seeds"; fixing only one would have been worse
+     * than fixing neither.
+     *
+     * `internal` rather than `private` only so the seed choice can be tested directly.
+     */
+    internal fun <T> findSeeds(items: List<T>, getBounds: (T) -> AABB): Pair<Int, Int> {
+        var maxDistance = -Float.MAX_VALUE
         var seed1 = 0
         var seed2 = 1
         for (i in items.indices) {
             for (j in (i + 1) until items.size) {
                 val bounds1 = getBounds(items[i])
                 val bounds2 = getBounds(items[j])
-                val distance = bounds1.area() + bounds2.area() - bounds1.union(bounds2).area()
+                val distance = bounds1.union(bounds2).area() - bounds1.area() - bounds2.area()
                 if (distance > maxDistance) {
                     maxDistance = distance
                     seed1 = i

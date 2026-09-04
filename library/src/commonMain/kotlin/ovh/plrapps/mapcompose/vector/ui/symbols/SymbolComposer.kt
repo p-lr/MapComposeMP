@@ -44,9 +44,9 @@ internal fun SymbolComposer(
                     val canvasY: Float
                     if (symbol is Symbol.Text && symbol.spriteAnchorGlobal != null && symbol.textOffset != null) {
                         canvasX = (symbol.spriteAnchorGlobal.x * zoomPRState.fullWidth * zoomPRState.scale - x0 +
-                                   symbol.textOffset.first + phaseOffsetPx).toFloat()
+                                   symbol.textOffset.x + phaseOffsetPx).toFloat()
                         canvasY = (symbol.spriteAnchorGlobal.y * zoomPRState.fullHeight * zoomPRState.scale - y0 +
-                                   symbol.textOffset.second).toFloat()
+                                   symbol.textOffset.y).toFloat()
                     } else {
                         canvasX = (symbol.global.x * zoomPRState.fullWidth * zoomPRState.scale - x0 + phaseOffsetPx).toFloat()
                         canvasY = (symbol.global.y * zoomPRState.fullHeight * zoomPRState.scale - y0).toFloat()

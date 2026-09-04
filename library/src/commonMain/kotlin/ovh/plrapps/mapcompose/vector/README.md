@@ -36,7 +36,7 @@ VectorTileStreamProvider (interface)
               → Background / Fill / Line / Circle / Raster / Hillshade / Heatmap painters
         → SymbolsProducer  symbols, produced separately so collision runs across the viewport
               → SymbolLayerPainter → TextLabelBuilder → GlyphLayout + GlyphRasterizer
-        → CollisionDetector  R-tree over oriented bounding boxes
+        → CollisionDetector  R-tree over oriented boxes / circle chains, viewport-bounded
   → ImageBitmap.toBytes()  uncompressed BMP, handed to MapCompose's ordinary tile pipeline
 ```
 
@@ -106,6 +106,14 @@ A glyph's `top` is negative-upward from its pen, so `inkTop = pen - top` and the
 ascent line rather than its baseline. `GlyphLayout` starts a line at
 `lineHeight / 2 + SHAPING_DEFAULT_OFFSET` (upstream's `-17`), which centres the ink in the box the
 painter anchors — the box convention this port uses in place of upstream's anchor-relative one.
+
+**An icon and its label share the feature's anchor**, as they do in upstream's `symbol_layout.ts`:
+the icon is placed by `icon-anchor` / `icon-offset`, the label by `text-anchor` plus `text-offset` /
+`text-radial-offset` / `text-variable-anchor-offset`, and the icon's size never enters the label's
+offset. A style's own `text-offset` is authored to clear the icon it is drawn with, so an implicit
+gap on top of it — which this port used to add, half the icon's height plus 2 dp — hangs every label
+about a text line too low. `spriteWithTextBounds` is the union of the two boxes, and is what
+`SymbolComposer` positions the pair by and what `Symbol.SpriteWithText.align` is derived from.
 
 Layout: `icon-image`, `-size`, `-anchor`, `-offset`, `-rotate`, `-padding`, `-keep-upright`,
 `-allow-overlap`, `-overlap`, `-ignore-placement`, `-optional`, `-rotation-alignment`,
@@ -347,7 +355,37 @@ Every one of these is documented at the file that causes it; this is the index.
   coordinate-quantized cache rather than by upstream's placement history. One tree stands in for
   upstream's two `GridIndex`es: `*-ignore-placement` is the *insert* side only, as it is upstream
   (`collision_index.ts`'s `grid` vs `ignoredGrid`) -- such a symbol blocks nobody but is still
-  tested against everybody, which is `*-allow-overlap`'s job and not this property's.
+  tested against everybody, which is `*-allow-overlap`'s job and not this property's. The second
+  grid is not needed because its only upstream reader is `queryRenderedSymbols`, which is not ported.
+- **The index holds oriented boxes where upstream's holds axis-aligned ones**, and that is
+  deliberate: upstream replaces a rotated box by its envelope back in `collision_feature.ts`
+  ("Collision features require an 'on-axis' geometry, so take the envelope of the rotated
+  geometry"), and again in `_projectCollisionBox` via `getAABB(points)`. Keeping the real
+  orientation means two crossing road labels pack as tightly as their bodies allow rather than as
+  their envelopes do, so this port suppresses strictly less than MapLibre, never more. The R-tree's
+  AABB query is the broad phase; `OBB.intersects` (separating axis) is the exact test.
+- **A symbol may also be a chain of circles** (`LabelPlacement.circles`), upstream's
+  `placeCollisionCircles` against `placeCollisionBox`, because the straight envelope of a label
+  following a curve claims far more ground than the label covers. The detector handles a chain
+  wherever one arrives -- `renderer/collision/CollisionGeometry.kt` ports `_circlesCollide` and
+  `_circleAndRectCollide` from `grid_index.ts` and adds the circle-against-oriented-box test
+  upstream has no need of, and `insert` adds one R-tree entry per circle as `insertCollisionCircles`
+  adds one grid circle per circle. **Nothing generates a chain yet**: building it needs the label's
+  projected path, which belongs to the symbol placement pass, so a line label is still one straight
+  box today.
+- **The index is bounded by the padded viewport**, as upstream's grid is: `CollisionDetector` takes
+  the viewport size and refuses -- neither places nor indexes -- a symbol whose box falls entirely
+  outside the viewport grown by `VIEWPORT_PADDING`, upstream's `viewportPadding = 100`. A symbol
+  inside that margin still competes, which is what keeps labels near the edge from reshuffling as
+  the map pans. The refusal comes before the overlap mode is consulted, so `*-allow-overlap` does
+  not exempt a symbol from it, exactly as upstream folds `!isInsideGrid` into `unplaceable`.
+  Upstream's companion `isOffscreen` is not ported: its only consumer is the placement fade's
+  `skipFade`, and placement here is binary.
+- Not ported, and so behaving as upstream does at its defaults: collision *groups*
+  (`CollisionGroups`, `crossSourceCollisions`) -- upstream defaults to one group for all sources,
+  which is what this port always does, but there is no way to ask for per-source groups. Everything
+  gated on a camera is absent for want of one: `perspectiveRatioCutoff`, the globe occlusion tests,
+  and the pitched-label projection in `_projectCollisionBox`.
 - Line labels are de-duplicated *within* a tile by upstream's own `anchorIsTooClose` -- a repeat of
   the same text within half a `symbol-spacing` of an anchor already taken is dropped before it
   reaches collision -- and *across* tiles by suppressing a repeat within
