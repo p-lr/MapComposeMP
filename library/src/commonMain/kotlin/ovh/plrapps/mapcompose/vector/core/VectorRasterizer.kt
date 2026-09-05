@@ -2,8 +2,6 @@ package ovh.plrapps.mapcompose.vector.core
 
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
@@ -30,42 +28,34 @@ import kotlinx.io.RawSource
 import kotlinx.io.buffered
 import kotlinx.io.readByteArray
 import ovh.plrapps.mapcompose.core.TileMatrix
-import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.AngleRad
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.DemUnpack
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SourceType
-import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_SOURCE
-import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_VIEWPORT_Y
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
-import ovh.plrapps.mapcompose.vector.renderer.CompoundLabelPlacement
 import ovh.plrapps.mapcompose.vector.renderer.DemTile
 import ovh.plrapps.mapcompose.vector.renderer.NeighbourTile
 import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
-import ovh.plrapps.mapcompose.vector.renderer.Symbol
-import ovh.plrapps.mapcompose.vector.renderer.SymbolsProducer
-import ovh.plrapps.mapcompose.vector.renderer.TextPlacementCandidate
 import ovh.plrapps.mapcompose.vector.renderer.TileRenderer
-import ovh.plrapps.mapcompose.vector.renderer.collision.CollisionDetector
-import ovh.plrapps.mapcompose.vector.renderer.collision.LabelPlacement
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.symbol.CrossTileSymbolIndex
+import ovh.plrapps.mapcompose.vector.symbol.Placement
+import ovh.plrapps.mapcompose.vector.symbol.PlacementOrder
+import ovh.plrapps.mapcompose.vector.symbol.SymbolBucket
+import ovh.plrapps.mapcompose.vector.symbol.SymbolBucketBuilder
+import ovh.plrapps.mapcompose.vector.symbol.SYMBOL_FADE_DURATION_MS
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 import ovh.plrapps.mapcompose.vector.spec.style.HeatmapLayer
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
-import ovh.plrapps.mapcompose.vector.utils.obb.OBB
-import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import pbandk.decodeFromByteArray
 import kotlin.collections.component1
 import kotlin.collections.component2
-import kotlin.math.cos
 import kotlin.math.pow
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 class VectorRasterizer(
     val configuration: MapLibreConfiguration,
@@ -77,8 +67,11 @@ class VectorRasterizer(
     // Decoded protobuf Tile objects are large (up to several MB each in dense areas).
     // Keep size modest; raw bytes remain available in byteCache for cheap re-decoding.
     private val tileCache = LruCache<String, Tile>(maxSize = 30)
-    private val byteCache = LruCache<String, ByteArray>(maxSize = 100)
-    private val pathCache = LruCache<String, Any>(maxSize = 200)
+    /* Encoded tile bytes. Sized well above the decoded-tile cache on purpose: a `tileCache` miss
+     * must cost a re-decode and not a network round trip, because a fetch that fails is what makes
+     * `layoutBuckets` unable to publish a bucket for a tile that is on screen. */
+    private val byteCache = LruCache<String, ByteArray>(maxSize = 256)
+    private val pathCache = LruCache<String, Any>(maxSize = PATH_CACHE_SIZE)
     // Separate mutexes per cache eliminate cross-cache contention when tiles render concurrently.
     private val byteCacheMutex = Mutex()
     private val tileCacheMutex = Mutex()
@@ -138,19 +131,6 @@ class VectorRasterizer(
     /** The source types a tile bitmap is drawn from. Every other type is never fetched. */
     private val TILE_SOURCE_TYPES =
         setOf(SourceType.VECTOR, SourceType.RASTER, SourceType.RASTER_DEM)
-
-    /**
-     * Minimum viewport-pixel distance between repetitions of the same line label *across tiles*.
-     *
-     * Within one tile this is upstream's own rule, `anchorIsTooClose`, applied at layout time from
-     * that layer's `symbol-spacing`. What is left here is the cross-tile half of the job, which
-     * upstream gives to `cross_tile_symbol_index.ts` -- not ported -- so a road whose name is laid
-     * out once per tile it crosses does not carry it twice at the seam. The value mirrors the
-     * default `symbol-spacing` (250 px); the layer's own value is not available at this point.
-     */
-    private val MIN_LINE_LABEL_REPEAT_DIST = 250f
-
-    private val stableAnchorCache = LruCache<String, Int>(maxSize = 1000)
 
     private fun getTileKey(sourceName: String, z: Int, x: Int, y: Int): String {
         return "$sourceName-$z-$x-$y"
@@ -604,38 +584,153 @@ class VectorRasterizer(
         return target
     }
 
-    private val symbolsProducer = SymbolsProducer(
+    private val symbolBucketBuilder = SymbolBucketBuilder(
         textMeasurer = textMeasurerState,
         configuration = configuration,
         pathCache = pathCache,
         pathCacheMutex = pathCacheMutex
     )
 
-    suspend fun produceSymbols(viewport: MVTViewport, tileSize: Int, z: Double): Result<List<Symbol>> = withContext(
+    /**
+     * Laid-out buckets, keyed by the tile *fetched* and the style layer.
+     *
+     * This cache is the point of splitting layout from placement. A bucket is a function of
+     * (canonical tile, style layer, integer zoom) alone, so panning and rotating -- and zooming
+     * within one level -- reuse it, and only [Placement] runs again.
+     */
+    private val symbolBucketCache = LruCache<String, SymbolBucket>(maxSize = SYMBOL_BUCKET_CACHE_SIZE)
+    private val symbolBucketCacheMutex = Mutex()
+
+    /**
+     * What the last layout pass published, keyed as [symbolBucketCache] is.
+     *
+     * Not a second cache: it is one pass's working set, replaced wholesale by the next pass, and it
+     * exists so a tile whose fetch failed can keep the bucket it had rather than leave a hole. The
+     * bucket cache cannot answer that -- a request only reaches the fetch at all because the cache
+     * missed. Written and read by the layout pass alone, which is a single consumer coroutine
+     * (`VectorLayer.startSymbolsProcessing`).
+     */
+    private var lastPublished: Map<String, SymbolBucket> = emptyMap()
+
+    /** Stable symbol identities across tiles and zooms; see [CrossTileSymbolIndex]. */
+    private val crossTileIndex = CrossTileSymbolIndex()
+
+    /** Every symbol layer the style declares, which is what the cross-tile index is pruned against. */
+    private val symbolLayerIds: Set<String> by lazy {
+        configuration.style.layers.filterIsInstance<SymbolLayer>().mapTo(mutableSetOf()) { it.id }
+    }
+
+    /**
+     * Buckets whose tile has left the layout set but whose symbols may still be fading, upstream's
+     * `Tile.holdingForSymbolFade`.
+     *
+     * [CrossTileSymbolIndex] is a faithful port and retires a tile's identities the moment its
+     * bucket is absent from the list it is handed -- which is right, because upstream hands it the
+     * *renderable* tile set, and a tile stays renderable while its symbols fade. This port has no
+     * tile lifecycle to hook, and the list `place` is called with can be transiently short for
+     * reasons that have nothing to do with what is on screen: a layout run still in flight, a tile
+     * whose fetch has not landed, the one-tile ring jittering as the map pans. Every one of those
+     * used to destroy that tile's identities permanently -- the cached, byte-identical
+     * [SymbolBucket] coming back a frame later cannot help, because `bucketInstanceId` is non-zero
+     * and there is no longer an index entry to match it against. Its labels then restarted at
+     * opacity 0 while their old ids were still being faded out over them: the same label drawn
+     * twice, which is what a flicker is here.
+     *
+     * So the *list* holds the departing bucket instead, for [SYMBOL_BUCKET_HOLD_MS], and the index
+     * keeps upstream's semantics untouched. Held buckets are handed to the identity pass alone --
+     * never to [PlacementOrder], because a departed tile's symbols must not compete;
+     * `Placement.result` already carries them at a falling opacity.
+     *
+     * Keyed by the *index slot* a bucket occupies -- its layer and its canonical tile -- and not by
+     * [SymbolBucket.key], which also carries the `span`. The two differ exactly where it matters: an
+     * overzoomed source keeps one canonical tile as the map zooms and grows only its span, so the
+     * bucket being replaced and the one replacing it land on the same slot. Held under its own key
+     * the departing one would be appended after its replacement, and `addBucket` would take it as a
+     * newer version of that slot -- releasing the live bucket's ids and re-indexing the dead one.
+     */
+    private val heldBuckets = mutableMapOf<String, HeldBucket>()
+
+    private class HeldBucket(val bucket: SymbolBucket, var lastSeen: Long)
+
+    /** The cross-tile index's entry key for [bucket]: one per style layer per canonical tile. */
+    private fun indexSlotOf(bucket: SymbolBucket): String =
+        "${bucket.layerId}/${bucket.ref.z}/${bucket.ref.x}/${bucket.ref.y}"
+
+    /** See [heldBuckets]: [buckets] plus whatever left it less than [SYMBOL_BUCKET_HOLD_MS] ago. */
+    private fun heldForSymbolFade(buckets: List<SymbolBucket>, now: Long): List<SymbolBucket> {
+        val present = mutableSetOf<String>()
+        for (bucket in buckets) {
+            val slot = indexSlotOf(bucket)
+            present += slot
+            val held = heldBuckets[slot]
+            if (held != null && held.bucket === bucket) held.lastSeen = now
+            else heldBuckets[slot] = HeldBucket(bucket, now)
+        }
+
+        val extra = mutableListOf<SymbolBucket>()
+        val entries = heldBuckets.entries.iterator()
+        while (entries.hasNext()) {
+            val (slot, held) = entries.next()
+            if (slot in present) continue
+            if (now - held.lastSeen >= SYMBOL_BUCKET_HOLD_MS) entries.remove() else extra += held.bucket
+        }
+        return if (extra.isEmpty()) buckets else buckets + extra
+    }
+
+    /** The previous cycle's placement, which seeds the fades and the variable-anchor choices. */
+    private var previousPlacement: Placement? = null
+
+    /**
+     * The order symbols are placed in, memoized.
+     *
+     * It is a function of the buckets alone -- style order, `symbol-z-order` and production order
+     * are all view-independent -- so it survives every viewport update, and re-sorting every symbol
+     * on screen at the placement cadence would undo much of what the split bought.
+     */
+    private var placementOrder: PlacementOrder? = null
+
+    /**
+     * The layout pass over every visible tile: one [SymbolBucket] per style layer per canonical tile.
+     *
+     * Nothing here depends on where the map currently is, only on which tiles are on screen and at
+     * what integer zoom, so the result is cached and reused until that changes.
+     */
+    internal suspend fun layoutBuckets(viewport: MVTViewport, z: Double): Result<LayoutOutcome> = withContext(
         Dispatchers.Default
     ) {
         val density = densityState.value ?: return@withContext Result.failure(LoadTileException("density is null"))
 
-        val symbols = mutableListOf<Symbol>()
-        if (viewport.tileMatrix.isEmpty()) return@withContext Result.success(symbols)
+        if (viewport.tileMatrix.isEmpty()) return@withContext Result.success(LayoutOutcome.Empty)
 
-        val maxTileIndex = (1 shl viewport.zoom.toInt()) - 1
-        val visibleRowMin = viewport.tileMatrix.keys.min()
-        val visibleRowMax = viewport.tileMatrix.keys.max()
-
+        /* Derived from the level being laid out, never from `viewport.zoom`: the two used to be
+         * able to disagree (see `VectorLayer.startSymbolsProcessing`), and a matrix of one level
+         * clamped against another level's bounds resolves the wrong tiles entirely. */
+        val maxTileIndex = (1 shl z.toInt()) - 1
         // Expand by 1 tile in each direction so edge symbols are collision-checked
         // against off-screen content (MapLibre-style viewport padding).
-        val expandedTiles = mutableMapOf<Int, IntRange>()
-        for ((row, cols) in viewport.tileMatrix) {
-            if (cols.isEmpty()) continue
-            expandedTiles[row] = (cols.min() - 1).coerceAtLeast(0)..(cols.max() + 1).coerceAtMost(maxTileIndex)
+        val expandedTiles = mutableMapOf<Int, MutableSet<Int>>()
+
+        fun expandRow(row: Int, cols: IntRange) {
+            if (cols.isEmpty()) return
+            val columns = expandedTiles.getOrPut(row) { mutableSetOf() }
+            for (x in (cols.min() - 1).coerceAtLeast(0)..(cols.max() + 1).coerceAtMost(maxTileIndex)) {
+                columns += x
+            }
         }
-        for (adjRow in listOf(visibleRowMin - 1, visibleRowMax + 1)) {
-            if (adjRow < 0 || adjRow > maxTileIndex) continue
-            val refRow = if (adjRow < visibleRowMin) visibleRowMin else visibleRowMax
-            val refCols = viewport.tileMatrix[refRow] ?: continue
-            if (refCols.isEmpty()) continue
-            expandedTiles[adjRow] = (refCols.min() - 1).coerceAtLeast(0)..(refCols.max() + 1).coerceAtMost(maxTileIndex)
+
+        /* A *set* per row rather than a range, because an infinite-scroll viewport's wrap-around
+         * windows are genuinely disjoint from the main one and a range would have to span the gap
+         * between them -- the whole tile row, for every symbol layer in the style. */
+        for (matrix in listOf(viewport.tileMatrix) + viewport.overflowTileMatrices) {
+            if (matrix.isEmpty()) continue
+            val rowMin = matrix.keys.min()
+            val rowMax = matrix.keys.max()
+            for ((row, cols) in matrix) expandRow(row, cols)
+            for (adjRow in listOf(rowMin - 1, rowMax + 1)) {
+                if (adjRow < 0 || adjRow > maxTileIndex) continue
+                val refRow = if (adjRow < rowMin) rowMin else rowMax
+                expandRow(adjRow, matrix[refRow] ?: continue)
+            }
         }
 
         /* One bucket per *canonical* tile, as upstream. A symbol layer reading an overzoomed source
@@ -645,11 +740,11 @@ class VectorRasterizer(
          * bucket per visible map tile. */
         val symbolLayers = configuration.style.layers.withIndex()
             .mapNotNull { (index, layer) -> (layer as? SymbolLayer)?.let { index to it } }
-        if (symbolLayers.isEmpty()) return@withContext Result.success(symbols)
+        if (symbolLayers.isEmpty()) return@withContext Result.success(LayoutOutcome.Empty)
 
         val refsForSource = mutableMapOf<String, MutableSet<TileRef>>()
-        for ((y, colRange) in expandedTiles) {
-            for (x in colRange) {
+        for ((y, columns) in expandedTiles) {
+            for (x in columns) {
                 val refs = resolveRefs(z = z.toInt(), x = x, y = y)
                 for ((_, styleLayer) in symbolLayers) {
                     val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() } ?: continue
@@ -664,19 +759,36 @@ class VectorRasterizer(
         // Sorted so the placement pass's final tie-break (production order) is stable run to run;
         // upstream orders its tiles too (`style.ts` sorts by overscaledZ then tile id). With nothing
         // overzoomed this is exactly the old tile-outer, layer-inner order.
-        val buckets = symbolLayers.flatMap { (layerIndex, styleLayer) ->
+        val requested = symbolLayers.flatMap { (layerIndex, styleLayer) ->
             val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() }
                 ?: return@flatMap emptyList()
             refsForSource[sourceName].orEmpty().map { ref ->
-                SymbolBucket(ref = ref, layerIndex = layerIndex, styleLayer = styleLayer, sourceName = sourceName)
+                BucketRequest(ref = ref, layerIndex = layerIndex, styleLayer = styleLayer, sourceName = sourceName)
             }
         }.sortedWith(compareBy({ it.ref.z }, { it.ref.y }, { it.ref.x }, { it.layerIndex }))
+
+        val zoomLevel = z.toInt()
+        val cached = mutableMapOf<String, SymbolBucket>()
+        val missing = mutableListOf<BucketRequest>()
+        symbolBucketCacheMutex.withLock {
+            /* The live working set, not a constant. A plain LRU sized below it evicts precisely what
+             * this pass is about to ask for again, so every run rebuilds most of the map's buckets
+             * -- and a rebuilt bucket is one the cross-tile index has to re-derive identities for.
+             * Doubled so the level being left behind during a zoom survives beside the one being
+             * entered; `bucketKey` carries the integer zoom, so both are live at once. */
+            symbolBucketCache.growTo(requested.size * 2)
+            for (request in requested) {
+                val key = bucketKey(request, zoomLevel)
+                val hit = symbolBucketCache.get(key)
+                if (hit != null) cached[key] = hit else missing += request
+            }
+        }
 
         /* Fetched concurrently, as the per-tile fetch used to be: the bucket loop below is
          * sequential, and awaiting one source's tile before starting the next would serialize a
          * multi-source style's requests. */
-        val tiles: Map<String, Tile> = supervisorScope {
-            buckets.map { it.sourceName to it.ref }.distinct()
+        val tiles: Map<String, Tile> = if (missing.isEmpty()) emptyMap() else supervisorScope {
+            missing.map { it.sourceName to it.ref }.distinct()
                 .map { (sourceName, ref) ->
                     getTileKey(sourceName, ref) to async {
                         when (sourceName) {
@@ -694,414 +806,228 @@ class VectorRasterizer(
                 .toMap()
         }
 
+        val retained = lastPublished
+        var unresolved = 0
         val propCaches = mutableMapOf<String, HashMap<String, EvalFeature>>()
-        for (bucket in buckets) {
-            val ref = bucket.ref
-            val tile = tiles[getTileKey(bucket.sourceName, ref)] ?: continue
-
-            symbolsProducer.produce(
-                tile = tile,
-                styleLayer = bucket.styleLayer,
-                layerIndex = bucket.layerIndex,
-                zoom = z,
-                /* [tileSize] is one map tile's size on screen, so the ancestor's is that many times
-                 * larger -- the space every label width, `symbol-spacing` and `text-padding` is
-                 * measured against. */
-                canvasSize = tileSize * ref.span,
-                actualZoom = z,
-                tileX = ref.x,
-                tileY = ref.y,
-                tileZ = ref.z.toDouble(),
-                density = density,
-                localPropCache = propCaches.getOrPut(getTileKey(bucket.sourceName, ref)) { HashMap() },
-            ).let {
-                symbols.addAll(it)
+        for (request in missing) {
+            val ref = request.ref
+            val key = bucketKey(request, zoomLevel)
+            val tile = tiles[getTileKey(request.sourceName, ref)]
+            /* A tile that did not arrive contributes no *new* bucket -- and above all not an
+             * instance-less one. A placeholder bucket is not "this tile has no symbols", it is "we do
+             * not know yet", and handing one to `CrossTileSymbolIndex` installs an *empty*
+             * `TileLayerIndex` at that tile's slot: it releases the ids of the bucket that was there
+             * and matches nothing when the real tile lands, so every label on the tile is handed a
+             * fresh identity and fades in over its own dying copy.
+             *
+             * What it publishes instead is [lastPublished]'s bucket for the same slot, when there is
+             * one. Omitting it altogether leaves a *hole*, and a hole is a fade: every label on that
+             * tile is unplaced from the next cycle on, so it fades out -- and since the layout pass
+             * only re-runs when the tile set or the integer zoom changes, it stays gone until the map
+             * moves and then fades back in. That is the blink. The retained bucket is the same
+             * canonical tile at the same integer zoom, which is exactly the answer the fetch owed.
+             *
+             * A tile that *did* load and simply has no symbols for this layer still yields a real,
+             * cached, instance-less bucket -- that one is an answer, and it must stay in the list. */
+            if (tile == null) {
+                unresolved += 1
+                retained[key]?.let { cached[key] = it }
+                continue
             }
+            val bucket = symbolBucketBuilder.build(
+                tile = tile,
+                styleLayer = request.styleLayer,
+                layerIndex = request.layerIndex,
+                sourceName = request.sourceName,
+                ref = ref,
+                bucketZoom = zoomLevel,
+                density = density,
+                localPropCache = propCaches.getOrPut(getTileKey(request.sourceName, ref)) { HashMap() },
+            )
+            cached[key] = bucket
+            symbolBucketCacheMutex.withLock { symbolBucketCache.put(key, bucket) }
         }
 
-        /* Upstream's collision index is the screen's, not the world's (`collision_index.ts`), so a
-         * symbol that does not project into the padded viewport is never placed. An overzoomed
-         * ancestor can be many screens wide, so without this the R-tree would fill with symbols
-         * nobody can see. Nothing is overzoomed in the common case, where a bucket is the map tile
-         * itself and every symbol it produced is inside it already. */
-        if (buckets.none { it.ref.span > 1 }) return@withContext Result.success(symbols)
+        val published = mutableMapOf<String, SymbolBucket>()
+        val buckets = requested.mapNotNull { request ->
+            val key = bucketKey(request, zoomLevel)
+            cached[key]?.also { published[key] = it }
+        }
+        lastPublished = published
 
-        val worldTiles = 2.0.pow(z)
-        val left = expandedTiles.values.minOf { it.first } / worldTiles
-        val right = (expandedTiles.values.maxOf { it.last } + 1) / worldTiles
-        val top = expandedTiles.keys.min() / worldTiles
-        val bottom = (expandedTiles.keys.max() + 1) / worldTiles
-        Result.success(
-            symbols.filterTo(mutableListOf()) {
-                it.global.x in left..right && it.global.y in top..bottom
-            }
-        )
+        Result.success(LayoutOutcome(buckets = buckets, unresolved = unresolved))
     }
 
-    /** One style layer laid out over one canonical tile -- upstream's `SymbolBucket`. */
-    private class SymbolBucket(
+    /** One style layer over one canonical tile, before its bucket exists. */
+    private class BucketRequest(
         val ref: TileRef,
         val layerIndex: Int,
         val styleLayer: SymbolLayer,
         val sourceName: String,
     )
 
-    fun updateSymbols(nextSymbols: List<Symbol>, state: MapState, viewportInfo: ViewportInfo) {
-        // run collision detection if enabled
-        val symbols = when (this.configuration.collisionDetectionEnabled) {
-            true -> clearCollision(nextSymbols, viewportInfo)
-            else -> nextSymbols
-        }
-
-        state.symbolState.symbols = symbols
-    }
+    /** A bucket is identified by the tile *fetched*, the style layer, and the zoom it was built at. */
+    private fun bucketKey(request: BucketRequest, zoomLevel: Int): String =
+        "${getRenderKey(request.sourceName, request.ref)}-L${request.layerIndex}-z$zoomLevel"
 
     /**
-     * Creates a LabelPlacement with viewport coordinates.
+     * The placement pass, scheduled the way upstream schedules it
+     * (`maplibre-gl-js/src/style/style.ts`'s `_updatePlacement`).
      *
-     * [mapRotationDeg] is added to the OBB rotation only for symbols that rotate with the map
-     * (i.e. line text whose own angle is non-zero). Point symbols keep angle = 0 regardless of
-     * map rotation because their rotation-alignment defaults to "viewport".
-     */
-    private fun createViewportLabelPlacement(
-        center: Offset,
-        originalPlacement: LabelPlacement,
-        mapRotationDeg: Float = 0f
-    ): LabelPlacement {
-        val bounds = originalPlacement.bounds
-        val ownAngle = originalPlacement.angle
-
-        // The dimensions remain the same
-        val rectWidth = bounds.width
-        val rectHeight = bounds.height
-
-        // New bounds relative to viewport center
-        val newBounds = Rect(
-            left = center.x - rectWidth / 2f,
-            top = center.y - rectHeight / 2f,
-            right = center.x + rectWidth / 2f,
-            bottom = center.y + rectHeight / 2f
-        )
-
-        // Line text (non-zero angle) rotates with the map; point symbols stay viewport-aligned.
-        val effectiveAngle = if (ownAngle != 0f) ownAngle + mapRotationDeg else ownAngle
-
-        return originalPlacement.copy(
-            position = ObbPoint(center.x, center.y),
-            bounds = newBounds,
-            obb = OBB(
-                center = ObbPoint(center.x, center.y),
-                size = ovh.plrapps.mapcompose.vector.utils.obb.Size(rectWidth, rectHeight),
-                rotation = effectiveAngle
-            )
-        )
-    }
-
-    /**
-     * Converts normalized Mercator coordinates to viewport (screen) pixel coordinates,
-     * accounting for the current map scale and rotation.
-     */
-    private fun mercatorToViewport(
-        mercatorX: Double,
-        mercatorY: Double,
-        viewportInfo: ViewportInfo
-    ): Offset {
-        val centroidX = viewportInfo.centroidX
-        val centroidY = viewportInfo.centroidY
-        val currentScale = viewportInfo.scale
-
-        var deltaX = mercatorX - centroidX
-        if (viewportInfo.infiniteScrollX) {
-            if (deltaX > 0.5) deltaX -= 1.0
-            else if (deltaX < -0.5) deltaX += 1.0
-        }
-        val deltaY = mercatorY - centroidY
-
-        val viewportCenterX = viewportInfo.size.width.toDouble() / 2.0
-        val viewportCenterY = viewportInfo.size.height.toDouble() / 2.0
-
-        // Scale the map-space delta to screen pixels
-        val scaledDX = deltaX * viewportInfo.fullWidth.toDouble() * currentScale
-        val scaledDY = deltaY * viewportInfo.fullHeight.toDouble() * currentScale
-
-        // Compose rotate(θ) is clockwise, matching x'=dx*cos(θ)-dy*sin(θ); use +angleRad.
-        val angle = viewportInfo.angleRad.toDouble()
-        val viewportX = viewportCenterX + scaledDX * cos(angle) - scaledDY * sin(angle)
-        val viewportY = viewportCenterY + scaledDX * sin(angle) + scaledDY * cos(angle)
-
-        return Offset(viewportX.toFloat(), viewportY.toFloat())
-    }
-
-    /**
-     * Orders symbols for the placement pass: whichever comes first gets the ground it asks for.
+     * The important half is the *refusal*. A placement is not recomputed whenever the view moves:
+     * upstream starts a new one only once the last is no longer [Placement.stillRecent] -- at most
+     * once per fade duration -- and until then the committed decisions are held while the draw pass
+     * keeps re-projecting and re-scaling them. Recomputing per viewport update, which this port did,
+     * makes every near-threshold label re-decide sixty times a second, and that is what a pinch
+     * looked like: shimmering labels.
      *
-     * Style order dominates -- a layer declared later in the style wins over an earlier one -- and
-     * `symbol-z-order` decides the order *within* a layer, as upstream's `SymbolBucket` does:
-     *
-     * - `viewport-y` sorts by screen y, so a symbol nearer the bottom of the map is placed first
-     *   and so drawn on top, which is what makes a field of markers read as a depth ordering;
-     * - `source` keeps the order the tile served, ignoring `symbol-sort-key`;
-     * - `auto`, the default, is `symbol-sort-key` when the layer sets one and `viewport-y`
-     *   otherwise.
+     * Returns how long to wait before reconsidering, or 0 when nothing is pending. Upstream re-enters
+     * `_updatePlacement` on every render frame so a deferred placement is picked up as soon as the
+     * window lapses; this port is driven by viewport events, so the caller retries instead.
      */
-    private fun sortForPlacement(symbols: List<Symbol>): List<Symbol> {
-        return symbols.withIndex()
-            .sortedWith(
-                compareByDescending<IndexedValue<Symbol>> {
-                    it.value.placement.spritePlacement.layerIndex
-                }.thenBy {
-                    withinLayerOrder(it.value)
-                }.thenBy {
-                    it.index
-                }
-            )
-            .map { it.value }
-    }
-
-    /** The `symbol-z-order` comparator's key for one symbol; lower is placed first. */
-    private fun withinLayerOrder(symbol: Symbol): Double {
-        val placement = symbol.placement.spritePlacement
-        return when (placement.zOrder) {
-            SYMBOL_Z_ORDER_SOURCE -> 0.0
-            SYMBOL_Z_ORDER_VIEWPORT_Y -> -symbol.global.y
-            // auto
-            else -> if (placement.hasSortKey) placement.inLayerPriority else -symbol.global.y
+    internal suspend fun place(
+        buckets: List<SymbolBucket>,
+        viewportInfo: ViewportInfo,
+        now: Long,
+    ): PlacementOutcome = withContext(Dispatchers.Default) {
+        /* Identities first, as upstream does before the scheduling decision: fading and the
+         * variable-anchor memory are both keyed on them, a bucket that has not changed keeps the ids
+         * it already has, and whether any changed is half of `placementInputsChanged`. */
+        var symbolBucketsChanged = false
+        val density = densityState.value?.density ?: 1f
+        for ((layerId, layerBuckets) in heldForSymbolFade(buckets, now).groupBy { it.layerId }) {
+            if (crossTileIndex.addLayer(layerId, layerBuckets, density)) symbolBucketsChanged = true
         }
-    }
+        /* Pruned against the *style*, which is what upstream's `pruneUnusedLayers` is for -- a layer
+         * the style no longer has. Pruning against this cycle's buckets instead meant one call whose
+         * list happened to be short, or empty, wiped every identity on the map. */
+        crossTileIndex.pruneUnusedLayers(symbolLayerIds)
 
-    private fun makeStableAnchorKey(symbol: Symbol.SpriteWithText): String {
-        val text = symbol.textCandidates.firstOrNull()?.labelPlacement?.text ?: ""
-        val gx = (symbol.global.x * 100_000.0).toLong()
-        val gy = (symbol.global.y * 100_000.0).toLong()
-        return "${text}_${gx}_${gy}"
-    }
+        val previous = previousPlacement
 
-    /**
-     * Detects collisions and determines whether the element can be placed or not.
-     */
-    private fun clearCollision(symbols: List<Symbol>, viewportInfo: ViewportInfo): List<Symbol> {
-        /* Upstream's collision index is the screen's, padded by `viewportPadding`; a symbol whose
-         * box lands outside that padded rectangle is refused rather than indexed. */
-        val collisionDetector = CollisionDetector(
-            viewportWidth = viewportInfo.size.width.toFloat(),
-            viewportHeight = viewportInfo.size.height.toFloat(),
-        )
-        val sortedSymbols = sortForPlacement(symbols)
-        val acceptedSymbols = mutableListOf<Symbol>()
-        val mapRotationDeg = viewportInfo.angleRad * (180f / kotlin.math.PI.toFloat())
-        // Cross-tile line-label deduplication: track placed viewport positions per text string.
-        val placedLineTextPositions = mutableMapOf<String, MutableList<Offset>>()
+        /* Upstream's `placementInputsChanged`. Its own test is
+         * `!mat4.exactEquals(lastPlacement.transform.modelViewProjectionMatrix, transform.…)` --
+         * "did the view move at all" -- which here is the viewport the last placement was taken
+         * against. */
+        val inputsChanged = symbolBucketsChanged || previous == null || previous.viewport != viewportInfo
 
-        sortedSymbols.forEach { symbol ->
-            val viewportPos = mercatorToViewport(
-                mercatorX = symbol.global.x,
-                mercatorY = symbol.global.y,
-                viewportInfo = viewportInfo
-            )
+        /* Called exactly once per cycle, as upstream calls it once inside `placementSettled`: it
+         * carries `zoomAtLastRecencyCheck` forward. */
+        val settled = previous == null || !previous.stillRecent(now, viewportInfo.fractionalZoom)
 
-            val spritePlacement = symbol.placement.spritePlacement
-            val textPlacement = symbol.placement.textPlacement
-
-            when (symbol) {
-                is Symbol.SpriteWithText -> {
-                    val spriteViewportPlacement = createViewportLabelPlacement(
-                        center = viewportPos,
-                        originalPlacement = spritePlacement,
-                        mapRotationDeg = mapRotationDeg
-                    )
-
-                    if (symbol.textCandidates.isNotEmpty()) {
-                        // Candidate path: try each text position in order, pick the first that fits.
-                        // Used for both text-variable-anchor (multiple candidates) and text-anchor
-                        // (single candidate) — textCandidates is always non-empty for SpriteWithText.
-                        if (!collisionDetector.wouldCollide(spriteViewportPlacement)) {
-                            var placed = false
-                            val stableKey = makeStableAnchorKey(symbol)
-                            val lastIndex = stableAnchorCache.get(stableKey)
-                            val orderedCandidates: List<IndexedValue<TextPlacementCandidate>> =
-                                if (lastIndex != null && lastIndex < symbol.textCandidates.size) {
-                                    listOf(IndexedValue(lastIndex, symbol.textCandidates[lastIndex])) +
-                                        symbol.textCandidates.withIndex().filter { it.index != lastIndex }
-                                } else {
-                                    symbol.textCandidates.withIndex().toList()
-                                }
-                            for ((index, candidate) in orderedCandidates) {
-                                val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
-                                val textVPPlacement = createViewportLabelPlacement(textVP, candidate.labelPlacement, mapRotationDeg)
-                                if (!collisionDetector.wouldCollide(textVPPlacement)) {
-                                    collisionDetector.insert(spriteViewportPlacement)
-                                    collisionDetector.insert(textVPPlacement)
-                                    stableAnchorCache.put(stableKey, index)
-                                    // Text added first: SymbolComposer draws reversed(), so first
-                                    // entries are drawn on top — text should render above sprite.
-                                    acceptedSymbols.add(
-                                        symbol.textOnly(
-                                            id = "${symbol.id}_t",
-                                            global = Point(candidate.mercatorX, candidate.mercatorY),
-                                            placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                                            spriteAnchorGlobal = symbol.global,
-                                            textOffset = Offset(candidate.dx, candidate.dy),
-                                        )
-                                    )
-                                    acceptedSymbols.add(
-                                        symbol.iconOnly(
-                                            id = "${symbol.id}_s",
-                                            placement = CompoundLabelPlacement(spritePlacement, null),
-                                        )
-                                    )
-                                    placed = true
-                                    break
-                                }
-                            }
-                            if (!placed && symbol.textOptional) {
-                                collisionDetector.insert(spriteViewportPlacement)
-                                acceptedSymbols.add(
-                                    symbol.iconOnly(
-                                        id = symbol.id,
-                                        placement = CompoundLabelPlacement(spritePlacement, null),
-                                    )
-                                )
-                            }
-                        } else if (symbol.iconOptional) {
-                            // Sprite collides but icon is optional — try text-only placement.
-                            for (candidate in symbol.textCandidates) {
-                                val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
-                                val textVPPlacement = createViewportLabelPlacement(textVP, candidate.labelPlacement, mapRotationDeg)
-                                if (!collisionDetector.wouldCollide(textVPPlacement)) {
-                                    collisionDetector.insert(textVPPlacement)
-                                    acceptedSymbols.add(
-                                        symbol.textOnly(
-                                            id = "${symbol.id}_t",
-                                            global = Point(candidate.mercatorX, candidate.mercatorY),
-                                            placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                                        )
-                                    )
-                                    break
-                                }
-                            }
-                        }
-                    } else {
-                        val textViewportPlacement = textPlacement?.let { textPlace ->
-                            // SpriteWithText is viewport-aligned: the label keeps its offset from
-                            // the sprite in screen space, regardless of map rotation.
-                            val textViewportPos = viewportPos + symbol.textOffset
-
-                            createViewportLabelPlacement(
-                                center = textViewportPos,
-                                originalPlacement = textPlace,
-                                mapRotationDeg = mapRotationDeg
-                            )
-                        }
-
-                        val spriteCanPlace = !collisionDetector.wouldCollide(spriteViewportPlacement)
-                        val textCanPlace = textViewportPlacement?.let {
-                            !collisionDetector.wouldCollide(it)
-                        } ?: true
-
-                        if (spriteCanPlace && textCanPlace) {
-                            // Use insert() (not tryPlaceLabel) because we already validated both parts
-                            // above. tryPlaceLabel would re-check after sprite is inserted and reject
-                            // the text OBB since padded sprite/text boxes always overlap each other.
-                            collisionDetector.insert(spriteViewportPlacement)
-                            textViewportPlacement?.let { collisionDetector.insert(it) }
-                            acceptedSymbols.add(symbol)
-                        } else if (spriteCanPlace && !textCanPlace && symbol.textOptional) {
-                            collisionDetector.insert(spriteViewportPlacement)
-                            acceptedSymbols.add(
-                                symbol.iconOnly(
-                                    id = symbol.id,
-                                    placement = CompoundLabelPlacement(spritePlacement, spritePlacement),
-                                )
-                            )
-                        } else if (!spriteCanPlace && textCanPlace && symbol.iconOptional && textPlacement != null && textViewportPlacement != null) {
-                            collisionDetector.insert(textViewportPlacement)
-                            acceptedSymbols.add(
-                                symbol.textOnly(
-                                    id = symbol.id,
-                                    global = symbol.global,
-                                    placement = CompoundLabelPlacement(textPlacement, textPlacement),
-                                )
-                            )
-                        }
-                    }
-                }
-
-                is Symbol.Sprite -> {
-                    val spriteViewportPlacement = createViewportLabelPlacement(
-                        center = viewportPos,
-                        originalPlacement = spritePlacement,
-                        mapRotationDeg = mapRotationDeg
-                    )
-
-                    val textViewportPlacement = textPlacement?.let { textPlace ->
-                        createViewportLabelPlacement(
-                            center = viewportPos,
-                            originalPlacement = textPlace,
-                            mapRotationDeg = mapRotationDeg
-                        )
-                    }
-
-                    val spriteCanPlace = !collisionDetector.wouldCollide(spriteViewportPlacement)
-                    val textCanPlace = textViewportPlacement?.let {
-                        !collisionDetector.wouldCollide(it)
-                    } ?: true
-
-                    if (spriteCanPlace && textCanPlace) {
-                        collisionDetector.insert(spriteViewportPlacement)
-                        textViewportPlacement?.let { collisionDetector.insert(it) }
-                        acceptedSymbols.add(symbol)
-                    }
-                }
-
-                is Symbol.Text -> {
-                    // textPlacement is always non-null for Symbol.Text (set in producePointText/produceLineText)
-                    val resolvedTextPlacement = textPlacement ?: return@forEach
-                    val textViewportPlacement = createViewportLabelPlacement(
-                        center = viewportPos,
-                        originalPlacement = resolvedTextPlacement,
-                        mapRotationDeg = mapRotationDeg
-                    )
-
-                    // Cross-tile deduplication for line labels: suppress if a same-text label was
-                    // already placed within MIN_LINE_LABEL_REPEAT_DIST viewport pixels. Point labels
-                    // (viewportAligned = true) rely on collision detection instead.
-                    if (!symbol.viewportAligned) {
-                        val text = resolvedTextPlacement.text
-                        val prev = placedLineTextPositions[text]
-                        if (prev != null && prev.any { placed ->
-                                val dx = viewportPos.x - placed.x
-                                val dy = viewportPos.y - placed.y
-                                sqrt(dx * dx + dy * dy) < MIN_LINE_LABEL_REPEAT_DIST
-                            }) {
-                            return@forEach
-                        }
-                    }
-
-                    if (!collisionDetector.wouldCollide(textViewportPlacement)) {
-                        collisionDetector.insert(textViewportPlacement)
-                        acceptedSymbols.add(symbol)
-                        if (!symbol.viewportAligned) {
-                            placedLineTextPositions
-                                .getOrPut(resolvedTextPlacement.text) { mutableListOf() }
-                                .add(viewportPos)
-                        }
-                    }
-                }
+        if (previous == null || (settled && (inputsChanged || previous.isStale))) {
+            val order = placementOrder?.takeIf { it.matches(buckets) } ?: PlacementOrder(buckets).also {
+                placementOrder = it
             }
-        }
 
-        return acceptedSymbols
+            val placement = Placement(
+                viewportInfo = viewportInfo,
+                zoom = viewportInfo.fractionalZoom,
+                collisionDetectionEnabled = configuration.collisionDetectionEnabled,
+            )
+            placement.placeBuckets(order, previous)
+            placement.commit(previous, now)
+            previousPlacement = placement
+            PlacementOutcome(result = placement.result(previous), retryInMs = 0L)
+        } else {
+            /* Upstream's "mark it stale to ensure that we request another render frame"; if nothing
+             * changed it stays clean and the map can go idle. */
+            if (inputsChanged) previous.setStale()
+            PlacementOutcome(
+                result = null,
+                retryInMs = if (previous.isStale) previous.recencyRemainingMs(now).coerceAtLeast(1L) else 0L,
+            )
+        }
     }
 }
+
+/**
+ * The **floor** on how many laid-out symbol buckets to keep; the real size is the viewport's.
+ *
+ * A bucket is one style layer over one canonical tile, and the layout pass covers the visible tile
+ * matrix plus a one-tile ring for *every* symbol layer in the style, so the live count is
+ * `(rows + 2) * (cols + 2) * symbolLayers` -- and real styles have a lot of those layers: 28 in
+ * `test_style_bright.json`, 33 in `test_style_street_v2.json`. A phone showing a 3x4 matrix is
+ * already `5 * 6 * 28 = 840`, and two adjacent integer zooms are live at once during a pinch because
+ * `bucketKey` carries the zoom, so no constant can be right for every viewport. This one was sized
+ * from the nine tiles of a *unit-test* viewport, which put it an order of magnitude under a phone's
+ * working set: the cache then evicted precisely what the next run asked for, the layout pass rebuilt
+ * most of the map every time it ran, and each rebuilt bucket forced the cross-tile index to
+ * re-derive its identities -- the thing the layout/placement split exists to stop.
+ *
+ * [ovh.plrapps.mapcompose.vector.utils.LruCache.growTo] raises it to the live set on every layout
+ * pass; this is only what an empty or tiny viewport falls back to.
+ */
+private const val SYMBOL_BUCKET_CACHE_SIZE = 512
+
+/**
+ * How long a bucket that has left the layout set keeps its cross-tile identities.
+ *
+ * Two intervals have to fit inside it. A placement runs at most once per fade duration
+ * ([Placement.stillRecent]), so a bucket has to survive a whole cycle of absence before its
+ * disappearance can be called real rather than a list that was transiently short. And once it is
+ * real, the symbols on it are still fading out for a fade duration more -- upstream's
+ * `Tile.holdingForSymbolFade`. Hence the sum.
+ */
+private val SYMBOL_BUCKET_HOLD_MS = 2 * SYMBOL_FADE_DURATION_MS
+
+/**
+ * How many built `Path`s and rasterized labels to keep.
+ *
+ * Shared between the tile painters' geometry and `TextLabelBuilder`'s label bitmaps, and sized for
+ * the same nine-tiles-by-N-layers reason as [SYMBOL_BUCKET_CACHE_SIZE]: a dense tile carries
+ * hundreds of distinct labels, and at 200 entries a label was re-shaped and re-rasterized nearly
+ * every time its bucket was rebuilt.
+ */
+private const val PATH_CACHE_SIZE = 1024
+
+/**
+ * What one call to [VectorRasterizer.layoutBuckets] produced.
+ *
+ * [unresolved] counts the requests whose tile did not arrive. Such a request still contributes the
+ * bucket the previous pass published for it, so nothing on screen loses its labels, but the pass as a
+ * whole is *incomplete*: the layout only re-runs when the tile set or the integer zoom changes, so
+ * without a retry a tile that failed once would keep the bucket it had -- or have none at all, the
+ * first time round -- until the map moved. `VectorLayer` retries while this is non-zero.
+ */
+internal class LayoutOutcome(
+    val buckets: List<SymbolBucket>,
+    val unresolved: Int,
+) {
+    val isComplete: Boolean get() = unresolved == 0
+
+    companion object {
+        val Empty = LayoutOutcome(emptyList(), unresolved = 0)
+    }
+}
+
+/**
+ * What one call to [VectorRasterizer.place] decided.
+ *
+ * [result] is null when the cycle was deferred -- the previous placement is still recent -- and
+ * [retryInMs] then says when to ask again, which is 0 when nothing is pending at all.
+ */
+internal class PlacementOutcome(
+    val result: ovh.plrapps.mapcompose.vector.symbol.PlacementResult?,
+    val retryInMs: Long,
+)
 
 /**
  * Provides information about the current state of the viewport in a MapLibre-like map renderer.
  *
  * @property matrix The current tile transformation matrix, describing how map tiles are projected and positioned in the viewport.
+ * @property overflowMatrices The wrap-around tile windows an infinite-scroll viewport also shows.
+ *   Held apart from [matrix] rather than merged into it: a [TileMatrix] is one contiguous column
+ *   range per row, and merging a window at the far edge of the world with one at the near edge
+ *   claims every tile between them.
  * @property size The pixel size (width and height) of the viewport.
  * @property angleRad The rotation angle of the viewport, in radians.
  * @property pitch The pitch (tilt) of the viewport, in degrees (0 = looking straight down).
- * @property zoom The current zoom level, providing continuous zoom information.
+ * @property zoom The integer tile level currently displayed, which is the zoom symbol layout is
+ *   evaluated at and the zoom a [ovh.plrapps.mapcompose.vector.symbol.SymbolBucket] is built for.
+ * @property fractionalZoom The continuous map zoom, which is what the placement pass evaluates
+ *   `text-size` and `icon-size` at. Layout bakes a symbol at its bucket's zoom; this is what says
+ *   how much smaller than that it should be drawn right now.
  */
 data class ViewportInfo(
     val matrix: TileMatrix,
@@ -1109,6 +1035,7 @@ data class ViewportInfo(
     val angleRad: AngleRad,
     val pitch: Float,
     val zoom: Int,
+    val fractionalZoom: Double = zoom.toDouble(),
 
     // Snapshot values
     val centroidX: Double,
@@ -1118,6 +1045,7 @@ data class ViewportInfo(
     val fullHeight: Int,
     val infiniteScrollX: Boolean = false,
     val visiblePhases: IntRange = 0..0,
+    val overflowMatrices: List<TileMatrix> = emptyList(),
 )
 
 class LoadTileException(msg: String) : Exception(msg)

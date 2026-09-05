@@ -58,7 +58,7 @@ class ShapedLine(val glyphs: List<ShapedGlyph>, val width: Float)
  *
  * [width] and [height] are the box the label occupies in layout pixels, with the glyphs positioned
  * relative to its top-left corner. Anchoring that box to a point is the painter's job, not this
- * one's -- see the `text-anchor` handling in `SymbolLayerPainter`.
+ * one's -- see the `text-anchor` handling in `SymbolLayerLayout`.
  */
 class ShapedLabel(
     val lines: List<ShapedLine>,
