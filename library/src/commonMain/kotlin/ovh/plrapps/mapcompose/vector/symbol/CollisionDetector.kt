@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 import ovh.plrapps.mapcompose.vector.utils.rtree.AABB
 import ovh.plrapps.mapcompose.vector.utils.rtree.Rtree
