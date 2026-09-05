@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 import kotlin.math.abs
 import kotlin.math.cos

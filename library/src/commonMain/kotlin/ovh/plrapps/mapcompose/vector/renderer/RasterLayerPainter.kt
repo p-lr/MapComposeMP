@@ -60,7 +60,7 @@ class RasterTileImage(
  * it because upstream applies it to alpha alone, which [DrawScope.drawImage]'s `alpha` already does.
  *
  * This does not extend [BaseLayerPainter]: that contract is shaped around a feature, an `extent` and
- * a `source-layer`, and a raster layer has none of them -- the same reason [SymbolsProducer] sits
+ * a `source-layer`, and a raster layer has none of them -- the same reason [SymbolBucketBuilder] sits
  * outside it. The class is stateless, so [TileRenderer] keeps one instance rather than one per
  * layer.
  *

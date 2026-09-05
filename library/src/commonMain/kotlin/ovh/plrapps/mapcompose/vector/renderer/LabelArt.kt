@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
@@ -18,14 +19,27 @@ import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedLabel
  *
  * Both expose the same box, so everything downstream -- anchoring, collision boxes, drawing -- is
  * written once against [width] and [height] rather than against either representation.
+ *
+ * A label is rasterized once, by the layout pass, at the largest size the style asks for while its
+ * bucket is on screen (`text-size` at the bucket's zoom + 1). [draw] then takes the `scale` for the
+ * zoom actually being drawn, which is never greater than 1 -- see
+ * [ovh.plrapps.mapcompose.vector.symbol.getSizeData] -- and is recomputed every frame, as upstream's
+ * size uniforms are. Upstream shades glyphs in the fragment shader at the final screen resolution;
+ * this port resamples, which is the price of laying a label out once rather than once per viewport
+ * update.
+ *
+ * Abstract rather than sealed, and deliberately: [Glyphs] and [Measured] are the only two ways a
+ * label is produced, but nothing matches on the type exhaustively, and a test that needs a label
+ * with a box and no ink -- placement and the cross-tile index read nothing else -- cannot subclass a
+ * sealed class from a test source set.
  */
-sealed class LabelArt {
+internal abstract class LabelArt {
 
     abstract val width: Float
     abstract val height: Float
 
-    /** Draws the label with its box's top-left corner at [topLeft]. */
-    abstract fun draw(scope: DrawScope, topLeft: Offset)
+    /** Draws the label with its box's top-left corner at [topLeft], scaled about that corner. */
+    abstract fun draw(scope: DrawScope, topLeft: Offset, alpha: Float = 1f, scale: Float = 1f)
 
     /** The label's text, which is what cross-tile and repeat-distance de-duplication key on. */
     abstract val text: String
@@ -35,11 +49,15 @@ sealed class LabelArt {
         override val width: Float get() = rendered.boxWidth
         override val height: Float get() = rendered.boxHeight
 
-        override fun draw(scope: DrawScope, topLeft: Offset) {
+        override fun draw(scope: DrawScope, topLeft: Offset, alpha: Float, scale: Float) {
             /* The bitmap is larger than the box -- ascenders, descenders and the halo reach outside
              * it -- so it is placed by the box corner's position *within* the bitmap. */
-            scope.translate(topLeft.x - rendered.boxLeft, topLeft.y - rendered.boxTop) {
-                drawImage(rendered.bitmap)
+            scope.translate(topLeft.x, topLeft.y) {
+                scale(scale, scale, pivot = Offset.Zero) {
+                    translate(-rendered.boxLeft, -rendered.boxTop) {
+                        drawImage(rendered.bitmap, alpha = alpha)
+                    }
+                }
             }
         }
     }
@@ -50,8 +68,12 @@ sealed class LabelArt {
         override val width: Float get() = layout.size.width.toFloat()
         override val height: Float get() = layout.size.height.toFloat()
 
-        override fun draw(scope: DrawScope, topLeft: Offset) {
-            scope.drawText(textLayoutResult = layout, topLeft = topLeft)
+        override fun draw(scope: DrawScope, topLeft: Offset, alpha: Float, scale: Float) {
+            scope.translate(topLeft.x, topLeft.y) {
+                scale(scale, scale, pivot = Offset.Zero) {
+                    drawText(textLayoutResult = layout, topLeft = Offset.Zero, alpha = alpha)
+                }
+            }
         }
     }
 }

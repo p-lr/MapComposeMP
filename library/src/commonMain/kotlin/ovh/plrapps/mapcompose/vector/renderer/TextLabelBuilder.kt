@@ -35,7 +35,7 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * Grouping them keeps the property reads in one place and out of the placement code, and gives the
  * label cache a key: two features whose resolved style is identical share one rasterization.
  */
-class ResolvedTextStyle(
+internal class ResolvedTextStyle(
     val fontStack: List<String>,
     /** `text-size` in **device** pixels. */
     val fontSize: Float,
@@ -79,7 +79,7 @@ class ResolvedTextStyle(
  * declares no `glyphs` URL or the server has no glyph for anything in the label. The fallback is
  * why a style that ships no glyphs still shows labels; its divergences are on [LabelArt.Measured].
  */
-class TextLabelBuilder(
+internal class TextLabelBuilder(
     private val glyphManager: GlyphManager?,
     private val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     private val cache: LruCache<String, Any>,

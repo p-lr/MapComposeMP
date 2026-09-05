@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 import kotlin.math.PI
 import kotlin.math.abs
@@ -45,6 +45,7 @@ class LineLabelPlacement {
             maxAngleDeg: Float = 45f,
             tileExtent: Float = Float.MAX_VALUE,
             fontSize: Float = 0f,
+            overscaling: Int = 1,
         ): List<Pair<Pair<Float, Float>, Float>> {
             if (points.size < 2 || spacing <= 0f) return emptyList()
 
@@ -59,11 +60,22 @@ class LineLabelPlacement {
 
             /* Offset the first anchor by either half the label length plus a fixed extra offset if
              * the line is not continued, or half the spacing if it is. The fixed offset is
-             * upstream's `glyphSize * 2` in glyph units, which is two font sizes in pixels. */
+             * upstream's `glyphSize * 2` in glyph units, which is two font sizes in pixels.
+             *
+             * [overscaling] inside the modulo is upstream's, and it is what makes a line's anchors
+             * *nest* across the zoom levels an overzoomed source is drawn at. Past a source's
+             * `maxzoom` the same canonical tile is laid out again at each display zoom with a
+             * spacing of `S / overscaling`, so without the factor the first anchor sits at
+             * `S / (2 * overscaling)` and the anchor sets of two adjacent levels share **no** point:
+             * every line label is a new symbol at every zoom step, fading in over its own dying copy
+             * and landing somewhere else on the road. With it, the offset is `(S / 2) % (S / ov)`,
+             * so the coarser level's anchors are a subset of the finer level's and the labels keep
+             * their `crossTileID` -- which is exactly why upstream threads `bucket.overscaling` down
+             * into `getAnchors`. */
             val offset = if (!isLineContinued) {
-                ((textWidth / 2f + fontSize * 2f) % effectiveSpacing)
+                ((textWidth / 2f + fontSize * 2f) * overscaling) % effectiveSpacing
             } else {
-                (effectiveSpacing / 2f) % effectiveSpacing
+                (effectiveSpacing / 2f * overscaling) % effectiveSpacing
             }
 
             return resample(

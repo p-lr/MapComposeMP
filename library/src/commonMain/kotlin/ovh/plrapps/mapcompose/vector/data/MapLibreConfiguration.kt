@@ -21,7 +21,7 @@ data class MapLibreConfiguration(
      *
      * A style without one still renders labels: the symbol painter falls back to measuring and
      * drawing them with Compose's own text stack, which ignores `text-font` and approximates the
-     * halo. See `SymbolLayerPainter`.
+     * halo. See `SymbolLayerLayout`.
      */
     val glyphManager: GlyphManager? = null,
     val collisionDetectionEnabled: Boolean = true,

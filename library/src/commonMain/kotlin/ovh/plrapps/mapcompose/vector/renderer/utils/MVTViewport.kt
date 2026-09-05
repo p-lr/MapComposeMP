@@ -8,7 +8,15 @@ data class MVTViewport(
     val bearing: Float,
     val pitch: Float,
     val zoom: Float,
-    val tileMatrix: Map<Int, IntRange>
+    val tileMatrix: Map<Int, IntRange>,
+    /**
+     * The wrap-around windows an infinite-scroll viewport also shows, kept apart from [tileMatrix].
+     *
+     * A `TileMatrix` is one *contiguous* column range per row, so a window at the far edge of the
+     * world cannot be folded into one at the near edge without claiming everything between them --
+     * the whole row. See `VectorLayer.VisibleMatrices`.
+     */
+    val overflowTileMatrices: List<Map<Int, IntRange>> = emptyList(),
 )
 
 val MVTViewport.bbox

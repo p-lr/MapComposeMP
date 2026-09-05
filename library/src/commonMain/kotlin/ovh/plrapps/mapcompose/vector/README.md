@@ -30,13 +30,17 @@ icons, and SDF glyphs from a `glyphs` server.
 
 ```
 VectorTileStreamProvider (interface)
-  → VectorLayer            wires the MapState viewport to the rasterizer
+  → VectorLayer            wires the MapState viewport to the rasterizer, on two cadences
   → VectorRasterizer       fetches and decodes sources, drives one TileRenderer per tile
         → TileRenderer     per-layer gating, then dispatch to a painter
               → Background / Fill / Line / Circle / Raster / Hillshade / Heatmap painters
-        → SymbolsProducer  symbols, produced separately so collision runs across the viewport
-              → SymbolLayerPainter → TextLabelBuilder → GlyphLayout + GlyphRasterizer
-        → CollisionDetector  R-tree over oriented boxes / circle chains, viewport-bounded
+        │
+        │  symbols, in two passes with different lifetimes (see Symbol layout and placement)
+        ├─ SymbolBucketBuilder   layout: one SymbolBucket per canonical tile per style layer
+        │     → SymbolLayerLayout → TextLabelBuilder → GlyphLayout + GlyphRasterizer
+        ├─ CrossTileSymbolIndex  one identity per label, across tiles and zooms
+        └─ Placement             placement: project, collide, fade — held, at most one per 300 ms
+              → CollisionDetector  R-tree over oriented boxes / circle chains, viewport-bounded
   → ImageBitmap.toBytes()  uncompressed BMP, handed to MapCompose's ordinary tile pipeline
 ```
 
@@ -100,7 +104,7 @@ approximate it. A dashed line is cut into its painted runs before tessellation
 A circle is drawn at *every vertex* of the feature, whatever its geometry type, and vertices outside
 the tile are dropped — both straight from upstream's `CircleBucket.addFeature`.
 
-### symbol — `renderer/SymbolLayerPainter.kt`, `renderer/TextLabelBuilder.kt`
+### symbol — `symbol/SymbolLayerLayout.kt`, `renderer/TextLabelBuilder.kt`
 
 A glyph's `top` is negative-upward from its pen, so `inkTop = pen - top` and the pen is the font's
 ascent line rather than its baseline. `GlyphLayout` starts a line at
@@ -134,6 +138,9 @@ Paint: `icon-color`, `-opacity`, `-halo-color`, `-halo-width`, `-halo-blur`, `-t
 `["image", …]` compile and evaluate; a `["format", …]` section's `font-scale`, `text-font` and
 `text-color` are honoured per section. The legacy `{token}` syntax is still expanded, `{name}`
 preferring the configured language's `name:xx`.
+
+Where a symbol ends up on screen, and whether it is drawn at all, is not this file's business — see
+[Symbol layout and placement](#symbol-layout-and-placement).
 
 ### raster — `renderer/RasterLayerPainter.kt`
 
@@ -215,7 +222,9 @@ What happens to the ancestor depends on the source, and here it follows upstream
 Filters and paint properties see the **requested** zoom, not the ancestor's — that is
 `reparseOverscaled: true`, which posts `zoom: tileID.overscaledZ` to upstream's worker. A symbol
 layer is laid out once per *canonical* tile, as one `SymbolBucket` is, so `mergeLines`, `clipLine`,
-the line-anchor walk and `anchorIsTooClose` all see the geometry `symbol_layout.ts` would see.
+the line-anchor walk and `anchorIsTooClose` all see the geometry `symbol_layout.ts` would see. Its
+bucket's layout space is `LAYOUT_TILE_SIZE * span` wide for the same reason the geometry is: the
+ancestor covers that many map tiles.
 
 The pyramid has to be deep enough to ask: MapCompose's `levelCount` is the map's maximum tile `z`,
 and it should be chosen for the deepest zoom an app wants to offer rather than for a source's
@@ -234,6 +243,185 @@ A `geojson` source has no server: the document is projected once when the style 
 Douglas-Peucker, emit an MVT-shaped `Tile`. From `TileRenderer`'s point of view it is an ordinary
 vector tile from then on. The spec forbids a `source-layer` on a layer reading a geojson source, so
 `BaseRenderer.tileLayerFor` takes the tile's only layer when a style layer names none.
+
+## Symbol layout and placement
+
+Symbols run in **two passes with different lifetimes**, as they do upstream. Everything that depends
+only on the data runs once and is cached; everything that depends on where the map currently is runs
+again on every viewport update.
+
+```
+layout    SymbolBucketBuilder → SymbolLayerLayout        once per (canonical tile, style layer, integer zoom)
+          symbol_layout.ts, SymbolBucket.populate        cached in VectorRasterizer, survives pan/rotate/zoom-within-a-level
+              ↓ SymbolBucket: anchors, shaped labels, icon quads, collision boxes, SizeData
+
+identity  CrossTileSymbolIndex                            one crossTileID per conceptual label
+          cross_tile_symbol_index.ts                      matched by text + rounded anchor, across tiles and zooms
+              ↓ SymbolInstance.crossTileID
+
+placement Placement → CollisionDetector                   at most once per fade duration (300 ms)
+          style.ts's _updatePlacement, placement.ts       considered per viewport update, usually deferred
+              ↓ PlacementResult: what to draw, and each symbol's fade state
+
+draw      SymbolComposer                                  every frame; re-projects, re-scales, fades
+```
+
+**Layout is pinned to a constant tile size.** `LAYOUT_TILE_SIZE` is upstream's nominal 512, times the
+display density, and it is what makes the split real. Layout used to be handed the size a tile
+occupies *on screen*, which changes with every fractional zoom, so nothing it produced could outlive
+one viewport update: a pan that fetched no tiles still re-shaped every label, re-walked every line
+and rebuilt every collision box. Every layout-space length — a label's own width, `symbol-spacing`,
+`text-padding`, `icon-padding`, the arc-length walk in `LineLabelPlacement`, `symbol-avoid-edges` —
+is measured against that constant instead, which is upstream's `tilePixelRatio = EXTENT / tileSize`.
+
+**Size expressions bridge the two passes** (`symbol/SymbolSize.kt`, upstream's `symbol_size.ts`). A
+label is shaped and rasterized once, at the bucket's own zoom, but drawn at whatever fractional zoom
+the map is at. So the bucket carries `SizeData` plus, for a size that varies per feature, that
+feature's size at the two zooms bracketing it; the placement pass evaluates those at the zoom being
+drawn and the ratio to the size the label was rasterized at is the scale it is drawn and collided
+at — upstream's `textScale` / `iconScale`. Upstream brackets `[z, z + 1)` and rasterizes at `z + 1`
+so every later scale is a minification; MapCompose's `VisibleTilesResolver` rounds the level *up*, so
+the range here is `(z - 1, z]` and `SymbolSizes` passes `z - 1` to keep that same guarantee.
+
+**An overzoomed source keeps its identities too.** Past a source's `maxzoom` — 14 in
+`test_style_bright.json`, 15 in `test_style_street_v2.json`, so most of the interesting zoom range —
+a bucket's canonical tile stops changing and only its `span` grows. Its layout space is
+`LAYOUT_TILE_SIZE * density * span` wide, so the *same* label sits at twice the `tileAnchor` one zoom
+level up; `TileLayerIndex` divides both factors out before comparing. And because the canonical tile
+is the same, two display zooms land on one index slot, so a replaced entry's ids have to be released
+at the zoom *it* claimed them under rather than the new bucket's. Get either wrong and every label
+past `maxzoom` is a new symbol at every zoom step, which is a fade out and in on each one.
+
+**Cross-tile identity is what makes the rest work.** `CrossTileSymbolIndex` gives the same label in a
+parent and a child tile one `crossTileID`, matched on the text and a rounded anchor. Three things
+key on it: the placement pass skips an id it has already placed this cycle, which de-duplicates a
+road labelled once in every tile it crosses; a fade survives the tile swap on a zoom instead of
+restarting; and a `text-variable-anchor` choice is remembered, so a label does not flick between
+anchors as the map moves. It replaced two stand-ins of this port's own — a rule that dropped a repeat
+of the same text within 250 viewport pixels, and a coordinate-quantized cache of the chosen anchor.
+
+**Fading** (`symbol/OpacityState.kt`) is upstream's `OpacityState` / `JointOpacityState`, over
+upstream's default 300 ms. `Placement.commit` diffs this cycle's decisions against the previous
+cycle's and starts the fades; a symbol that has lost its ground keeps being drawn at falling opacity
+until it is hidden, which is what makes it fade *out* rather than vanish. The fade is *finished* at
+draw time, by adding `PlacementResult.fadeChangeAt` to the committed opacity -- upstream's
+`u_fade_change` uniform and the `fade_opacity[0] + fade_change` line in `symbol_icon.vertex.glsl`.
+
+**A placement is held, not recomputed.** This is `Style._updatePlacement` (`src/style/style.ts`),
+and it is the half of the design that keeps labels steady:
+
+```js
+const placementSettled = this.pauseablePlacement?.isDone() && !this.placement.stillRecent(now(), transform.zoom);
+if (forceFullPlacement || !this.pauseablePlacement || (placementSettled && (placementInputsChanged || this.placement.stale))) { … }
+```
+
+A new placement starts only once the last is no longer `stillRecent` -- at most once per fade
+duration -- and until then the committed decisions stand while the draw pass keeps re-projecting and
+re-scaling them. `VectorRasterizer.place` is that decision; `Placement.stillRecent` / `setStale` /
+`recencyRemainingMs` are its state. Running a placement on every viewport update instead, which this
+port briefly did, makes every near-threshold label re-decide sixty times a second, and a pinch
+shimmers.
+
+`zoomAdjustment` shortens the window when the map has settled *below* the placement's zoom, with
+upstream's reason: "when zooming out quickly, labels can overlap each other ... discovering the
+collisions more quickly and fading them more quickly reduces the unwanted effect". It applies "only
+after the map has stopped zooming", which is what `zoomAtLastRecencyCheck` decides.
+
+**A departing tile's symbols are held through their fade.** A pan or a zoom swaps the bucket set
+wholesale, and a symbol on a tile that just left is no longer among the candidates the fading pass
+walks — so it disappeared in a single frame however opaque it still was, which read as labels
+blinking out just after a gesture. Upstream never sees this because the *tile* is held:
+`Tile.holdingForSymbolFade` keeps it in the render set so its bucket is still walked. There is no
+tile lifecycle to hook here, so `Placement.result` carries those symbols over from the previous
+result instead, for as long as `commit` keeps their opacity alive — bounded, because every commit
+advances the fade. A held symbol is drawn but not re-collided, which upstream's held tile is; its
+symbols share a `crossTileID` with whatever replaced them and are skipped as duplicates anyway.
+
+`result` prefers the previous result's own symbols over the bucket's candidates for anything that is
+no longer placed, because what it holds is *what was actually drawn*. A `SpriteWithText` at a
+`text-variable-anchor` is accepted as two entries under one `crossTileID` — the label and the icon it
+names — so a carry-over that de-duplicates by id dropped one of them, and the icon vanished in a
+single frame while its label faded out over 300 ms. And the candidate for such a symbol is the
+bucket's *un-split* instance, whose label sits at the plain `text-offset` rather than at the anchor
+the symbol settled on, so redrawing it from there made the label jump for the length of its fade.
+`PlacementCarryOverTest` pins both.
+
+**A line's anchors nest across an overzoomed source's zoom steps.** `getAnchors` multiplies the
+first-anchor offset by `bucket.overscaling` before taking it modulo the spacing, and this port did
+not. Past a source's `maxzoom` the same canonical tile is laid out again at every display zoom, over
+a line that is `overscaling` times longer in layout units at an unchanged `symbol-spacing`, so the
+offset decides everything: `(S / 2) % (S / ov)` puts the coarser level's anchors inside the finer
+level's, while `S / (2 * ov)` -- what this had -- makes the two sets share **no** point. Every line
+label was therefore a new symbol at every zoom step, fading in over its own dying copy and landing
+somewhere else along the road. Measured against swisstopo's style through a 14 -> 17 pinch, the port
+went from 143 to 225 matched identities on `transportation_label` and from 0 to 13 on
+`waterway_line_label`, with a fifth to a third fewer identities minted per step.
+`LineLabelPlacementTest` pins the subset property directly.
+
+**A departing tile's *identities* are held too, and for longer.** The fade above only works while a
+symbol keeps its `crossTileID`: `Placement.commit` keys every opacity on it, so a symbol whose id
+changed is new by definition and restarts at opacity 0, while its old id is still in the previous
+cycle's opacities and is faded out on top of it. The same label is drawn twice for a whole fade
+duration, one copy rising and one falling, which composites to a visible dip — a flicker.
+`CrossTileSymbolIndex.removeStaleBuckets` retires a tile's ids the moment its bucket is missing from
+the list it is handed, which is upstream's behaviour and right for upstream, because there the list
+*is* the renderable tile set. Here the list `place` is called with can be transiently short for
+reasons that have nothing to do with what is on screen: a layout run still in flight, a tile whose
+fetch has not landed, the one-tile ring jittering as the map pans. So `VectorRasterizer`'s
+`heldForSymbolFade` keeps a departed bucket in the list it hands the index for
+`SYMBOL_BUCKET_HOLD_MS` — one placement cycle, so the absence can be told from a short list, plus one
+fade — and the index itself is left exactly as upstream wrote it. Held buckets go to the identity
+pass alone, never to `PlacementOrder`.
+
+**Neither pass is cancelled in flight.** `VectorRasterizer.place` and `layoutBuckets` are both
+`withContext` blocks, so cancelling one discards its result while every side effect it already
+applied stands. Both are fed by a `Channel(CONFLATED)` and consumed by one uncancelled coroutine
+(`VectorLayer.startSymbolsProcessing`): the newest request still wins, but the pass already running
+finishes. Layout is the one that made this visible. It awaits every missing tile's fetch, so it lasts
+as long as the network does, while its `LayoutKey` changes at every tile-matrix shift and every
+integer zoom step — under `collectLatest` the run in flight was killed several times a second through
+a gesture and never published at all, and the fetches it had already completed were discarded with it
+(`fetchTile` rethrows `CancellationException` before caching the bytes). Placement went on running
+against a bucket set from before the gesture, and what finally landed swapped the whole set in one
+step.
+
+**An incomplete layout pass is retried, and publishes what it had.** A tile whose fetch failed
+contributes no bucket, because an instance-less placeholder would install an empty `TileLayerIndex`
+over a live tile — but leaving a *hole* is a fade: every label on that tile is unplaced from the next
+cycle on, and the pass only re-runs when the tile set or the integer zoom changes, so it stays gone
+until the map moves and then fades back in. `layoutBuckets` therefore reports
+`LayoutOutcome.unresolved`; `VectorLayer` re-runs the same key up to `LAYOUT_RETRY_LIMIT` times with
+a doubling delay, the pass republishes the previous pass's bucket for any slot it could not rebuild,
+and a pass that resolved nothing at all is not published — "every fetch failed" is not the statement
+"there are no symbols here".
+
+**The fade clock belongs to the placement, not to the screen.** `SymbolComposer` draws
+`opacity + fadeChange`, and the two halves are only consistent when the elapsed time is measured from
+the placement the opacity was committed by. The clock used to be one `elapsedMillis` state that a
+`LaunchedEffect` zeroed when its body ran — and an effect body runs when its coroutine is dispatched,
+which can be after the frame that first draws the new placement, while a cancelled effect's
+`withFrameMillis` callback for the current frame can still write the old value into it first. Either
+way that frame pairs a freshly committed opacity with the *previous* cycle's fade change, which is
+close to a whole fade duration because a new placement starts at most once per fade. The arithmetic
+of `alphaAt` then picks out exactly one class of symbol: an already-visible one is `1 + change`,
+clamped back to 1 and unaffected; a departing one is `1 - change` and blinks out for a frame; a
+**newly placed** one is `0 + change` and flashes in at nearly full opacity, is drawn at 0 on the next
+frame, and only then fades in over its 300 ms. That is "labels flicker when they appear, ones already
+on screen do not". `remember(placement)` gives each cycle its own `FadeClock`, which is created
+during composition and so is at zero before anything can draw, and a lingering effect writes to the
+clock nobody reads any more. `FadeClockTest` pins the arithmetic that made it visible.
+
+**What a held placement does *not* freeze** is anything that has to keep following the map. Position
+is re-projected every frame, and so is size: `PlacedSymbol.textScaleAt` / `iconScaleAt` evaluate the
+size expression at the frame's zoom, exactly as upstream recomputes its `u_size` / `u_size_t`
+uniforms from `painter.transform.zoom` (`symbol/projection.ts`) while collision keeps the
+placement's own zoom (`symbol/placement.ts`). Freezing the scale at commit would make labels *step*
+in size every 300 ms through a zoom.
+
+**Cadences.** Layout runs only when the tile set or the integer zoom changes, behind a 250 ms
+throttle. Placement is *considered* on every viewport update, behind a 16 ms one, and actually runs
+at most once per fade duration; a cycle deferred by `stillRecent` is retried when the window lapses,
+which is what upstream gets for free by re-entering `_updatePlacement` on every render frame.
 
 ## Sprites and glyphs
 
@@ -347,16 +535,34 @@ Every one of these is documented at the file that causes it; this is the index.
   (`renderer/utils/PaintUtils.kt`), which is the shader's `u_pixel_coord_*` and `u_scale` baked into
   the repeated bitmap because a Compose `ShaderBrush` has no local matrix.
 
-**Symbols** — the placement architecture, not the properties:
+**Symbols** — the placement architecture, not the properties. See
+[Symbol layout and placement](#symbol-layout-and-placement) for what the two passes are:
 
-- Placement and collision run per *viewport*, in `VectorRasterizer.clearCollision`, over an R-tree of
-  oriented bounding boxes. Upstream runs a global placement per frame with cross-frame fading; there
-  is no fade here, and a label's chosen `text-variable-anchor` is kept stable across frames by a
-  coordinate-quantized cache rather than by upstream's placement history. One tree stands in for
-  upstream's two `GridIndex`es: `*-ignore-placement` is the *insert* side only, as it is upstream
-  (`collision_index.ts`'s `grid` vs `ignoredGrid`) -- such a symbol blocks nobody but is still
-  tested against everybody, which is `*-allow-overlap`'s job and not this property's. The second
-  grid is not needed because its only upstream reader is `queryRenderedSymbols`, which is not ported.
+- **A label is rasterized once per bucket and scaled at draw.** Layout rasterizes it at the largest
+  size the style asks for while that bucket is on screen, and the placement pass scales it down by
+  `textScale` for the zoom actually being drawn, so a label is resampled between integer zooms.
+  Upstream shades glyphs in the fragment shader at the final screen resolution, which needs a GPU
+  path this port does not have; the alternative is re-shaping every label on every viewport update,
+  which is what the split exists to stop.
+- **Layout properties are evaluated at the bucket's integer zoom**, not the fractional map zoom, as
+  upstream's worker does. `text-size` and `icon-size` are the exception and reach the fractional zoom
+  through `SizeData`. Paint properties are evaluated at the bucket's zoom too, because a label's
+  colour and halo are baked into its raster rather than passed as vertex attributes.
+- **Line label spacing is baked at the bucket's zoom.** `symbol-spacing` and the anchor walk are
+  measured against `LAYOUT_TILE_SIZE`, so they no longer drift as the map zooms within a level.
+  Upstream bakes them into its bucket for the same reason, and carries the same factor-of-two wobble
+  across a level boundary.
+- **`PauseablePlacement` is not ported.** Upstream spreads one placement over frames on a 2 ms
+  budget and renders the partial result, because it has one thread. `VectorRasterizer.place` runs
+  the whole pass on `Dispatchers.Default` instead -- `MapState.scope` is `Dispatchers.Main`, and a
+  collision pass over every symbol on screen has no business there -- so there is nothing to
+  interleave and no partially-placed frame. `forceFullPlacement`, which exists to keep incremental
+  placement from starving, goes with it.
+- One tree stands in for upstream's two `GridIndex`es: `*-ignore-placement` is the *insert* side
+  only, as it is upstream (`collision_index.ts`'s `grid` vs `ignoredGrid`) -- such a symbol blocks
+  nobody but is still tested against everybody, which is `*-allow-overlap`'s job and not this
+  property's. The second grid is not needed because its only upstream reader is
+  `queryRenderedSymbols`, which this port does not have.
 - **The index holds oriented boxes where upstream's holds axis-aligned ones**, and that is
   deliberate: upstream replaces a rotated box by its envelope back in `collision_feature.ts`
   ("Collision features require an 'on-axis' geometry, so take the envelope of the rotated
@@ -364,15 +570,16 @@ Every one of these is documented at the file that causes it; this is the index.
   orientation means two crossing road labels pack as tightly as their bodies allow rather than as
   their envelopes do, so this port suppresses strictly less than MapLibre, never more. The R-tree's
   AABB query is the broad phase; `OBB.intersects` (separating axis) is the exact test.
-- **A symbol may also be a chain of circles** (`LabelPlacement.circles`), upstream's
+- **A line label is a chain of circles** (`LabelPlacement.circles`), upstream's
   `placeCollisionCircles` against `placeCollisionBox`, because the straight envelope of a label
-  following a curve claims far more ground than the label covers. The detector handles a chain
-  wherever one arrives -- `renderer/collision/CollisionGeometry.kt` ports `_circlesCollide` and
-  `_circleAndRectCollide` from `grid_index.ts` and adds the circle-against-oriented-box test
-  upstream has no need of, and `insert` adds one R-tree entry per circle as `insertCollisionCircles`
-  adds one grid circle per circle. **Nothing generates a chain yet**: building it needs the label's
-  projected path, which belongs to the symbol placement pass, so a line label is still one straight
-  box today.
+  following a curve claims far more ground than the label covers. `symbol/SymbolProjection.kt` walks
+  the label's own stretch of line, projects it, and spaces circles along it at upstream's
+  `radius * 2.5`; `symbol/CollisionGeometry.kt` ports `_circlesCollide` and `_circleAndRectCollide`
+  from `grid_index.ts` and adds the circle-against-oriented-box test upstream has no need of, and
+  `insert` adds one R-tree entry per circle as `insertCollisionCircles` adds one grid circle per
+  circle. Upstream's `placeFirstAndLastGlyph` walks by the first and last glyph's offsets, where this
+  walks by half the label's width -- the same span without the per-glyph bookkeeping a GPU quad
+  buffer needs.
 - **The index is bounded by the padded viewport**, as upstream's grid is: `CollisionDetector` takes
   the viewport size and refuses -- neither places nor indexes -- a symbol whose box falls entirely
   outside the viewport grown by `VIEWPORT_PADDING`, upstream's `viewportPadding = 100`. A symbol
@@ -380,21 +587,24 @@ Every one of these is documented at the file that causes it; this is the index.
   the map pans. The refusal comes before the overlap mode is consulted, so `*-allow-overlap` does
   not exempt a symbol from it, exactly as upstream folds `!isInsideGrid` into `unplaceable`.
   Upstream's companion `isOffscreen` is not ported: its only consumer is the placement fade's
-  `skipFade`, and placement here is binary.
+  `skipFade`, which this port derives from the projected anchor instead.
 - Not ported, and so behaving as upstream does at its defaults: collision *groups*
   (`CollisionGroups`, `crossSourceCollisions`) -- upstream defaults to one group for all sources,
   which is what this port always does, but there is no way to ask for per-source groups. Everything
   gated on a camera is absent for want of one: `perspectiveRatioCutoff`, the globe occlusion tests,
   and the pitched-label projection in `_projectCollisionBox`.
-- Line labels are de-duplicated *within* a tile by upstream's own `anchorIsTooClose` -- a repeat of
-  the same text within half a `symbol-spacing` of an anchor already taken is dropped before it
-  reaches collision -- and *across* tiles by suppressing a repeat within
-  `MIN_LINE_LABEL_REPEAT_DIST` viewport pixels, which stands in for the un-ported
-  `cross_tile_symbol_index.ts`.
-- Line anchors are upstream's: `renderer/collision/LineLabelPlacement.kt` transcribes
+- Two parts of `cross_tile_symbol_index.ts` are deliberately not ported: the `KDBush` index it builds
+  once a key carries more than 128 symbols, which its own comments say agrees with the linear path it
+  replaces, and `handleWrapJump`, which re-keys the indexes when a longitude wraps -- MapCompose's
+  infinite scroll wraps the map's *x* rather than a longitude, and a tile reference here carries no
+  wrap to rewrite.
+- Line labels are also de-duplicated *within* a tile by upstream's own `anchorIsTooClose` -- a repeat
+  of the same text within half a `symbol-spacing` of an anchor already taken is dropped before it
+  reaches collision.
+- Line anchors are upstream's: `symbol/LineLabelPlacement.kt` transcribes
   `symbol/get_anchors.ts` (the spacing enlargement for a long label, the first-anchor offset, the
   in-tile test, the "does the whole label fit on the line" test and the single retry at the middle
-  of a line that is not continued), and `SymbolsProducer` runs `renderer/utils/MergeLines.kt` --
+  of a line that is not continued), and `SymbolBucketBuilder` runs `renderer/utils/MergeLines.kt` --
   upstream's `merge_lines.ts` -- over a `symbol-placement: line` layer's features first, so a road
   arriving as one MVT feature per block is labelled as one long line. `renderer/utils/ClipLine.kt`
   clips those lines to the tile beforehand, as `symbol_layout.ts` does; `line-center` deliberately
@@ -405,8 +615,6 @@ Every one of these is documented at the file that causes it; this is the index.
   an optional `rtl-text-plugin`) and no Arabic contextual shaping.
 - A codepoint the glyph server has no glyph for is dropped, where upstream falls back to a locally
   rendered `TinySDF` for CJK.
-- Labels are rasterized at their layout size and composited, so a label is resampled if the map
-  scales it; upstream shades glyphs in the fragment shader at the final screen resolution.
 
 **GeoJSON** — `data/geojson/GeoJsonTiler.kt`: `geojson-vt` builds a tile pyramid up front and splits
 each parent into four children, reusing the parent's already-clipped geometry, and precomputes each
@@ -423,13 +631,13 @@ A tile is rasterized at
 subtracting the magnifying factor. Sizing against `max(density, 2^magnifyingFactor)` is what keeps
 the bitmap ≥ the destination, so a tile is always minified and never stretched. `addVectorLayer`'s
 `superSamplingFactor` renders larger still and filters back down in `VectorRasterizer.getTile`,
-costing `factor²` fill. `VectorLayer` passes the size a tile occupies **on screen**
-(`fullWidth * scale / 2^zoom`) to `produceSymbols`, not `mapState.tileSize` and not the bitmap size:
-symbols are a viewport overlay, so they are laid out in on-screen pixels. That is also the space
-every length the symbol painters measure against a tile's geometry lives in -- a label's own width,
-`symbol-spacing`, `text-padding`, all of them style pixels times `density.density` -- so laying out
-against the unscaled tile size made the geometry `relativeScale` times too small and
-`symbol-spacing` that many times too coarse.
+costing `factor²` fill.
+
+Symbols are sized in none of those spaces. They are a viewport overlay, laid out against the constant
+`LAYOUT_TILE_SIZE` and projected to the screen by the placement pass -- see
+[Symbol layout and placement](#symbol-layout-and-placement). What `VectorLayer` derives from a tile's
+on-screen size (`fullWidth * scale / 2^zoom`) is not a layout space any more but the map's
+*fractional* zoom, which is the zoom `text-size` and `icon-size` are evaluated at.
 
 ## Tile encoding
 
@@ -485,3 +693,16 @@ by running the demo APK.
 `*UpstreamTest.kt` files are transcriptions of MapLibre's own unit tests, each naming its upstream
 path and keeping upstream's wording, so a failure can be traced back to a `describe`/`test` block by
 search. Do not rewrite their assertions to match this port — if one fails, the port is wrong.
+`SymbolSizeUpstreamTest` and `CrossTileSymbolIndexUpstreamTest` are the symbol pair;
+`symbol_size.test.ts` transcribes directly, and `cross_tile_symbol_index.test.ts` needs only its
+anchors converted from MVT `EXTENT` units into this port's layout pixels.
+
+Upstream's `placement.test.ts` and `projection.test.ts` are *not* transcribed, for the same reason
+the `*_bucket` tests are not: they drive `Placement` through a `Style`, a `Transform` and a GL
+`SymbolBucket`, none of which has an analogue here. `PlacementTest`, `PlacementSchedulingTest`,
+`OpacityStateTest`, `SymbolProjectionTest` and `SymbolBucketCacheTest` assert the same behaviour
+directly — `PlacementSchedulingTest` being the one that pins the rule that keeps labels steady, that
+a viewport which moved inside the window defers instead of replacing. Fixtures are in
+`commonTest/.../symbol/SymbolFixtures.kt` — buckets, instances, viewports and a whole
+`VectorRasterizer` built from plain numbers, with a `LabelArt` that has a box and no ink, so none of
+them needs a graphics backend.

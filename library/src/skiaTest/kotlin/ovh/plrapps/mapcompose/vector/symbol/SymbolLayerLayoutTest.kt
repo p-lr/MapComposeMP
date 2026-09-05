@@ -1,4 +1,10 @@
-package ovh.plrapps.mapcompose.vector.renderer
+package ovh.plrapps.mapcompose.vector.symbol
+
+import ovh.plrapps.mapcompose.vector.renderer.LabelArt
+import ovh.plrapps.mapcompose.vector.renderer.Mvt
+import ovh.plrapps.mapcompose.vector.renderer.renderToBitmap
+import ovh.plrapps.mapcompose.vector.ui.symbols.scaledAlign
+import ovh.plrapps.mapcompose.vector.ui.symbols.scaledSize
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
@@ -32,7 +38,7 @@ import kotlin.test.assertContentEquals
 import kotlinx.serialization.json.Json
 
 /**
- * What `SymbolLayerPainter` produces for a feature: which symbols, how big, and where.
+ * What `SymbolLayerLayout` produces for a feature: which symbols, how big, and where.
  *
  * The painter had no direct test at all. It is driven here through the *glyph* path rather than the
  * Compose text fallback, because a `TextMeasurer` needs a font resolver and a real font, while a
@@ -40,7 +46,7 @@ import kotlinx.serialization.json.Json
  *
  * In `skiaTest` because rasterizing a label allocates an `ImageBitmap`.
  */
-class SymbolLayerPainterTest {
+class SymbolLayerLayoutTest {
 
     private companion object {
         const val CANVAS = 512
@@ -56,6 +62,17 @@ class SymbolLayerPainterTest {
         const val ASCENT = 22
         val DENSITY = Density(1f)
         val STACK = listOf("Test Regular")
+
+        /**
+         * Size data for a layer whose sizes are constants, which is every fixture that does not
+         * build its own. Only the placement pass reads it, so what it holds cannot move a symbol
+         * these tests assert the position of.
+         */
+        val SIZES = SymbolSizes(
+            tileZoom = 9.0,
+            textSizeData = SizeData.Constant(StyleSpecDefaults.TEXT_SIZE),
+            iconSizeData = SizeData.Constant(StyleSpecDefaults.ICON_SIZE),
+        )
     }
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -94,8 +111,8 @@ class SymbolLayerPainterTest {
         )
     }
 
-    private fun painter(sprites: SpriteManager? = spriteManager()): SymbolLayerPainter =
-        SymbolLayerPainter(
+    private fun painter(sprites: SpriteManager? = spriteManager()): SymbolLayerLayout =
+        SymbolLayerLayout(
             textMeasurerState = MutableStateFlow<TextMeasurer?>(null),
             spriteManager = sprites,
             configuration = MapLibreConfiguration(
@@ -125,7 +142,7 @@ class SymbolLayerPainterTest {
         properties: Map<String, Any?> = emptyMap(),
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
         sprites: SpriteManager? = spriteManager(),
-    ): List<Symbol> = painter(sprites).produceSymbol(
+    ): List<SymbolInstance> = painter(sprites).produceSymbol(
         feature = feature,
         style = layer,
         canvasSize = CANVAS,
@@ -139,6 +156,7 @@ class SymbolLayerPainterTest {
         id = "f1",
         density = DENSITY,
         layerIndex = 0,
+        sizes = symbolSizesFor(layer, 10.0),
         compareText = compareText,
     )
 
@@ -163,6 +181,7 @@ class SymbolLayerPainterTest {
             tileY = 5,
             density = DENSITY,
             layerIndex = 0,
+            sizes = SIZES,
         )
 
         val symbol = symbols.single()
@@ -183,7 +202,7 @@ class SymbolLayerPainterTest {
                 feature = line,
             )
 
-            val text = assertNotNull(symbols.filterIsInstance<Symbol.Text>().firstOrNull())
+            val text = assertNotNull(symbols.filterIsInstance<SymbolInstance.Text>().firstOrNull())
             assertEquals(
                 CANVAS / 2f,
                 text.placement.textPlacement!!.position.y,
@@ -222,7 +241,7 @@ class SymbolLayerPainterTest {
                 layer("""{"text-field":"Peak","text-font":["Test Regular"]}"""),
                 properties = mapOf("name" to "Something Else"),
             )
-            val text = assertNotNull(symbols.filterIsInstance<Symbol.Text>().singleOrNull())
+            val text = assertNotNull(symbols.filterIsInstance<SymbolInstance.Text>().singleOrNull())
             // Four glyphs at half an em of a 16 px em.
             assertEquals(4 * ADVANCE * 16f / 24f, text.value.width)
         }
@@ -235,7 +254,7 @@ class SymbolLayerPainterTest {
                 layer("""{"text-field":"{name}","text-font":["Test Regular"]}"""),
                 properties = mapOf("name" to "abcdef"),
             )
-            val text = assertNotNull(symbols.filterIsInstance<Symbol.Text>().singleOrNull())
+            val text = assertNotNull(symbols.filterIsInstance<SymbolInstance.Text>().singleOrNull())
             assertEquals(6 * ADVANCE * 16f / 24f, text.value.width)
         }
     }
@@ -247,7 +266,7 @@ class SymbolLayerPainterTest {
                 layer("""{"text-field":["get","label"],"text-font":["Test Regular"]}"""),
                 properties = mapOf("label" to "ab"),
             )
-            assertEquals(1, symbols.filterIsInstance<Symbol.Text>().size)
+            assertEquals(1, symbols.filterIsInstance<SymbolInstance.Text>().size)
         }
     }
 
@@ -261,7 +280,7 @@ class SymbolLayerPainterTest {
                     """{"text-field":"ab","text-font":["Test Regular"],"text-transform":"uppercase"}"""
                 )
             )
-            assertEquals(1, symbols.filterIsInstance<Symbol.Text>().size)
+            assertEquals(1, symbols.filterIsInstance<SymbolInstance.Text>().size)
         }
     }
 
@@ -272,8 +291,8 @@ class SymbolLayerPainterTest {
             val spaced = produce(
                 layer("""{"text-field":"abc","text-font":["Test Regular"],"text-letter-spacing":0.5}""")
             )
-            val plainWidth = plain.filterIsInstance<Symbol.Text>().single().value.width
-            val spacedWidth = spaced.filterIsInstance<Symbol.Text>().single().value.width
+            val plainWidth = plain.filterIsInstance<SymbolInstance.Text>().single().value.width
+            val spacedWidth = spaced.filterIsInstance<SymbolInstance.Text>().single().value.width
             assertTrue(spacedWidth > plainWidth, "expected $spacedWidth > $plainWidth")
         }
     }
@@ -285,8 +304,8 @@ class SymbolLayerPainterTest {
             val wrapped = produce(
                 layer("""{"text-field":"aaa bbb","text-font":["Test Regular"],"text-max-width":2}""")
             )
-            val wideArt = wide.filterIsInstance<Symbol.Text>().single().value
-            val wrappedArt = wrapped.filterIsInstance<Symbol.Text>().single().value
+            val wideArt = wide.filterIsInstance<SymbolInstance.Text>().single().value
+            val wrappedArt = wrapped.filterIsInstance<SymbolInstance.Text>().single().value
             assertTrue(wrappedArt.width < wideArt.width)
             assertTrue(wrappedArt.height > wideArt.height)
         }
@@ -310,7 +329,7 @@ class SymbolLayerPainterTest {
         val symbols = produce(
             layer("""{"text-field":"abcd","text-font":["Test Regular"],"text-anchor":"$anchor"}""")
         )
-        val placement = symbols.filterIsInstance<Symbol.Text>().single().placement.textPlacement!!
+        val placement = symbols.filterIsInstance<SymbolInstance.Text>().single().placement.textPlacement!!
         return placement.position.x to placement.position.y
     }
 
@@ -357,7 +376,7 @@ class SymbolLayerPainterTest {
         runTest {
             assertEquals(textCenterFor("center"), run {
                 val symbols = produce(layer("""{"text-field":"abcd","text-font":["Test Regular"]}"""))
-                val p = symbols.filterIsInstance<Symbol.Text>().single().placement.textPlacement!!
+                val p = symbols.filterIsInstance<SymbolInstance.Text>().single().placement.textPlacement!!
                 p.position.x to p.position.y
             })
         }
@@ -369,7 +388,7 @@ class SymbolLayerPainterTest {
             val symbols = produce(
                 layer("""{"text-field":"ab","text-font":["Test Regular"],"text-offset":[1,0]}""")
             )
-            val placement = symbols.filterIsInstance<Symbol.Text>().single().placement.textPlacement!!
+            val placement = symbols.filterIsInstance<SymbolInstance.Text>().single().placement.textPlacement!!
             // One em at the default 16 px text-size.
             assertEquals(CANVAS / 2f + 16f, placement.position.x)
         }
@@ -383,7 +402,7 @@ class SymbolLayerPainterTest {
     fun `icon-padding widens the collision box but not the icon`() {
         runTest {
             val symbols = produce(layer("""{"icon-image":"marker","icon-padding":8}"""))
-            val sprite = assertNotNull(symbols.filterIsInstance<Symbol.Sprite>().singleOrNull())
+            val sprite = assertNotNull(symbols.filterIsInstance<SymbolInstance.Sprite>().singleOrNull())
             // The icon is drawn at its own size...
             assertEquals(16, sprite.drawSize.width)
             assertEquals(16, sprite.drawSize.height)
@@ -396,7 +415,7 @@ class SymbolLayerPainterTest {
     fun `icon-size scales the icon`() {
         runTest {
             val symbols = produce(layer("""{"icon-image":"marker","icon-size":2}"""))
-            assertEquals(32, symbols.filterIsInstance<Symbol.Sprite>().single().drawSize.width)
+            assertEquals(32, symbols.filterIsInstance<SymbolInstance.Sprite>().single().drawSize.width)
         }
     }
 
@@ -416,8 +435,9 @@ class SymbolLayerPainterTest {
                 actualZoom = 10.0,
                 id = "f1",
                 density = DENSITY,
+                sizes = SIZES,
             )
-            assertEquals(16, symbols.filterIsInstance<Symbol.Sprite>().single().drawSize.width)
+            assertEquals(16, symbols.filterIsInstance<SymbolInstance.Sprite>().single().drawSize.width)
         }
     }
 
@@ -425,7 +445,7 @@ class SymbolLayerPainterTest {
     fun `icon-opacity is carried to the draw rather than only culling`() {
         runTest {
             val symbols = produce(layer("""{"icon-image":"marker"}"""), properties = emptyMap())
-            assertEquals(1f, symbols.filterIsInstance<Symbol.Sprite>().single().opacity)
+            assertEquals(1f, symbols.filterIsInstance<SymbolInstance.Sprite>().single().opacity)
 
             val faded = painter().produceSymbol(
                 feature = point(),
@@ -433,8 +453,9 @@ class SymbolLayerPainterTest {
                 canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
+                sizes = SIZES,
             )
-            assertEquals(0.5f, faded.filterIsInstance<Symbol.Sprite>().single().opacity)
+            assertEquals(0.5f, faded.filterIsInstance<SymbolInstance.Sprite>().single().opacity)
         }
     }
 
@@ -447,6 +468,7 @@ class SymbolLayerPainterTest {
                 canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
+                sizes = SIZES,
             )
             assertTrue(symbols.isEmpty())
         }
@@ -456,7 +478,7 @@ class SymbolLayerPainterTest {
     fun `icon-anchor top hangs the icon below the point`() {
         runTest {
             val symbols = produce(layer("""{"icon-image":"marker","icon-anchor":"top"}"""))
-            val sprite = symbols.filterIsInstance<Symbol.Sprite>().single()
+            val sprite = symbols.filterIsInstance<SymbolInstance.Sprite>().single()
             assertTrue(sprite.placement.spritePlacement.position.y > CANVAS / 2f)
         }
     }
@@ -465,7 +487,7 @@ class SymbolLayerPainterTest {
     fun `icon-offset moves the icon`() {
         runTest {
             val symbols = produce(layer("""{"icon-image":"marker","icon-offset":[5,-3]}"""))
-            val position = symbols.filterIsInstance<Symbol.Sprite>().single().placement.spritePlacement.position
+            val position = symbols.filterIsInstance<SymbolInstance.Sprite>().single().placement.spritePlacement.position
             assertEquals(CANVAS / 2f + 5f, position.x)
             assertEquals(CANVAS / 2f - 3f, position.y)
         }
@@ -480,8 +502,9 @@ class SymbolLayerPainterTest {
                 canvasSize = CANVAS, extent = EXTENT, tileZ = 10.0,
                 featureProperties = EvalFeature(type = "Point", properties = emptyMap()),
                 actualZoom = 10.0, id = "f1", density = DENSITY,
+                sizes = SIZES,
             )
-            val position = symbols.filterIsInstance<Symbol.Sprite>().single().placement.spritePlacement.position
+            val position = symbols.filterIsInstance<SymbolInstance.Sprite>().single().placement.spritePlacement.position
             assertEquals(CANVAS / 2f + 4f, position.x)
             assertEquals(CANVAS / 2f + 6f, position.y)
         }
@@ -499,13 +522,13 @@ class SymbolLayerPainterTest {
         runTest {
             val plain = produce(
                 layer("""{"icon-image":"marker","text-field":"aaaaaa","text-font":["Test Regular"]}""")
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
             val fitted = produce(
                 layer(
                     """{"icon-image":"marker","text-field":"aaaaaa","text-font":["Test Regular"],""" +
                         """"icon-text-fit":"width"}"""
                 )
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
 
             assertEquals(false, plain.textInsideIcon)
             assertTrue(fitted.textInsideIcon)
@@ -528,7 +551,7 @@ class SymbolLayerPainterTest {
                 layer("""{"icon-image":"marker"}"""),
                 feature = point(1000 to 1000, 2000 to 2000, 3000 to 3000),
             )
-            assertEquals(3, symbols.filterIsInstance<Symbol.Sprite>().size)
+            assertEquals(3, symbols.filterIsInstance<SymbolInstance.Sprite>().size)
             assertEquals(3, symbols.map { it.id }.toSet().size)
         }
     }
@@ -554,9 +577,9 @@ class SymbolLayerPainterTest {
                 feature = Mvt.lineFeature(listOf(200 to 2100, 3900 to 2100)),
                 compareText = shared,
             )
-            assertTrue(first.filterIsInstance<Symbol.Text>().isNotEmpty())
+            assertTrue(first.filterIsInstance<SymbolInstance.Text>().isNotEmpty())
             assertTrue(
-                second.filterIsInstance<Symbol.Text>().isEmpty(),
+                second.filterIsInstance<SymbolInstance.Text>().isEmpty(),
                 "the second copy of the label should have been suppressed",
             )
         }
@@ -574,7 +597,7 @@ class SymbolLayerPainterTest {
                 ),
                 feature = Mvt.lineFeature(listOf(-2000 to 2048, 6000 to 2048)),
             )
-            val texts = symbols.filterIsInstance<Symbol.Text>()
+            val texts = symbols.filterIsInstance<SymbolInstance.Text>()
             assertTrue(texts.isNotEmpty())
             assertTrue(
                 texts.all { it.placement.spritePlacement.position.x in 0f..CANVAS.toFloat() },
@@ -591,7 +614,7 @@ class SymbolLayerPainterTest {
                 layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-placement":"line"}"""),
                 feature = line,
             )
-            assertTrue(symbols.filterIsInstance<Symbol.Text>().isNotEmpty())
+            assertTrue(symbols.filterIsInstance<SymbolInstance.Text>().isNotEmpty())
         }
     }
 
@@ -611,8 +634,8 @@ class SymbolLayerPainterTest {
                 feature = line,
             )
             // `line-center` used to decode nothing at all, so the feature was dropped.
-            assertEquals(1, centered.filterIsInstance<Symbol.Text>().size)
-            assertTrue(spaced.filterIsInstance<Symbol.Text>().size > 1)
+            assertEquals(1, centered.filterIsInstance<SymbolInstance.Text>().size)
+            assertTrue(spaced.filterIsInstance<SymbolInstance.Text>().size > 1)
         }
     }
 
@@ -626,14 +649,14 @@ class SymbolLayerPainterTest {
                         """"symbol-spacing":400}"""
                 ),
                 feature = line,
-            ).filterIsInstance<Symbol.Text>().size
+            ).filterIsInstance<SymbolInstance.Text>().size
             val tight = produce(
                 layer(
                     """{"text-field":"ab","text-font":["Test Regular"],"symbol-placement":"line",""" +
                         """"symbol-spacing":60}"""
                 ),
                 feature = line,
-            ).filterIsInstance<Symbol.Text>().size
+            ).filterIsInstance<SymbolInstance.Text>().size
             // Only one label per feature used to be emitted, whatever the spacing.
             assertTrue(tight > wide, "expected more labels at a tighter spacing, got $tight vs $wide")
         }
@@ -647,7 +670,7 @@ class SymbolLayerPainterTest {
                 layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-placement":"line"}"""),
                 feature = polygon,
             )
-            assertTrue(symbols.filterIsInstance<Symbol.Text>().isNotEmpty())
+            assertTrue(symbols.filterIsInstance<SymbolInstance.Text>().isNotEmpty())
         }
     }
 
@@ -674,7 +697,7 @@ class SymbolLayerPainterTest {
             val symbols = produce(
                 layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-sort-key":7}""")
             )
-            val placement = symbols.filterIsInstance<Symbol.Text>().single().placement.spritePlacement
+            val placement = symbols.filterIsInstance<SymbolInstance.Text>().single().placement.spritePlacement
             assertEquals(7.0, placement.inLayerPriority)
             assertTrue(placement.hasSortKey)
         }
@@ -705,7 +728,7 @@ class SymbolLayerPainterTest {
                 layer("""{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"]}""")
             )
             assertEquals(1, symbols.size)
-            assertTrue(symbols.single() is Symbol.SpriteWithText)
+            assertTrue(symbols.single() is SymbolInstance.SpriteWithText)
         }
     }
 
@@ -718,7 +741,7 @@ class SymbolLayerPainterTest {
                         """"text-variable-anchor":["top","bottom","left"]}"""
                 )
             )
-            val combined = symbols.filterIsInstance<Symbol.SpriteWithText>().single()
+            val combined = symbols.filterIsInstance<SymbolInstance.SpriteWithText>().single()
             assertEquals(3, combined.textCandidates.size)
             assertContentEquals(
                 listOf(true, true, false),
@@ -739,9 +762,9 @@ class SymbolLayerPainterTest {
                     """"text-anchor":"top"}"""
             )
             val small = produce(style, sprites = spriteManager(width = 16, height = 16))
-                .filterIsInstance<Symbol.SpriteWithText>().single()
+                .filterIsInstance<SymbolInstance.SpriteWithText>().single()
             val large = produce(style, sprites = spriteManager(width = 64, height = 64))
-                .filterIsInstance<Symbol.SpriteWithText>().single()
+                .filterIsInstance<SymbolInstance.SpriteWithText>().single()
 
             assertTrue(large.spriteSize.height > small.spriteSize.height)
             // A `top` anchor lands the box's top edge on the point, so its centre is half a box down.
@@ -755,7 +778,7 @@ class SymbolLayerPainterTest {
         runTest {
             val combined = produce(
                 layer("""{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"]}""")
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
             // `text-anchor`'s spec default is `center`: the label's box is centred on the point,
             // which is the icon's own centre. Nothing pushes it clear -- that is `text-offset`'s job.
             assertEquals(Offset.Zero, combined.textOffset)
@@ -770,7 +793,7 @@ class SymbolLayerPainterTest {
                     """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
                         """"text-anchor":"top","text-offset":[0,1]}"""
                 )
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
             // One em of the default `text-size`, at density 1, below the top-anchored box's centre.
             assertEquals(combined.textSize.height / 2f + StyleSpecDefaults.TEXT_SIZE.toFloat(), combined.textOffset.y)
         }
@@ -786,14 +809,15 @@ class SymbolLayerPainterTest {
                     """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
                         """"text-anchor":"top"}"""
                 )
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
-            val size = combined.getInPixels()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
+            val size = combined.scaledSize(iconScale = 1f, textScale = 1f)
+            val align = combined.scaledAlign(iconScale = 1f, textScale = 1f)
 
             assertEquals(
                 maxOf(combined.spriteSize.width, combined.textSize.width) / 2f,
-                -combined.align.x * size.width,
+                -align.x * size.width,
             )
-            assertEquals(combined.spriteSize.height / 2f, -combined.align.y * size.height)
+            assertEquals(combined.spriteSize.height / 2f, -align.y * size.height)
             // The label hangs below, so the box is the icon's height plus what the label adds.
             assertEquals(
                 combined.spriteSize.height / 2f + combined.textOffset.y + combined.textSize.height / 2f,
@@ -816,7 +840,7 @@ class SymbolLayerPainterTest {
                         """"text-offset":["interpolate",["exponential",0.8],["zoom"],""" +
                         """13,["literal",[0,1.1]],18,["literal",[0,1.7]]]}"""
                 )
-            ).filterIsInstance<Symbol.SpriteWithText>().single()
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
             // `produce` renders at zoom 10, below the first stop, so the offset clamps to 1.1 em.
             assertEquals(combined.textSize.height / 2f + 1.1f * 16f, combined.textOffset.y)
         }

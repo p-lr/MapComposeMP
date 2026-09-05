@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -184,5 +184,43 @@ class LineLabelPlacementTest {
             fontSize = 25f,
         )
         assertTrue(placements.isEmpty())
+    }
+
+    @Test
+    fun `an overzoomed line's anchors contain the ones a zoom level up`() {
+        /* Upstream's `getAnchors` multiplies the first-anchor offset by `bucket.overscaling` before
+         * taking it modulo the spacing, and this is what that buys. Past a source's `maxzoom` the
+         * same canonical tile is laid out again at every display zoom, over a line that is
+         * `overscaling` times longer in layout units at the same spacing -- so the anchors of the
+         * coarser level have to be a *subset* of the finer level's, or every line label is a new
+         * symbol at every zoom step: `CrossTileSymbolIndex` matches on position, so it fades out and
+         * back in somewhere else on the road.
+         *
+         * The line is scaled by the overscaling, exactly as `SymbolLayerLayout` scales geometry into
+         * a bucket's layout space (`layoutTileSize(density, span)`), while the spacing stays put. */
+        val line = listOf(0f to 0f, 4000f to 0f)
+        val spacing = 250f
+        val textWidth = 20f
+
+        val atOneStep = LineLabelPlacement.calculatePlacements(
+            points = line, textWidth = textWidth, spacing = spacing, overscaling = 1,
+        ).map { it.first.first }
+
+        val atNextStep = LineLabelPlacement.calculatePlacements(
+            points = line.map { (x, y) -> x * 2f to y * 2f },
+            textWidth = textWidth, spacing = spacing, overscaling = 2,
+        ).map { it.first.first / 2f }
+
+        assertTrue(atOneStep.isNotEmpty(), "the line is long enough for several anchors")
+        assertTrue(
+            atNextStep.size > atOneStep.size,
+            "half the spacing over the same line means about twice as many anchors",
+        )
+        for (anchor in atOneStep) {
+            assertTrue(
+                atNextStep.any { kotlin.math.abs(it - anchor) < 0.01f },
+                "the anchor at $anchor survives the zoom step; the next level has $atNextStep",
+            )
+        }
     }
 }
