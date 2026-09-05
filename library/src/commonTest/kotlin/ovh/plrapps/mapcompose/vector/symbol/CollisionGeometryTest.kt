@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals

@@ -1,4 +1,4 @@
-package ovh.plrapps.mapcompose.vector.renderer.collision
+package ovh.plrapps.mapcompose.vector.symbol
 
 /**
  * Controls whether a symbol can overlap other symbols.

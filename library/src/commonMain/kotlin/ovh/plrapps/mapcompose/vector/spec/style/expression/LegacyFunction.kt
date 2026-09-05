@@ -8,7 +8,7 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression
  * (see [jsonToValue]), and the output is plain Kotlin too, ready for [createExpression].
  *
  * Token strings (`"{name}"`) are only converted when [StylePropertySpec.tokens] is set, which
- * MapCompose leaves off: `SymbolLayerPainter` performs token substitution itself, so converting
+ * MapCompose leaves off: `SymbolLayerLayout` performs token substitution itself, so converting
  * here as well would double-apply it.
  */
 fun convertLegacyFunction(parameters: Map<String, Any?>, propertySpec: StylePropertySpec): Any? {

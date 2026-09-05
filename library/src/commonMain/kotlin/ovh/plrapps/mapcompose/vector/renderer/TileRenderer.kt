@@ -20,7 +20,7 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * order in the tile unless the layer declares a `*-sort-key`, which MapLibre sorts by ascending so
  * that a higher key draws on top.
  *
- * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolsProducer] so
+ * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolBucketBuilder] so
  * that collision detection can run across the whole viewport rather than per tile, and
  * `fill-extrusion` / `sky` are not implemented -- see the note in each painter for what each would
  * need.

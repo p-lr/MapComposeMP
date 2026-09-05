@@ -9,5 +9,6 @@ fun ViewportInfo.toMVTViewport() = MVTViewport(
     bearing = this.angleRad,
     pitch = this.pitch,
     zoom = this.zoom.toFloat(),
-    tileMatrix = this.matrix
+    tileMatrix = this.matrix,
+    overflowTileMatrices = this.overflowMatrices,
 )

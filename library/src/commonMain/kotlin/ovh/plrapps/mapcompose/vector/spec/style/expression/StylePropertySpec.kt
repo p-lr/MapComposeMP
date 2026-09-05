@@ -25,7 +25,7 @@ data class StylePropertySpec(
      * Whether `"{token}"` strings in a legacy function are rewritten into `concat`/`get`.
      *
      * MapLibre sets this for `text-field` and `icon-image`. MapCompose defaults it to **false**
-     * because `SymbolLayerPainter` performs token substitution itself, and converting here as well
+     * because `SymbolLayerLayout` performs token substitution itself, and converting here as well
      * would double-apply it.
      */
     val tokens: Boolean = false,

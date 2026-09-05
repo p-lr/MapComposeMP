@@ -1,13 +1,16 @@
-package ovh.plrapps.mapcompose.vector.renderer
+package ovh.plrapps.mapcompose.vector.symbol
 
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.renderer.GeometryDecoders
+import ovh.plrapps.mapcompose.vector.renderer.LabelArt
+import ovh.plrapps.mapcompose.vector.renderer.Point
+import ovh.plrapps.mapcompose.vector.renderer.ResolvedTextStyle
+import ovh.plrapps.mapcompose.vector.renderer.TextLabelBuilder
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.*
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -15,9 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.SDF
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
-import ovh.plrapps.mapcompose.vector.renderer.collision.LabelPlacement
-import ovh.plrapps.mapcompose.vector.renderer.collision.LineLabelPlacement
-import ovh.plrapps.mapcompose.vector.renderer.collision.OverlapMode
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
@@ -31,7 +31,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsStringList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
-import ovh.plrapps.mapcompose.vector.renderer.utils.drawStretchedImage
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite as SpriteInfo
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolPaint
@@ -56,210 +55,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-data class CompoundLabelPlacement(
-    val spritePlacement: LabelPlacement,
-    val textPlacement: LabelPlacement?
-)
-
-data class TextPlacementCandidate(
-    val labelPlacement: LabelPlacement,
-    val mercatorX: Double,
-    val mercatorY: Double,
-    val dx: Float,
-    val dy: Float,
-)
-
-sealed class Symbol(
-    val id: String,
-    val global: Point,
-    val placement: CompoundLabelPlacement,
-    val align: Offset = IN_CENTER,
-    val viewportAligned: Boolean = true,
-) {
-    /**
-     * An icon.
-     *
-     * [drawSize] is the size the icon is drawn at -- `icon-size` applied to the sprite's *layout*
-     * size, and `icon-text-fit` on top of that. It is deliberately not read back off the placement's
-     * bounds, which carry `icon-padding`: padding widens the collision box, it does not stretch the
-     * icon.
-     */
-    class Sprite(
-        id: String,
-        global: Point,
-        placement: CompoundLabelPlacement,
-        val value: ImageBitmap,
-        val spriteMeta: SpriteInfo,
-        val drawSize: IntSize,
-        val opacity: Float = 1f,
-        viewportAligned: Boolean = true,
-    ) : Symbol(id, global, placement, viewportAligned = viewportAligned)
-
-    class Text(
-        id: String,
-        global: Point,
-        placement: CompoundLabelPlacement,
-        val value: LabelArt,
-        viewportAligned: Boolean = true,
-        val spriteAnchorGlobal: Point? = null,
-        /** See [SpriteWithText.textOffset]: the label's offset from the icon it was split from. */
-        val textOffset: Offset? = null,
-    ) : Symbol(id, global, placement, viewportAligned = viewportAligned)
-
-    class SpriteWithText(
-        id: String,
-        global: Point,
-        placement: CompoundLabelPlacement,
-        align: Offset,
-        val sprite: ImageBitmap,
-        val spriteMeta: SpriteInfo,
-        val text: LabelArt,
-        val spriteSize: IntSize,
-        val textSize: IntSize,
-        /**
-         * Where the label's centre sits relative to the icon's, in device pixels.
-         *
-         * The icon and the label share the feature's anchor, as upstream's `symbol_layout.ts` has
-         * them do: this is `text-anchor` plus `text-offset` / `text-radial-offset` /
-         * `text-variable-anchor-offset` and `text-translate`, and nothing else -- the icon's own
-         * size never enters it.
-         */
-        val textOffset: Offset,
-        val iconOptional: Boolean,
-        val textOptional: Boolean,
-        val iconOpacity: Float = 1f,
-        viewportAligned: Boolean = true,
-        val textCandidates: List<TextPlacementCandidate> = emptyList(),
-        /** `icon-text-fit`: the icon was stretched around the label, so the label sits inside it. */
-        val textInsideIcon: Boolean = false,
-    ) : Symbol(id, global, placement, align, viewportAligned) {
-
-        /** This symbol's icon on its own, for when the text could not be placed. */
-        fun iconOnly(id: String, placement: CompoundLabelPlacement): Sprite = Sprite(
-            id = id,
-            global = global,
-            placement = placement,
-            value = sprite,
-            spriteMeta = spriteMeta,
-            drawSize = spriteSize,
-            opacity = iconOpacity,
-            viewportAligned = viewportAligned,
-        )
-
-        /** This symbol's label on its own, for when the icon could not be placed. */
-        fun textOnly(
-            id: String,
-            global: Point,
-            placement: CompoundLabelPlacement,
-            spriteAnchorGlobal: Point? = null,
-            textOffset: Offset? = null,
-        ): Text = Text(
-            id = id,
-            global = global,
-            placement = placement,
-            value = text,
-            viewportAligned = viewportAligned,
-            spriteAnchorGlobal = spriteAnchorGlobal,
-            textOffset = textOffset,
-        )
-
-        /** See [spriteWithTextBounds]. */
-        val bounds: Rect get() = spriteWithTextBounds(spriteSize, textSize, textOffset)
-    }
-
-    fun draw(drawScope: DrawScope) {
-        val s = getInPixels()
-        val symbolCenter = Offset(s.width / 2f, s.height / 2f)
-        with(drawScope) {
-            when (this@Symbol) {
-                is Sprite -> {
-                    rotate(placement.spritePlacement.angle, pivot = symbolCenter) {
-                        drawStretchedImage(
-                            image = value,
-                            sprite = spriteMeta,
-                            dstOffset = Offset.Zero,
-                            dstSize = Size(drawSize.width.toFloat(), drawSize.height.toFloat()),
-                            alpha = opacity,
-                        )
-                    }
-                }
-
-                is Text -> {
-                    // For text, use the corner from textPlacement (if available) or spritePlacement
-                    val textAngle =
-                        placement.textPlacement?.angle ?: placement.spritePlacement.angle
-                    rotate(textAngle, pivot = symbolCenter) {
-                        val centerX = (s.width - value.width) / 2f
-                        val centerY = (s.height - value.height) / 2f
-                        value.draw(this, Offset(centerX, centerY))
-                    }
-                }
-
-                is SpriteWithText -> {
-                    rotate(placement.spritePlacement.angle, pivot = symbolCenter) {
-                        /* The drawn box is the union of the icon's and the label's, so each is
-                         * placed by its own centre within it. Where the label sits -- below the
-                         * icon, beside it, or on it -- is entirely [textOffset]'s business. */
-                        val iconCenter = -bounds.topLeft
-                        drawStretchedImage(
-                            image = sprite,
-                            sprite = spriteMeta,
-                            dstOffset = Offset(
-                                iconCenter.x - spriteSize.width / 2f,
-                                iconCenter.y - spriteSize.height / 2f,
-                            ),
-                            dstSize = Size(spriteSize.width.toFloat(), spriteSize.height.toFloat()),
-                            alpha = iconOpacity,
-                        )
-                        text.draw(
-                            this,
-                            Offset(
-                                iconCenter.x + textOffset.x - textSize.width / 2f,
-                                iconCenter.y + textOffset.y - textSize.height / 2f,
-                            ),
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    fun getInPixels(): Size {
-        return when (this) {
-            is SpriteWithText -> bounds.size
-
-            is Sprite -> Size(drawSize.width.toFloat(), drawSize.height.toFloat())
-
-            is Text -> Size(value.width, value.height)
-        }
-    }
-
-    companion object {
-        val IN_CENTER = Offset(-0.5f, -0.5f)
-    }
-}
-
-/**
- * The box a [Symbol.SpriteWithText] occupies, in coordinates relative to the **icon's** centre.
- *
- * It is the union of the icon's box, centred on the feature's anchor, and the label's, centred on
- * [textOffset] from it. `SymbolComposer` places a symbol by that box's top-left corner, so the box
- * is what `align` and `draw` are both written against.
- */
-fun spriteWithTextBounds(spriteSize: IntSize, textSize: IntSize, textOffset: Offset): Rect = Rect(
-    left = min(-spriteSize.width / 2f, textOffset.x - textSize.width / 2f),
-    top = min(-spriteSize.height / 2f, textOffset.y - textSize.height / 2f),
-    right = max(spriteSize.width / 2f, textOffset.x + textSize.width / 2f),
-    bottom = max(spriteSize.height / 2f, textOffset.y + textSize.height / 2f),
-)
-
-data class SymbolPlacement(
-    val position: ObbPoint,
-    val angle: Float,
-    val size: Size = Size.Zero
-)
-
-class SymbolLayerPainter(
+internal class SymbolLayerLayout(
     private val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     private val spriteManager: SpriteManager?,
     private val configuration: MapLibreConfiguration,
@@ -410,10 +206,10 @@ class SymbolLayerPainter(
         feature: Tile.Feature,
         extent: Int,
         canvasSize: Int
-    ): List<SymbolPlacement> =
+    ): List<SymbolAnchorPlacement> =
         geometryDecoders.decodePoint(geometry = feature.geometry, extent = extent, canvasSize = canvasSize)
             .filter { isInsideTile(it.x, it.y, canvasSize) }
-            .map { SymbolPlacement(position = ObbPoint(it.x.toFloat(), it.y.toFloat()), angle = 0f) }
+            .map { SymbolAnchorPlacement(position = ObbPoint(it.x.toFloat(), it.y.toFloat()), angle = 0f) }
 
     private val regexForSubProcess = "\\{([^}]+)\\}".toRegex()
 
@@ -757,7 +553,7 @@ class SymbolLayerPainter(
      * `icon-padding` widens its collision box without changing what is drawn.
      */
     private fun produceSprite(
-        placement: SymbolPlacement,
+        placement: SymbolAnchorPlacement,
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
@@ -767,8 +563,9 @@ class SymbolLayerPainter(
         tileX: Int,
         tileY: Int,
         density: Density,
-        layerIndex: Int
-    ): Symbol? {
+        layerIndex: Int,
+        sizes: SymbolSizes,
+    ): SymbolInstance? {
         val spriteManager = spriteManager ?: return null
         val paint = style.paint ?: return null
         val layout = style.layout ?: return null
@@ -857,15 +654,22 @@ class SymbolLayerPainter(
             layout.iconRotationAlignment?.processAsString(featureProperties, actualZoom),
             defaultViewportAligned = !isLinePlacement
         )
-        return Symbol.Sprite(
+        return SymbolInstance.Sprite(
             id = id,
+            key = iconKey(spriteId),
             global = Point(normalizedPoint.x, normalizedPoint.y),
+            tileAnchor = Offset(spritePosition.x, spritePosition.y),
             placement = CompoundLabelPlacement(labelPlacement, null),
             value = sprite,
             spriteMeta = spriteMeta,
             drawSize = size,
             opacity = iconOpacity,
             viewportAligned = iconViewportAligned,
+            layoutSize = iconScale,
+            featureSizes = getFeatureSizes(
+                sizes.iconSizeData, layout.iconSize, featureProperties, sizes.tileZoom,
+                StyleSpecDefaults.ICON_SIZE,
+            ),
         )
     }
 
@@ -893,7 +697,7 @@ class SymbolLayerPainter(
      */
     private suspend fun produceSpriteWithText(
         id: String,
-        placement: SymbolPlacement,
+        placement: SymbolAnchorPlacement,
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
@@ -902,8 +706,9 @@ class SymbolLayerPainter(
         tileX: Int,
         tileY: Int,
         density: Density,
-        layerIndex: Int
-    ): Symbol? {
+        layerIndex: Int,
+        sizes: SymbolSizes,
+    ): SymbolInstance? {
         val layout = style.layout ?: return null
         val paint = style.paint ?: return null
         val spriteManager = spriteManager ?: return null
@@ -1074,9 +879,11 @@ class SymbolLayerPainter(
             defaultViewportAligned = true  // produceSpriteWithText is only called for point geometry
         )
 
-        return Symbol.SpriteWithText(
+        return SymbolInstance.SpriteWithText(
             id = id,
+            key = "${textKey(plainText)}|${iconKey(spriteId)}",
             global = Point(normalizedPoint.x, normalizedPoint.y),
+            tileAnchor = Offset(spritePosition.x, spritePosition.y),
             placement = CompoundLabelPlacement(
                 spritePlacement = spriteLabelPlacement,
                 textPlacement = textLabelPlacement
@@ -1096,12 +903,22 @@ class SymbolLayerPainter(
             viewportAligned = viewportAligned,
             textCandidates = textCandidates,
             textInsideIcon = textInsideIcon,
+            layoutSize = textStyle.fontSize / density.density,
+            featureSizes = getFeatureSizes(
+                sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
+                StyleSpecDefaults.TEXT_SIZE,
+            ),
+            iconLayoutSize = iconScale,
+            iconFeatureSizes = getFeatureSizes(
+                sizes.iconSizeData, layout.iconSize, featureProperties, sizes.tileZoom,
+                StyleSpecDefaults.ICON_SIZE,
+            ),
         )
     }
 
     /** Builds the label symbols of a feature that has text but no icon. */
     private suspend fun produceText(
-        placement: SymbolPlacement,
+        placement: SymbolAnchorPlacement,
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
@@ -1113,8 +930,9 @@ class SymbolLayerPainter(
         tileY: Int,
         density: Density,
         layerIndex: Int,
+        sizes: SymbolSizes,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
-    ): List<Symbol> {
+    ): List<SymbolInstance> {
         val layout = style.layout ?: return emptyList()
         val paint = style.paint ?: return emptyList()
 
@@ -1142,6 +960,7 @@ class SymbolLayerPainter(
                 density = density,
                 layerIndex = layerIndex,
                 fontSize = textStyle.fontSize,
+                sizes = sizes,
                 compareText = compareText,
             )
         } else {
@@ -1161,7 +980,9 @@ class SymbolLayerPainter(
                     actualZoom = actualZoom,
                     art = art,
                     density = density,
-                    layerIndex = layerIndex
+                    layerIndex = layerIndex,
+                    fontSize = textStyle.fontSize,
+                    sizes = sizes,
                 )
             )
         }
@@ -1189,10 +1010,15 @@ class SymbolLayerPainter(
         density: Density,
         layerIndex: Int,
         fontSize: Float,
+        sizes: SymbolSizes,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>?,
-    ): List<Symbol> {
+    ): List<SymbolInstance> {
         val textWidth = art.width
         val textHeight = art.height
+        /* Upstream's `bucket.overscaling`: how many map tiles this canonical tile covers per axis,
+         * which is the bucket's `TileRef.span`. The layout space is `layoutTileSize(density, span)`
+         * wide, so it is what that size is a multiple of. */
+        val overscaling = (canvasSize / layoutTileSize(density.density, span = 1)).coerceAtLeast(1)
         val symbolSpacing = (layout.symbolSpacing.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.SYMBOL_SPACING.toFloat()) * density.density
         val maxAngleDeg = layout.textMaxAngle.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_MAX_ANGLE.toFloat()
@@ -1213,7 +1039,7 @@ class SymbolLayerPainter(
         val centerOnly = placementModeOf(layout, featureProperties, actualZoom) ==
             SYMBOL_PLACEMENT_LINE_CENTER
 
-        val out = mutableListOf<Symbol>()
+        val out = mutableListOf<SymbolInstance>()
 
         lineStrings.forEachIndexed lineStrings@{ indexLine, line ->
             if (line.size < 2) return@lineStrings
@@ -1230,6 +1056,7 @@ class SymbolLayerPainter(
                     maxAngleDeg = maxAngleDeg,
                     tileExtent = canvasSize.toFloat(),
                     fontSize = fontSize,
+                    overscaling = overscaling,
                 )
             }
 
@@ -1266,12 +1093,20 @@ class SymbolLayerPainter(
 
                 // Create a deterministic ID based on a tile, coordinates and indices
                 val coordHash = "${x.toInt()}_${y.toInt()}_${displayAngle.toInt()}"
-                out += Symbol.Text(
+                out += SymbolInstance.Text(
                     id = "L${tileX}_${tileY}_${id}_${indexLine}_${index}_$coordHash",
+                    key = textKey(plainText),
                     global = Point(normalizedPoint.x, normalizedPoint.y),
+                    tileAnchor = Offset(x, y),
                     placement = CompoundLabelPlacement(labelPlacement, labelPlacement),
                     value = art,
                     viewportAligned = textViewportAligned,
+                    line = line,
+                    layoutSize = fontSize / density.density,
+                    featureSizes = getFeatureSizes(
+                        sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
+                        StyleSpecDefaults.TEXT_SIZE,
+                    ),
                 )
             }
         }
@@ -1285,7 +1120,7 @@ class SymbolLayerPainter(
      * so the caller only has to ask.
      *
      * The map is bucket-scoped upstream -- one per tile per style layer -- which is where
-     * `SymbolsProducer` keeps it.
+     * `SymbolBucketBuilder` keeps it.
      */
     private fun anchorIsTooClose(
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>,
@@ -1314,7 +1149,7 @@ class SymbolLayerPainter(
      * *below* it. The signs used to be the other way round, mirroring every non-centre label.
      */
     private fun producePointText(
-        placement: SymbolPlacement,
+        placement: SymbolAnchorPlacement,
         anchor: TextAnchor,
         dx: Float,
         dy: Float,
@@ -1328,8 +1163,10 @@ class SymbolLayerPainter(
         art: LabelArt,
         density: Density,
         id: String,
-        layerIndex: Int
-    ): Symbol? {
+        layerIndex: Int,
+        fontSize: Float,
+        sizes: SymbolSizes,
+    ): SymbolInstance? {
         val textWidth = art.width
         val textHeight = art.height
         val anchorOffset = anchorCenterOffset(anchor, textWidth, textHeight)
@@ -1378,15 +1215,22 @@ class SymbolLayerPainter(
             layout.textRotationAlignment?.processAsString(featureProperties, actualZoom),
             defaultViewportAligned = true
         )
-        return Symbol.Text(
+        return SymbolInstance.Text(
             id = "P${tileX}_${tileY}_${id}_$coordHash",
+            key = textKey(art.text),
             global = Point(normalizedPoint.x, normalizedPoint.y),
+            tileAnchor = Offset(textPosition.x, textPosition.y),
             placement = CompoundLabelPlacement(
                 spritePlacement = labelPlacement,
                 textPlacement = labelPlacement   // Correct placement for text
             ),
             value = art,
             viewportAligned = textViewportAligned,
+            layoutSize = fontSize / density.density,
+            featureSizes = getFeatureSizes(
+                sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
+                StyleSpecDefaults.TEXT_SIZE,
+            ),
         )
     }
 
@@ -1409,9 +1253,10 @@ class SymbolLayerPainter(
         tileY: Int = 0,
         density: Density,
         layerIndex: Int = 0,
+        sizes: SymbolSizes,
         preDecodedLines: List<List<Pair<Float, Float>>>? = null,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
-    ): List<Symbol> {
+    ): List<SymbolInstance> {
         val layout = style.layout ?: return emptyList()
         style.paint ?: return emptyList()
 
@@ -1420,7 +1265,7 @@ class SymbolLayerPainter(
         val hasText = layout.textField != null
 
         // Calculate the symbol placement
-        val pointPlacements: List<SymbolPlacement>
+        val pointPlacements: List<SymbolAnchorPlacement>
         var lineStrings: List<List<Pair<Float, Float>>>? = null
 
         if (feature.type == Tile.GeomType.POINT) {
@@ -1430,7 +1275,7 @@ class SymbolLayerPainter(
              * upstream labels when a `line`-placed layer is pointed at an area source.
              *
              * [preDecodedLines] is the same geometry already decoded, and merged with its same-text
-             * neighbours by `SymbolsProducer`; upstream merges in `SymbolBucket.populate`, before
+             * neighbours by `SymbolBucketBuilder`; upstream merges in `SymbolBucket.populate`, before
              * layout ever sees a feature. */
             val decoded = preDecodedLines ?: when (feature.type) {
                 Tile.GeomType.LINESTRING ->
@@ -1456,7 +1301,7 @@ class SymbolLayerPainter(
                 ?.filter { it.size >= 2 }?.takeIf { it.isNotEmpty() }
 
             pointPlacements = lineStrings?.firstOrNull()?.firstOrNull()?.let {
-                listOf(SymbolPlacement(position = ObbPoint(it.first, it.second), angle = 0f))
+                listOf(SymbolAnchorPlacement(position = ObbPoint(it.first, it.second), angle = 0f))
             } ?: emptyList()
         } else {
             pointPlacements = emptyList()
@@ -1464,7 +1309,7 @@ class SymbolLayerPainter(
 
         if (pointPlacements.isEmpty()) return emptyList()
 
-        val list = mutableListOf<Symbol>()
+        val list = mutableListOf<SymbolInstance>()
         for ((index, placement) in pointPlacements.withIndex()) {
             val pointId = if (pointPlacements.size == 1) id else "${id}_$index"
 
@@ -1481,7 +1326,8 @@ class SymbolLayerPainter(
                     tileX = tileX,
                     tileY = tileY,
                     density = density,
-                    layerIndex = layerIndex
+                    layerIndex = layerIndex,
+                    sizes = sizes,
                 )
                 if (combined != null) {
                     list += combined
@@ -1501,7 +1347,8 @@ class SymbolLayerPainter(
                     tileX = tileX,
                     tileY = tileY,
                     density = density,
-                    layerIndex = layerIndex
+                    layerIndex = layerIndex,
+                    sizes = sizes,
                 )?.let { list.add(it) }
             }
 
@@ -1519,6 +1366,7 @@ class SymbolLayerPainter(
                     tileY = tileY,
                     density = density,
                     layerIndex = layerIndex,
+                    sizes = sizes,
                     compareText = compareText,
                 )
             }
@@ -1527,6 +1375,17 @@ class SymbolLayerPainter(
         return list
     }
 }
+
+/**
+ * The cross-tile identity of a label, upstream's `SymbolInstance.key`.
+ *
+ * `cross_tile_symbol_index.ts` matches a child tile's symbol to its parent's on the text, so two
+ * tiles carrying the same road name recognise it as one symbol rather than two.
+ */
+internal fun textKey(text: String): String = "t:$text"
+
+/** The cross-tile identity of an icon; see [textKey]. */
+internal fun iconKey(spriteId: String): String = "i:$spriteId"
 
 /** Whether a `symbol-placement` value puts symbols along a line rather than on a point. */
 private fun String.isLinePlacement(): Boolean =
