@@ -100,6 +100,11 @@ internal object SymbolFixtures {
         hasSortKey: Boolean = false,
         zOrder: String = ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO,
         line: List<Pair<Float, Float>>? = null,
+        globalLine: List<Point>? = null,
+        globalAnchorIndex: Int = 0,
+        lineOffsetX: Float = 0f,
+        lineOffsetY: Float = 0f,
+        keepUpright: Boolean = true,
         layoutSize: Float = 16f,
         featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
     ): SymbolInstance.Text {
@@ -117,6 +122,11 @@ internal object SymbolFixtures {
             placement = CompoundLabelPlacement(placement, placement),
             value = FakeLabel(key, width, height),
             line = line,
+            globalLine = globalLine,
+            globalAnchorIndex = globalAnchorIndex,
+            lineOffsetX = lineOffsetX,
+            lineOffsetY = lineOffsetY,
+            keepUpright = keepUpright,
             layoutSize = layoutSize,
             featureSizes = featureSizes,
         )

@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
-import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
+import ovh.plrapps.mapcompose.vector.renderer.utils.circleTouchesTile
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
@@ -16,6 +16,8 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * Draws `circle` layers.
@@ -25,7 +27,8 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
  *
  * A circle is drawn at **every vertex** of the feature, whatever its geometry type -- upstream's
  * `CircleBucket.addFeature` does not look at the type either, which is how a `circle` layer over a
- * line or polygon source renders. Vertices outside the tile are dropped; see [isInsideTile].
+ * line or polygon source renders. A vertex is dropped only once its whole disc falls outside this
+ * tile; see [circleTouchesTile] for why that is not upstream's own bounds test.
  *
  * `circle-pitch-scale` and `circle-pitch-alignment` are inert: both describe how a circle reacts to
  * camera pitch, and MapComposeMP has no pitch.
@@ -43,10 +46,6 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         featureKey: String?
     ) {
         val paint = style.paint ?: return
-        val points = geometryDecoders
-            .decodeVertices(feature.geometry, extent = extent, canvasSize = canvasSize)
-            .filter { isInsideTile(it.x, it.y, canvasSize) }
-        if (points.isEmpty()) return
 
         val density = canvas.density
 
@@ -70,6 +69,16 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
             ?: StyleSpecDefaults.CIRCLE_TRANSLATE
         val translateAnchor = paint.circleTranslateAnchor?.processAsString(featureProperties, actualZoom)
             ?: StyleSpecDefaults.CIRCLE_TRANSLATE_ANCHOR
+
+        /* The paint is read before the vertices are filtered because the filter needs the disc's
+         * own size, and every one of these is a per-feature value, not a per-vertex one. */
+        val translateX = (translate.getOrNull(0) ?: 0.0).toFloat() * density
+        val translateY = (translate.getOrNull(1) ?: 0.0).toFloat() * density
+        val reach = (radius + strokeWidth + max(abs(translateX), abs(translateY))).toDouble()
+        val points = geometryDecoders
+            .decodeVertices(feature.geometry, extent = extent, canvasSize = canvasSize)
+            .filter { circleTouchesTile(it.x, it.y, canvasSize, reach) }
+        if (points.isEmpty()) return
 
         val fillColor = color.withOpacity(opacity)
 

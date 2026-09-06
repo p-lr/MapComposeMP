@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
+import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedGlyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedLabel
 
 /**
@@ -44,10 +45,35 @@ internal abstract class LabelArt {
     /** The label's text, which is what cross-tile and repeat-distance de-duplication key on. */
     abstract val text: String
 
-    /** SDF glyphs from the style's glyph server. */
-    class Glyphs(val rendered: RenderedLabel, override val text: String) : LabelArt() {
+    /**
+     * SDF glyphs from the style's glyph server.
+     *
+     * [quads] is the same label rasterized glyph by glyph, and is non-null only for a label that
+     * follows a line: it is what lets the draw pass bend the label around a curve, one glyph at a
+     * time, the way upstream's `placeGlyphsAlongLine` does. [rendered] is built either way, because
+     * a line label whose projected path is straight enough takes the single-blit path.
+     */
+    class Glyphs(
+        val rendered: RenderedLabel,
+        override val text: String,
+        val quads: List<RenderedGlyph>? = null,
+    ) : LabelArt() {
         override val width: Float get() = rendered.boxWidth
         override val height: Float get() = rendered.boxHeight
+
+        /**
+         * Draws one glyph with its own centre at the current origin, scaled about that centre.
+         *
+         * The caller has already translated and rotated to where this glyph sits on the label's
+         * path, which is why the pivot is the origin and not the label's box corner.
+         */
+        fun drawGlyph(scope: DrawScope, quad: RenderedGlyph, alpha: Float = 1f, scale: Float = 1f) {
+            scope.scale(scale, scale, pivot = Offset.Zero) {
+                translate(quad.left, quad.top) {
+                    drawImage(quad.bitmap, alpha = alpha)
+                }
+            }
+        }
 
         override fun draw(scope: DrawScope, topLeft: Offset, alpha: Float, scale: Float) {
             /* The bitmap is larger than the box -- ascenders, descenders and the halo reach outside

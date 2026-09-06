@@ -4,7 +4,6 @@ import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.filterNotNull
@@ -36,6 +35,7 @@ import kotlin.math.log2
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.round
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 /**
@@ -192,7 +192,7 @@ internal class VectorLayer(
                 var attempt = 0
                 var next = layoutRequests.tryReceive().getOrNull()
                 while (next == null && outcome?.isComplete == false && attempt < LAYOUT_RETRY_LIMIT) {
-                    delay(LAYOUT_THROTTLE_MS shl attempt)
+                    delay((LAYOUT_THROTTLE_MS shl attempt).milliseconds)
                     attempt += 1
                     next = layoutRequests.tryReceive().getOrNull()
                     if (next != null) break
@@ -238,7 +238,7 @@ internal class VectorLayer(
                  * further pending. */
                 var next = placementRequests.tryReceive().getOrNull()
                 while (next == null && outcome.retryInMs > 0L) {
-                    delay(outcome.retryInMs)
+                    delay(outcome.retryInMs.milliseconds)
                     next = placementRequests.tryReceive().getOrNull()
                     if (next != null) break
                     outcome = rasterizer.place(buckets, viewportInfo, nowMillis())

@@ -57,6 +57,39 @@ class PlacementTest {
         )
 
     @Test
+    fun `a line label claims the ground it is drawn on and not the ground it was laid out on`() {
+        /* The collision chain is walked in the bucket's layout space and then projected, and the
+         * two differ by `2^(bucketZoom - displayZoom)`, in (0.5, 1] because `VisibleTilesResolver`
+         * rounds the level up. Walking half the *layout* width, as this used to, made a line
+         * label's chain that factor too short -- here half as long as the label it stands for, so
+         * two labels the eye sees overlapping were both placed. */
+        val line = listOf(0f to 256f, 512f to 256f)
+        val tileOrigin = 8.0 * LAYOUT_TILE_SIZE
+        val world = LAYOUT_TILE_SIZE * 64.0
+        fun lineLabel(key: String, atX: Float) = SymbolFixtures.textInstance(
+            key = key,
+            global = Point((tileOrigin + atX) / world, (tileOrigin + 256f) / world),
+            tileAnchor = Offset(atX, 256f),
+            width = 40f,
+            height = 12f,
+            line = line,
+        )
+
+        // Half the layout-to-viewport factor, so the two spaces disagree by a factor of two.
+        val viewport = SymbolFixtures.viewport(
+            centroid = Point((tileOrigin + 140f) / world, (tileOrigin + 256f) / world),
+            worldPx = (world / 2).toInt(),
+        )
+        val placement = place(
+            listOf(SymbolFixtures.bucket(listOf(lineLabel("a", 100f), lineLabel("b", 180f)))),
+            viewportInfo = viewport,
+        )
+
+        // 40 screen pixels apart, each label 40 screen pixels wide: only one of them fits.
+        assertEquals(1, placedTexts(placement).size, "the two chains overlap on screen")
+    }
+
+    @Test
     fun `a symbol blocks a neighbour whose box overlaps its own`() {
         val bucket = SymbolFixtures.bucket(
             listOf(

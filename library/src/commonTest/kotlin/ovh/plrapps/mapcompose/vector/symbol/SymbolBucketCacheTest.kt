@@ -1,26 +1,9 @@
 package ovh.plrapps.mapcompose.vector.symbol
 
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.Density
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
-import kotlinx.io.Buffer
-import kotlinx.io.RawSource
-import ovh.plrapps.mapcompose.vector.core.VectorRasterizer
-import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
-import ovh.plrapps.mapcompose.vector.data.MapLibreTileSource
-import ovh.plrapps.mapcompose.vector.renderer.Mvt
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
-import ovh.plrapps.mapcompose.vector.spec.Tile
-import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
-import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
-import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
-import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
-import kotlinx.serialization.json.Json
-import pbandk.encodeToByteArray
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
