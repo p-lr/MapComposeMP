@@ -228,6 +228,27 @@ class FillLayerPainterTest {
         return count
     }
 
+    @Test
+    fun `a layer that declares no paint draws the spec defaults`() = runTest {
+        // Regression: an omitted `paint` object used to suppress the layer; upstream always
+        // populates one from the spec (`style_layer.ts`).
+        val bitmap = renderToBitmap(size = SIZE) {
+            painter.paint(
+                canvas = this,
+                feature = quadrant(),
+                style = FillLayer(id = "fill", sourceLayer = "test"),
+                canvasSize = SIZE,
+                extent = Mvt.DEFAULT_EXTENT,
+                zoom = 10.0,
+                featureProperties = null,
+                actualZoom = 10.0,
+            )
+        }
+
+        assertColorEquals(Color.Black, bitmap.pixelAt(16, 16), message = "default fill-color")
+        assertEquals(0f, bitmap.pixelAt(48, 48).alpha, "outside the ring")
+    }
+
     private fun quadrant() = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048))
 
     private companion object {

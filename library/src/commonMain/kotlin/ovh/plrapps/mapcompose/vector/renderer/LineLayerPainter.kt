@@ -86,41 +86,41 @@ class LineLayerPainter(
         val polylines = cachedPolylines(feature, canvasSize, extent, featureKey)
         if (polylines.isEmpty()) return
 
-        val lineColor = paint?.lineColor?.processAsColor(featureProperties, actualZoom)
+        val lineColor = paint.lineColor?.processAsColor(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_COLOR
-        val lineOpacity = paint?.lineOpacity.processAsFloat(featureProperties, actualZoom)
+        val lineOpacity = paint.lineOpacity.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_OPACITY.toFloat()
-        val lineWidth = (paint?.lineWidth.processAsFloat(featureProperties, actualZoom)
+        val lineWidth = (paint.lineWidth.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_WIDTH.toFloat()) * density
-        val lineGapWidth = (paint?.lineGapWidth.processAsFloat(featureProperties, actualZoom)
+        val lineGapWidth = (paint.lineGapWidth.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_GAP_WIDTH.toFloat()) * density
-        val lineBlur = (paint?.lineBlur.processAsFloat(featureProperties, actualZoom)
+        val lineBlur = (paint.lineBlur.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_BLUR.toFloat()) * density
-        val lineOffset = (paint?.lineOffset.processAsFloat(featureProperties, actualZoom)
+        val lineOffset = (paint.lineOffset.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_OFFSET.toFloat()) * density
-        val translate = paint?.lineTranslate.processAsDoubleList(featureProperties, actualZoom)
+        val translate = paint.lineTranslate.processAsDoubleList(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_TRANSLATE
-        val translateAnchor = paint?.lineTranslateAnchor?.processAsString(featureProperties, actualZoom)
+        val translateAnchor = paint.lineTranslateAnchor?.processAsString(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_TRANSLATE_ANCHOR
 
-        val cap = layout?.lineCap?.processAsString(featureProperties, actualZoom)
+        val cap = layout.lineCap?.processAsString(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_CAP
-        val join = layout?.lineJoin?.processAsString(featureProperties, actualZoom)
+        val join = layout.lineJoin?.processAsString(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_JOIN
-        val miterLimit = layout?.lineMiterLimit.processAsFloat(featureProperties, actualZoom)
+        val miterLimit = layout.lineMiterLimit.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_MITER_LIMIT.toFloat()
-        val roundLimit = layout?.lineRoundLimit.processAsFloat(featureProperties, actualZoom)
+        val roundLimit = layout.lineRoundLimit.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.LINE_ROUND_LIMIT.toFloat()
 
         if (lineWidth <= 0f && lineGapWidth <= 0f) return
 
-        val dash = paint?.lineDasharray
+        val dash = paint.lineDasharray
             .processAsDoubleList(featureProperties, actualZoom)
             ?.let { dashPattern(it, lineWidth) }
 
-        val patternName = paint?.linePattern?.processAsString(featureProperties, actualZoom)
+        val patternName = paint.linePattern?.processAsString(featureProperties, actualZoom)
         val patternBrush = patternBrushes.get(spriteManager, patternName)
-        val gradient = paint?.lineGradient
+        val gradient = paint.lineGradient
 
         val inset = lineInset(lineGapWidth, density)
         val outset = lineOutset(lineGapWidth, lineWidth, density)

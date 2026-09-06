@@ -161,6 +161,28 @@ class SymbolLayerLayoutTest {
     )
 
     @Test
+    fun `a layer that declares no paint still lays out its symbols`() = runTest {
+        // Regression: `style.paint ?: return null` made an omitted `paint` object suppress the
+        // whole layer, where upstream always populates one from the spec (`style_layer.ts`), so
+        // omitting it and writing `"paint": {}` are the same thing.
+        val noPaint = SymbolLayer(
+            id = "test",
+            sourceLayer = "test",
+            layout = json.decodeFromString(
+                SymbolLayout.serializer(),
+                """{"text-field":"A","text-font":["Test Regular"],"text-size":16}""",
+            ),
+        )
+
+        val symbols = produce(noPaint)
+
+        assertNotNull(
+            symbols.filterIsInstance<SymbolInstance.Text>().firstOrNull(),
+            "a symbol layer with no paint block still produces its label",
+        )
+    }
+
+    @Test
     fun `an overzoomed bucket positions its symbols from the ancestor tile`() = runTest {
         /* Upstream lays a symbol layer out over the *canonical* tile and magnifies it
          * (`reparseOverscaled`), so an overzoomed bucket is addressed by the ancestor: its x/y/z and

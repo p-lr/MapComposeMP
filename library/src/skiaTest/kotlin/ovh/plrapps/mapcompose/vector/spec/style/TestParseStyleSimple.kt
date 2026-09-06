@@ -49,14 +49,14 @@ class TestParseStyleSimple {
         val backgroundLayer = layers.find { it.id == "background" } as BackgroundLayer
         assertNotNull(backgroundLayer)
         assertEquals("background", backgroundLayer.type)
-        val bgColor = backgroundLayer.paint?.backgroundColor?.process()
-        println("backgroundLayer.paint?.backgroundColor?.process() = $bgColor")
+        val bgColor = backgroundLayer.paint.backgroundColor?.process()
+        println("backgroundLayer.paint.backgroundColor?.process() = $bgColor")
         assertEquals(Color(0xFFD8F2FF), bgColor)
 
         val coastlineLayer = layers.find { it.id == "coastline" } as LineLayer
         assertNotNull(coastlineLayer)
         assertEquals("line", coastlineLayer.type)
-        val lineWidth = coastlineLayer.paint?.lineWidth
+        val lineWidth = coastlineLayer.paint.lineWidth
         assertNotNull(lineWidth)
         assertTrue(lineWidth is ExpressionOrValue.Expression)
         assertEquals(listOf(0.0, 6.0, 14.0, 22.0), lineWidth.expression.zoomStops)
@@ -65,13 +65,13 @@ class TestParseStyleSimple {
         assertEquals(9.0, lineWidth.processAsDouble(zoom = 14.0))
         assertEquals(18.0, lineWidth.processAsDouble(zoom = 22.0))
         val coastColor = coastlineLayer.paint.lineColor?.process()
-        println("coastlineLayer.paint?.lineColor?.process() = $coastColor")
+        println("coastlineLayer.paint.lineColor?.process() = $coastColor")
         assertEquals(Color(0xFF198EC8), coastColor)
         assertEquals(0.5, coastlineLayer.paint.lineBlur?.process())
 
         val countriesFillLayer = layers.find { it.id == "countries-fill" } as FillLayer
         assertNotNull(countriesFillLayer)
-        val fillColor = countriesFillLayer.paint?.fillColor
+        val fillColor = countriesFillLayer.paint.fillColor
         assertNotNull(fillColor)
         assertTrue(fillColor is ExpressionOrValue.Expression)
         // A data-driven ["match", ["get", "ADM0_A3"], ...]: assert what it resolves to.
@@ -90,7 +90,7 @@ class TestParseStyleSimple {
         val countriesLabelLayer = layers.find { it.id == "countries-label" } as SymbolLayer
         println("countriesLabelLayer = $countriesLabelLayer")
         assertNotNull(countriesLabelLayer)
-        val textField = countriesLabelLayer.layout?.textField
+        val textField = countriesLabelLayer.layout.textField
         println("textField = $textField")
         assertNotNull(textField)
         assertTrue(textField is ExpressionOrValue.Expression)

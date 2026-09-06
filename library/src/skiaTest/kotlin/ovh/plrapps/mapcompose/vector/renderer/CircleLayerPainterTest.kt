@@ -199,6 +199,28 @@ class CircleLayerPainterTest {
         assertEquals(0f, onEdge.pixelAt(SIZE / 2, SIZE / 2).alpha)
     }
 
+    @Test
+    fun `a layer that declares no paint draws the spec defaults`() = runTest {
+        // Regression: `style.paint ?: return` made an omitted `paint` object suppress the layer
+        // entirely, where maplibre-gl-js always populates one from the spec (`style_layer.ts`), so
+        // omitting it and writing `"paint": {}` are the same thing.
+        val bitmap = renderToBitmap(size = SIZE) {
+            painter.paint(
+                canvas = this,
+                feature = centrePoint(),
+                style = CircleLayer(id = "circle", sourceLayer = "test"),
+                canvasSize = SIZE,
+                extent = Mvt.DEFAULT_EXTENT,
+                zoom = 10.0,
+                featureProperties = null,
+                actualZoom = 10.0,
+            )
+        }
+
+        assertColorEquals(Color.Black, bitmap.pixelAt(32, 32), message = "default circle-color")
+        assertEquals(0f, bitmap.pixelAt(32, 42).alpha, "beyond the default radius")
+    }
+
     private fun centrePoint() = Mvt.pointFeature(2048 to 2048)
 
     private companion object {

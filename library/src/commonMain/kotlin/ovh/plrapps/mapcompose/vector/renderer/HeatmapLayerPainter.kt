@@ -92,11 +92,11 @@ class HeatmapLayerPainter {
         val paint = style.paint
 
         /* Upstream returns before it even binds the offscreen framebuffer at zero opacity. */
-        val opacity = (paint?.heatmapOpacity.processAsDouble(zoom = actualZoom)
+        val opacity = (paint.heatmapOpacity.processAsDouble(zoom = actualZoom)
             ?: StyleSpecDefaults.HEATMAP_OPACITY).coerceIn(0.0, 1.0)
         if (opacity <= 0.0) return
 
-        val intensity = paint?.heatmapIntensity.processAsDouble(zoom = actualZoom)
+        val intensity = paint.heatmapIntensity.processAsDouble(zoom = actualZoom)
             ?: StyleSpecDefaults.HEATMAP_INTENSITY
 
         /* Upstream's density framebuffer is a quarter of the screen in each axis -- "Use a 4x
@@ -116,10 +116,10 @@ class HeatmapLayerPainter {
         var touchedMaxRow = -1
 
         for (point in points) {
-            val weight = paint?.heatmapWeight.processAsDouble(point.properties, actualZoom)
+            val weight = paint.heatmapWeight.processAsDouble(point.properties, actualZoom)
                 ?: StyleSpecDefaults.HEATMAP_WEIGHT
             /* `heatmap-radius` is in screen pixels, as `circle-radius` is. */
-            val radius = (paint?.heatmapRadius.processAsDouble(point.properties, actualZoom)
+            val radius = (paint.heatmapRadius.processAsDouble(point.properties, actualZoom)
                 ?: StyleSpecDefaults.HEATMAP_RADIUS) * density
             if (radius <= 0.0) continue
 
@@ -202,7 +202,7 @@ class HeatmapLayerPainter {
      * colour is exactly scaling the alpha.
      */
     private fun buildColorRamp(style: HeatmapLayer, opacity: Double): IntArray {
-        val declared = style.paint?.heatmapColor
+        val declared = style.paint.heatmapColor
         val ramp = IntArray(COLOR_RAMP_RESOLUTION)
         for (i in ramp.indices) {
             val t = i.toDouble() / (COLOR_RAMP_RESOLUTION - 1)

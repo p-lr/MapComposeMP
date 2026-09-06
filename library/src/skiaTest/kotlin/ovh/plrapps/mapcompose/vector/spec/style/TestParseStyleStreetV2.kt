@@ -69,7 +69,7 @@ class TestParseStyleStreetV2 {
         val backgroundLayer = layers.find { it.id == "Background" } as BackgroundLayer
         assertNotNull(backgroundLayer)
         assertEquals("background", backgroundLayer.type)
-        val bgColor = backgroundLayer.paint?.backgroundColor
+        val bgColor = backgroundLayer.paint.backgroundColor
         assertNotNull(bgColor)
         assertTrue(bgColor is ExpressionOrValue.Expression)
         val bgColorExpr = bgColor
@@ -86,7 +86,7 @@ class TestParseStyleStreetV2 {
         assertEquals("maptiler_planet", meadowLayer.source)
         assertEquals("globallandcover", meadowLayer.sourceLayer)
         assertEquals(8.toDouble(), meadowLayer.maxzoom)
-        val fillColor = meadowLayer.paint?.fillColor
+        val fillColor = meadowLayer.paint.fillColor
         assertNotNull(fillColor)
         assertTrue(fillColor is ExpressionOrValue.Value<Color>)
         assertEquals(Color.hsl(75f,0.51f,0.85f), fillColor.value)

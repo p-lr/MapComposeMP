@@ -78,7 +78,7 @@ class TestParseStyleBright {
         val backgroundLayer = layers.find { it.id == "background" } as BackgroundLayer
         assertNotNull(backgroundLayer)
         assertEquals("background", backgroundLayer.type)
-        val bgColor = backgroundLayer.paint?.backgroundColor?.process()
+        val bgColor = backgroundLayer.paint.backgroundColor?.process()
         assertEquals(Color(0xFFF8F4F0), bgColor)
 
         val landuseLayer = layers.find { it.id == "landuse-residential" } as FillLayer
@@ -87,7 +87,7 @@ class TestParseStyleBright {
         assertEquals("openmaptiles", landuseLayer.source)
         assertEquals("landuse", landuseLayer.sourceLayer)
 
-        val landuseColor = landuseLayer.paint?.fillColor
+        val landuseColor = landuseLayer.paint.fillColor
         assertNotNull(landuseColor)
         assertTrue(landuseColor is ExpressionOrValue.Expression)
         // A zoom-driven interpolate: assert the values it produces at its own stops.
@@ -101,7 +101,7 @@ class TestParseStyleBright {
         assertEquals("openmaptiles", waterwayLayer.source)
         assertEquals("waterway", waterwayLayer.sourceLayer)
 
-        val lineWidth = waterwayLayer.paint?.lineWidth
+        val lineWidth = waterwayLayer.paint.lineWidth
         assertNotNull(lineWidth)
         assertTrue(lineWidth is ExpressionOrValue.Expression)
         assertEquals(listOf(13.0, 20.0), lineWidth.expression.zoomStops)
