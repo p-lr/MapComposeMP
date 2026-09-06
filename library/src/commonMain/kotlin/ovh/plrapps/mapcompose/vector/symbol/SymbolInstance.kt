@@ -113,6 +113,37 @@ internal sealed class SymbolInstance(
          * `line` or `line-center`. The placement pass projects it to build a collision circle chain.
          */
         val line: List<Pair<Float, Float>>? = null,
+        /**
+         * **This label's own stretch** of [line], in normalized map coordinates -- the space
+         * [global] is in.
+         *
+         * The draw pass bends the label glyph by glyph *at draw time*, because a placement is held
+         * for at least a fade duration and anything baked at commit would step once per cycle
+         * through a gesture instead of following the map. It therefore projects this every frame,
+         * which is why it is the label's own few vertices and not the whole road: a merged
+         * linestring can carry hundreds of vertices and every label on it would re-project all of
+         * them, sixty times a second.
+         *
+         * The stretch is cut generously -- past a label's own drawn length whatever the zoom does
+         * within the bucket's level -- and a glyph that still runs off its end falls back to the
+         * straight draw.
+         */
+        val globalLine: List<Point>? = null,
+        /**
+         * Where the anchor sits in [globalLine]. It is a vertex of it, cut in **before**
+         * `text-offset` and `text-translate`: [tileAnchor] has both folded in, which is the point
+         * to collide from but not the point to walk the line from -- upstream applies the offset
+         * along the path instead (its `lineOffsetX` / `lineOffsetY`).
+         */
+        val globalAnchorIndex: Int = 0,
+        /**
+         * `text-offset`'s parts as upstream's `lineOffsetX` / `lineOffsetY`: along the path and
+         * along its normal, rather than along the screen's axes as they are for a point label.
+         */
+        val lineOffsetX: Float = 0f,
+        val lineOffsetY: Float = 0f,
+        /** `text-keep-upright`, decided in screen space by the draw pass. */
+        val keepUpright: Boolean = true,
         layoutSize: Float = 1f,
         featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
     ) : SymbolInstance(

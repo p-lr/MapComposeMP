@@ -395,7 +395,14 @@ internal class Placement(
         viewportPos: Offset,
         textScale: Float,
     ): List<CollisionCircle>? {
-        val halfLength = symbol.value.width / 2f
+        /* The label is drawn at `textScale` in *screen* pixels, while the walk happens in the
+         * bucket's layout space, and the two differ by the bucket's own projection factor -- which
+         * is `2^(bucketZoom - displayZoom)`, in (0.5, 1] because `VisibleTilesResolver` rounds the
+         * level up. Walking half the layout width, as this used to, made a line label's collision
+         * chain up to twice as long as the label it stands for near the bottom of a zoom level. */
+        val projectionScale = layoutToViewportScale(bucket)
+        if (projectionScale <= 0f) return null
+        val halfLength = symbol.value.width * textScale / 2f / projectionScale
         if (halfLength <= 0f) return null
         val path = SymbolProjection.labelPath(line, symbol.tileAnchor, halfLength) ?: return null
 
@@ -699,6 +706,16 @@ internal class Placement(
         scaleOf(sizeData, layoutSize, featureSizes, zoom)
 
     /** A point in a bucket's layout space, as a normalized Mercator coordinate. */
+    /**
+     * Screen pixels per layout pixel for [bucket]: the factor a length measured in its layout space
+     * grows by on the way to the viewport, which is uniform because both steps are pure scales.
+     */
+    private fun layoutToViewportScale(bucket: SymbolBucket): Float {
+        val n = 2.0.pow(bucket.ref.z.toDouble())
+        val mercatorPerLayoutPx = 1.0 / (bucket.canvasSize.toDouble() * n)
+        return (mercatorPerLayoutPx * viewportInfo.fullWidth.toDouble() * viewportInfo.scale).toFloat()
+    }
+
     private fun tileToMercator(bucket: SymbolBucket, x: Float, y: Float): Point {
         val n = 2.0.pow(bucket.ref.z.toDouble())
         val size = bucket.canvasSize.toDouble()

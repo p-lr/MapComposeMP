@@ -2,7 +2,11 @@ package ovh.plrapps.mapcompose.vector.symbol
 
 import androidx.compose.ui.geometry.Offset
 import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
+import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.ceil
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -43,7 +47,19 @@ internal object SymbolProjection {
         line: List<Pair<Float, Float>>,
         anchor: Offset,
         halfLength: Float,
-    ): List<Offset>? {
+    ): List<Offset>? = labelPathOf(line, anchor, halfLength)?.points
+
+    /**
+     * As [labelPath], but keeping the anchor's own index in the returned path.
+     *
+     * The draw pass needs it: a glyph's position is an arc length measured **from the anchor**, and
+     * the anchor is not the path's midpoint whenever the walk ran out of line on one side.
+     */
+    fun labelPathOf(
+        line: List<Pair<Float, Float>>,
+        anchor: Offset,
+        halfLength: Float,
+    ): LabelPath? {
         if (line.size < 2) return null
 
         // The segment the anchor sits on, and how far along it.
@@ -81,7 +97,8 @@ internal object SymbolProjection {
         for (i in backwards.indices.reversed()) path += backwards[i]
         path += start
         path += forwards
-        return path.takeIf { it.size >= 2 }
+        if (path.size < 2) return null
+        return LabelPath(path, anchorIndex = backwards.size)
     }
 
     /** Vertices from [from] outwards along [line] for [distance], the far end included. */
@@ -183,8 +200,71 @@ internal object SymbolProjection {
         return circles
     }
 
+    /**
+     * Where each glyph of a label sits along [path], ported from `placeGlyphsAlongLine`.
+     *
+     * [offsets] are the glyphs' signed arc distances from the label's centre, in [path]'s own
+     * units; [anchorDistance] is where that centre sits along the path. [perpendicular] is
+     * upstream's `lineOffsetY` -- `text-offset`'s vertical component, applied along the segment
+     * normal rather than straight down, because the label is following the line.
+     *
+     * [flip] walks the label the other way and turns every glyph around, which is what upstream
+     * does for `text-keep-upright` when the label would otherwise read right to left.
+     *
+     * Returns null when the first or last glyph falls off an end of the path -- upstream's
+     * `notEnoughRoom`, which it also tests on those two glyphs alone.
+     */
+    fun placeGlyphsAlongPath(
+        path: List<Offset>,
+        anchorDistance: Float,
+        offsets: FloatArray,
+        perpendicular: Float = 0f,
+        flip: Boolean = false,
+    ): List<PathPoint>? {
+        if (path.size < 2 || offsets.isEmpty()) return null
+        val interpolator = PathInterpolator(path.map { it.x to it.y })
+        val direction = if (flip) -1f else 1f
+
+        val out = ArrayList<PathPoint>(offsets.size)
+        for (offset in offsets) {
+            val point = interpolator.atDistance(anchorDistance + direction * offset) ?: return null
+            out += if (flip) point.turnedAround() else point
+        }
+        if (perpendicular == 0f) return out
+        return out.map { it.movedAlongNormal(perpendicular) }
+    }
+
     /** The padded viewport a circle chain is clipped to. */
     data class ClipBounds(val left: Float, val top: Float, val right: Float, val bottom: Float)
+}
+
+/**
+ * The stretch of line a label covers, and where its anchor sits in it.
+ *
+ * [points] is [SymbolProjection.labelPath]'s path; `points[anchorIndex]` is the anchor itself.
+ */
+internal class LabelPath(val points: List<Offset>, val anchorIndex: Int)
+
+/** A point on a path and the direction of the segment it lies on, in degrees. */
+internal class PathPoint(val x: Float, val y: Float, val angleDeg: Float) {
+
+    /** The same point, read in the opposite direction -- upstream's flipped glyph. */
+    fun turnedAround(): PathPoint = PathPoint(x, y, angleDeg + 180f)
+
+    /**
+     * The point moved by [distance] along the segment's normal.
+     *
+     * The normal is the direction rotated a quarter turn the way the canvas turns, so a positive
+     * distance is "below the line" exactly as a positive `text-offset` y is below the anchor.
+     */
+    fun movedAlongNormal(distance: Float): PathPoint {
+        val radians = angleDeg * PI.toFloat() / 180f
+        return PathPoint(
+            x = x - sin(radians) * distance,
+            y = y + cos(radians) * distance,
+            angleDeg = angleDeg,
+        )
+    }
 }
 
 /**
@@ -216,22 +296,45 @@ internal class PathInterpolator(points: List<Pair<Float, Float>>, padding: Float
         if (points.isEmpty()) return 0f to 0f
 
         val clamped = t.coerceIn(0f, 1f)
+        val point = at(clamped * paddedLength + padding)
+        return point.x to point.y
+    }
+
+    /** The cumulative arc length from the path's start to vertex [index]. */
+    fun distanceTo(index: Int): Float = distances.getOrElse(index) { 0f }
+
+    /**
+     * The point at [distance] along the path -- the *un-padded* path, unlike [lerp] -- together
+     * with the direction of the segment it falls on.
+     *
+     * Returns null outside `0..length`, which is what tells a caller a glyph ran off the end.
+     */
+    fun atDistance(distance: Float): PathPoint? {
+        if (points.size < 2) return null
+        if (distance < 0f || distance > length) return null
+        return at(distance)
+    }
+
+    private fun at(distance: Float): PathPoint {
         var currentIndex = 1
         var distOfCurrentIdx = distances[currentIndex]
-        val distToTarget = clamped * paddedLength + padding
 
-        while (distOfCurrentIdx < distToTarget && currentIndex < distances.size - 1) {
+        while (distOfCurrentIdx < distance && currentIndex < distances.size - 1) {
             distOfCurrentIdx = distances[++currentIndex]
         }
 
         val prevIndex = currentIndex - 1
         val distOfPrevIdx = distances[prevIndex]
         val segmentLength = distOfCurrentIdx - distOfPrevIdx
-        val segmentT = if (segmentLength > 0f) (distToTarget - distOfPrevIdx) / segmentLength else 0f
+        val segmentT = if (segmentLength > 0f) (distance - distOfPrevIdx) / segmentLength else 0f
 
-        return Pair(
-            points[prevIndex].first * (1f - segmentT) + points[currentIndex].first * segmentT,
-            points[prevIndex].second * (1f - segmentT) + points[currentIndex].second * segmentT,
+        val (prevX, prevY) = points[prevIndex]
+        val (currentX, currentY) = points[currentIndex]
+        val angle = atan2(currentY - prevY, currentX - prevX) * 180f / PI.toFloat()
+        return PathPoint(
+            x = prevX * (1f - segmentT) + currentX * segmentT,
+            y = prevY * (1f - segmentT) + currentY * segmentT,
+            angleDeg = angle,
         )
     }
 }

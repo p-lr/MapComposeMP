@@ -99,6 +99,54 @@ class GlyphRasterizerTest {
         return count
     }
 
+    @Test
+    fun `a glyph rasterized on its own carries the same ink as it does in a label`() {
+        // The invariant that keeps a line label looking the same whichever path draws it: the two
+        // rasterizers run the same shading, so only the sampling grid's sub-pixel phase differs.
+        val label = shape("a")
+        val whole = assertNotNull(GlyphRasterizer.render(label, Color.Black, Color.Transparent, 0f, 0f))
+        val quads = assertNotNull(
+            GlyphRasterizer.renderGlyphs(label, Color.Black, Color.Transparent, 0f, 0f)
+        )
+
+        assertEquals(1, quads.size)
+        val quad = quads.single()
+        val quadInk = quad.bitmap.toPixelMap().let { pixels ->
+            var count = 0
+            for (y in 0 until pixels.height) {
+                for (x in 0 until pixels.width) if (pixels[x, y].alpha > 0.5f) count++
+            }
+            count
+        }
+        assertTrue(
+            abs(quadInk - whole.inkCount()) <= whole.inkCount() / 10,
+            "one glyph alone should ink the same area as it does in the label",
+        )
+    }
+
+    @Test
+    fun `every glyph quad is placed by its own centre`() {
+        val label = shape("aaa")
+        val quads = assertNotNull(
+            GlyphRasterizer.renderGlyphs(label, Color.Black, Color.Transparent, 0f, 0f)
+        )
+
+        assertEquals(3, quads.size)
+        val advance = ADVANCE * FONT_SIZE / ONE_EM
+        // Symmetric about the label's centre, one advance apart.
+        assertEquals(-advance, quads[0].alongOffset, 1e-2f)
+        assertEquals(0f, quads[1].alongOffset, 1e-2f)
+        assertEquals(advance, quads[2].alongOffset, 1e-2f)
+        // The quad's own box is centred on that point, border included.
+        val border = GLYPH_BORDER * FONT_SIZE / ONE_EM
+        assertEquals(-(advance / 2f + border), quads[1].left, 1e-2f)
+    }
+
+    @Test
+    fun `a label with no ink has no quads`() {
+        assertNull(GlyphRasterizer.renderGlyphs(shape("  "), Color.Black, Color.Transparent, 0f, 0f))
+    }
+
     /**
      * A glyph whose distance field is encoded the way a real range is: [SDF_FILL_BUFFER] at the ink
      * edge, moving by `1 / SDF_PX` per glyph unit. [blockGlyph]'s ramp is steeper than that, which

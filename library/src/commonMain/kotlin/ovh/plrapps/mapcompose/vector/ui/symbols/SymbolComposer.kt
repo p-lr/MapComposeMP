@@ -15,6 +15,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.withTransform
 import ovh.plrapps.mapcompose.ui.layout.grid
 import ovh.plrapps.mapcompose.ui.state.ZoomPanRotateState
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.translate
+import ovh.plrapps.mapcompose.vector.renderer.LabelArt
+import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.symbol.SymbolInstance
 import ovh.plrapps.mapcompose.vector.symbol.fractionalZoom
 import ovh.plrapps.mapcompose.vector.ui.state.SymbolState
@@ -68,6 +72,7 @@ internal fun SymbolComposer(
         val y0 = ((ceil(zoomPRState.scrollY / grid) * grid)).toInt()
         val fadeChange = placement.fadeChangeAt(fade.elapsedMillis)
         val zoom = fractionalZoom(zoomPRState.fullWidth, zoomPRState.scale, density)
+        val curveEpsilonPx = CurvedLabel.CURVE_EPSILON_DP * density
 
         withTransform({
             rotate(
@@ -84,7 +89,8 @@ internal fun SymbolComposer(
         }) {
             for (phase in symbolState.visiblePhases) {
                 val phaseOffsetPx = phase * zoomPRState.fullWidth * zoomPRState.scale
-                for (placed in placement.symbols.reversed()) {
+                /* A view, not a copy: this runs once per phase on every frame. */
+                for (placed in placement.symbols.asReversed()) {
                     val symbol = placed.instance
                     val iconAlpha = placed.opacity.icon.alphaAt(fadeChange)
                     val textAlpha = placed.opacity.text.alphaAt(fadeChange)
@@ -106,6 +112,27 @@ internal fun SymbolComposer(
                     } else {
                         canvasX = (symbol.global.x * zoomPRState.fullWidth * zoomPRState.scale - x0 + phaseOffsetPx).toFloat()
                         canvasY = (symbol.global.y * zoomPRState.fullHeight * zoomPRState.scale - y0).toFloat()
+                    }
+
+                    /* A label that follows a line is drawn along the *projected* line, not as one
+                     * rigid bitmap at the anchor segment's angle -- upstream's `updateLineLabels`,
+                     * per frame, for the same reason the scale above is per frame. */
+                    if (symbol is SymbolInstance.Text && symbol.globalLine != null) {
+                        val drawn = drawLineLabel(
+                            symbol = symbol,
+                            textScale = textScale,
+                            textAlpha = textAlpha,
+                            curveEpsilonPx = curveEpsilonPx,
+                            mapRotationDeg = zoomPRState.rotation,
+                            canvasX = canvasX,
+                            canvasY = canvasY,
+                        ) { point ->
+                            Offset(
+                                (point.x * zoomPRState.fullWidth * zoomPRState.scale - x0 + phaseOffsetPx).toFloat(),
+                                (point.y * zoomPRState.fullHeight * zoomPRState.scale - y0).toFloat(),
+                            )
+                        }
+                        if (drawn) continue
                     }
 
                     val size = symbol.scaledSize(iconScale, textScale)
@@ -134,6 +161,61 @@ internal fun SymbolComposer(
             }
         }
     }
+}
+
+/**
+ * Draws a line label along its own line, and says whether it drew anything.
+ *
+ * Returns false when the label's line does not resolve -- the anchor is not on it, or the label is
+ * wider than what is left of it -- and the caller falls back to the ordinary rigid draw.
+ *
+ * The two paths differ only in how far the line bends: past [curveEpsilonPx] the label is drawn
+ * glyph by glyph, below it as one blit at the path's chord angle. Both use the chord, so a label
+ * does not jump as the map zooms across the threshold.
+ */
+private fun DrawScope.drawLineLabel(
+    symbol: SymbolInstance.Text,
+    textScale: Float,
+    textAlpha: Float,
+    curveEpsilonPx: Float,
+    mapRotationDeg: Float,
+    canvasX: Float,
+    canvasY: Float,
+    project: (Point) -> Offset,
+): Boolean {
+    if (textAlpha <= 0f) return true
+    val path = CurvedLabel.pathFor(symbol, project) ?: return false
+    val art = symbol.value
+
+    if (art is LabelArt.Glyphs) {
+        val placements = CurvedLabel.place(
+            art = art,
+            path = path,
+            textScale = textScale,
+            alongOffset = symbol.lineOffsetX,
+            perpendicular = symbol.lineOffsetY,
+            keepUpright = symbol.keepUpright,
+            curveEpsilonPx = curveEpsilonPx,
+            mapRotationDeg = mapRotationDeg,
+        )
+        if (placements != null) {
+            drawTextAlongPath(art, placements, alpha = textAlpha, scale = textScale)
+            return true
+        }
+    }
+
+    val chord = CurvedLabel.chordAngleDeg(path)
+    /* `text-keep-upright` on the straight path, decided the same way the glyph path decides it:
+     * in screen space, bearing included, so a chord running right to left is turned around. */
+    val backwards = symbol.keepUpright &&
+        CurvedLabel.readsBackwards(path.points.first(), path.points.last(), mapRotationDeg)
+    val angle = if (backwards) chord + 180f else chord
+    translate(canvasX, canvasY) {
+        translate(-art.width * textScale / 2f, -art.height * textScale / 2f) {
+            drawTextAtAngle(art, angle, alpha = textAlpha, scale = textScale)
+        }
+    }
+    return true
 }
 
 /**

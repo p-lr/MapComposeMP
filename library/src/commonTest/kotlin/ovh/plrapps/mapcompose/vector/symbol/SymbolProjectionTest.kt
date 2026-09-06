@@ -18,6 +18,11 @@ import kotlin.test.assertTrue
  */
 class SymbolProjectionTest {
 
+    private fun assertEquals(expected: List<Float>, actual: List<Float>, tolerance: Float) {
+        assertEquals(expected.size, actual.size, "sizes")
+        for (i in expected.indices) assertEquals(expected[i], actual[i], tolerance, "at $i")
+    }
+
     private fun straightLine(): List<Pair<Float, Float>> =
         listOf(0f to 100f, 100f to 100f, 200f to 100f, 300f to 100f)
 
@@ -52,6 +57,112 @@ class SymbolProjectionTest {
         assertNotNull(path)
         assertEquals(0f, path.first().x, 1e-3f, "the walk cannot go past the line's start")
         assertEquals(120f, path.last().x, 1e-3f)
+    }
+
+    @Test
+    fun `the label path reports where the anchor sits in it`() {
+        val corner = listOf(0f to 0f, 100f to 0f, 100f to 100f)
+
+        val path = SymbolProjection.labelPathOf(corner, anchor = Offset(100f, 0f), halfLength = 50f)
+
+        assertNotNull(path)
+        assertEquals(1, path.anchorIndex)
+        assertEquals(Offset(100f, 0f), path.points[path.anchorIndex])
+    }
+
+    @Test
+    fun `glyphs on a straight path are evenly spaced and level`() {
+        val path = listOf(Offset(0f, 100f), Offset(200f, 100f))
+
+        val placed = SymbolProjection.placeGlyphsAlongPath(
+            path = path,
+            anchorDistance = 100f,
+            offsets = floatArrayOf(-20f, 0f, 20f),
+        )
+
+        assertNotNull(placed)
+        assertEquals(listOf(80f, 100f, 120f), placed.map { it.x }, tolerance = 1e-3f)
+        assertTrue(placed.all { abs(it.y - 100f) < 1e-3f })
+        assertTrue(placed.all { abs(it.angleDeg) < 1e-3f })
+    }
+
+    @Test
+    fun `glyphs turn with the path at a corner`() {
+        val path = listOf(Offset(0f, 0f), Offset(100f, 0f), Offset(100f, 100f))
+
+        val placed = SymbolProjection.placeGlyphsAlongPath(
+            path = path,
+            anchorDistance = 100f,
+            offsets = floatArrayOf(-50f, 50f),
+        )
+
+        assertNotNull(placed)
+        assertEquals(Offset(50f, 0f), Offset(placed[0].x, placed[0].y))
+        assertEquals(0f, placed[0].angleDeg, 1e-3f)
+        assertEquals(Offset(100f, 50f), Offset(placed[1].x, placed[1].y))
+        assertEquals(90f, placed[1].angleDeg, 1e-3f, "the canvas turns clockwise for a positive angle")
+    }
+
+    @Test
+    fun `a glyph past the end of the path yields nothing`() {
+        val path = listOf(Offset(0f, 0f), Offset(100f, 0f))
+
+        // Upstream's `notEnoughRoom`: the label runs off the line, so it is not placed along it.
+        assertEquals(
+            null,
+            SymbolProjection.placeGlyphsAlongPath(path, anchorDistance = 90f, offsets = floatArrayOf(0f, 30f)),
+        )
+    }
+
+    @Test
+    fun `flipping reverses the traversal and turns every glyph around`() {
+        val path = listOf(Offset(0f, 0f), Offset(200f, 0f))
+        val offsets = floatArrayOf(-40f, 40f)
+
+        val forward = SymbolProjection.placeGlyphsAlongPath(path, 100f, offsets)
+        val flipped = SymbolProjection.placeGlyphsAlongPath(path, 100f, offsets, flip = true)
+
+        assertNotNull(forward)
+        assertNotNull(flipped)
+        assertEquals(listOf(60f, 140f), forward.map { it.x }, tolerance = 1e-3f)
+        assertEquals(listOf(140f, 60f), flipped.map { it.x }, tolerance = 1e-3f)
+        assertTrue(flipped.all { abs(abs(it.angleDeg) - 180f) < 1e-3f })
+    }
+
+    @Test
+    fun `a perpendicular offset moves every glyph along the normal`() {
+        val down = SymbolProjection.placeGlyphsAlongPath(
+            path = listOf(Offset(0f, 0f), Offset(100f, 0f)),
+            anchorDistance = 50f,
+            offsets = floatArrayOf(0f),
+            perpendicular = 10f,
+        )
+        // On a leg running downwards the same offset moves the glyph the other way in x.
+        val across = SymbolProjection.placeGlyphsAlongPath(
+            path = listOf(Offset(0f, 0f), Offset(0f, 100f)),
+            anchorDistance = 50f,
+            offsets = floatArrayOf(0f),
+            perpendicular = 10f,
+        )
+
+        assertNotNull(down)
+        assertNotNull(across)
+        assertEquals(Offset(50f, 10f), Offset(down[0].x, down[0].y))
+        assertEquals(Offset(-10f, 50f), Offset(across[0].x, across[0].y))
+    }
+
+    @Test
+    fun `atDistance agrees with lerp when there is no padding`() {
+        val interpolator = PathInterpolator(listOf(0f to 0f, 100f to 0f, 100f to 100f))
+
+        val mid = interpolator.atDistance(interpolator.length / 2f)
+        val lerped = interpolator.lerp(0.5f)
+
+        assertNotNull(mid)
+        assertEquals(lerped.first, mid.x, 1e-3f)
+        assertEquals(lerped.second, mid.y, 1e-3f)
+        assertEquals(null, interpolator.atDistance(-1f))
+        assertEquals(null, interpolator.atDistance(interpolator.length + 1f))
     }
 
     @Test

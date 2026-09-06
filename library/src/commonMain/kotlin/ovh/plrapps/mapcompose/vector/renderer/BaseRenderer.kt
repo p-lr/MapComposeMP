@@ -17,10 +17,17 @@ abstract class BaseRenderer(
     /**
      * Evaluates the layer's filter against a feature.
      *
-     * The zoom passed to a filter is the tile's *integer* zoom, not the fractional map zoom. That
-     * matches MapLibre, where buckets evaluate `featureFilter.filter(new
-     * EvaluationParameters(this.zoom), …)` with the tile's canonical zoom while paint properties
-     * are evaluated at the fractional zoom.
+     * The zoom passed to a filter is the tile's *integer* zoom, which is what MapLibre does too:
+     * its buckets evaluate `featureFilter.filter(new EvaluationParameters(this.zoom), …)` at the
+     * tile's canonical zoom.
+     *
+     * **Divergence.** Upstream then evaluates *paint* properties at the fractional map zoom, per
+     * frame, from uniforms. Here a tile is rasterized once and cached by `(row, col, z)`, so a
+     * painter is handed the same integer zoom as the filter -- `VectorRasterizer.getTile` is
+     * called from a `TileStreamProvider`, whose only zoom is the tile's. Evaluating paint at the
+     * fractional zoom would mean re-rasterizing the whole viewport as the map zooms, and doing it
+     * for *some* tiles would seam wherever a road crosses a tile edge, because two neighbours
+     * rendered at different zooms disagree about every width. See `vector/README.md`.
      */
     fun shouldRenderFeature(
         feature: Tile.Feature,
