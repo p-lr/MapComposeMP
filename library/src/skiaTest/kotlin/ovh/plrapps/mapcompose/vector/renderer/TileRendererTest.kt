@@ -47,7 +47,7 @@ class TileRendererTest {
         zoom: Double = 10.0,
         tileKey: String? = null,
         renderer: TileRenderer = renderer(),
-        heatmapNeighbours: List<NeighbourTile> = emptyList(),
+        neighbours: List<NeighbourTile> = emptyList(),
     ): ImageBitmap = renderToBitmap(size = SIZE) {
         renderer.render(
             canvas = this,
@@ -57,7 +57,7 @@ class TileRendererTest {
             canvasSize = SIZE,
             actualZoom = zoom,
             tileKey = tileKey,
-            heatmapNeighbours = heatmapNeighbours,
+            neighbours = neighbours,
         )
     }
 
@@ -242,7 +242,7 @@ class TileRendererTest {
         // into this tile even though this tile carries no points at all.
         val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
 
-        val bitmap = render(heatmapLayer(), tile = null, heatmapNeighbours = listOf(west))
+        val bitmap = render(heatmapLayer(), tile = null, neighbours = listOf(west))
 
         assertTrue(bitmap.pixelAt(0, 32).alpha > 0.1f, "the west edge must be heated from outside")
         assertEquals(0f, bitmap.pixelAt(SIZE - 1, 32).alpha, "the east edge is out of reach")
@@ -254,7 +254,7 @@ class TileRendererTest {
         // which carries it too, and upstream's CircleBucket drops it from the neighbour's bucket.
         val west = NeighbourTile(tile = pointTile(4224 to 2048), dx = -1, dy = 0)
 
-        val bitmap = render(heatmapLayer(), tile = null, heatmapNeighbours = listOf(west))
+        val bitmap = render(heatmapLayer(), tile = null, neighbours = listOf(west))
 
         assertEquals(0, bitmap.opaquePixelCount(), "a buffered point must not be accumulated twice")
     }
@@ -287,6 +287,71 @@ class TileRendererTest {
         )
 
         assertEquals(0, render(heatmapLayer(), tile).opaquePixelCount())
+    }
+
+    // endregion
+
+    // region circle boundaries
+    //
+    // A disc reaches past the tile its centre belongs to, and this tile's bitmap is the clip, so the
+    // neighbouring tiles are gathered for a circle layer too. See `CircleVertexGate`.
+
+    private fun circleLayer(extra: String = "") = layer(
+        """{"id":"dots","type":"circle","source":"src","source-layer":"points",
+            "paint":{"circle-radius":8,"circle-color":"#ff0000"}$extra}"""
+    )
+
+    @Test
+    fun `a circle owned by a neighbouring tile is drawn into this one`() = runTest {
+        // 4032 of 4096 is one canvas pixel inside the western neighbour's eastern edge -- far
+        // outside the range any MVT buffer would duplicate into this tile, and the disc still
+        // reaches 7 pixels in.
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+
+        val bitmap = render(circleLayer(), tile = null, neighbours = listOf(west))
+
+        assertColorEquals(Color.Red, bitmap.pixelAt(2, 32))
+        assertEquals(0f, bitmap.pixelAt(32, 32).alpha, "the disc must not reach the tile centre")
+    }
+
+    @Test
+    fun `a circle out of reach of this tile is not drawn`() = runTest {
+        // Ten canvas pixels into the western neighbour, against a radius of eight.
+        val west = NeighbourTile(tile = pointTile(3456 to 2048), dx = -1, dy = 0)
+
+        val bitmap = render(circleLayer(), tile = null, neighbours = listOf(west))
+
+        assertEquals(0, bitmap.opaquePixelCount())
+    }
+
+    @Test
+    fun `a buffered copy is not drawn once its own tile is gathered`() = runTest {
+        /* The same vertex twice: owned by the western neighbour at 4032, and duplicated into this
+         * tile's buffer at -64. Drawing both would double a translucent circle's alpha along the
+         * seam, which is what the ownership rule prevents. */
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+        val translucent = layer(
+            """{"id":"dots","type":"circle","source":"src","source-layer":"points",
+                "paint":{"circle-radius":8,"circle-color":"#ff0000","circle-opacity":0.5}}"""
+        )
+
+        val both = render(translucent, pointTile(-64 to 2048), neighbours = listOf(west))
+        val once = render(translucent, tile = null, neighbours = listOf(west))
+
+        assertEquals(
+            once.pixelAt(2, 32).alpha,
+            both.pixelAt(2, 32).alpha,
+            "the vertex must be drawn by its owner only",
+        )
+    }
+
+    @Test
+    fun `a buffered copy is drawn when its own tile was not gathered`() = runTest {
+        // No neighbours: the buffered copy is all this tile has, and dropping it would leave the
+        // disc's half missing entirely -- the behaviour a failed neighbour fetch falls back to.
+        val bitmap = render(circleLayer(), pointTile(-64 to 2048))
+
+        assertColorEquals(Color.Red, bitmap.pixelAt(2, 32))
     }
 
     // endregion

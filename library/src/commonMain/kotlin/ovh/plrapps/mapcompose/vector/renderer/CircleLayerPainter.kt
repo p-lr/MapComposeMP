@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
-import ovh.plrapps.mapcompose.vector.renderer.utils.circleTouchesTile
+import ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
@@ -27,8 +27,10 @@ import kotlin.math.max
  *
  * A circle is drawn at **every vertex** of the feature, whatever its geometry type -- upstream's
  * `CircleBucket.addFeature` does not look at the type either, which is how a `circle` layer over a
- * line or polygon source renders. A vertex is dropped only once its whole disc falls outside this
- * tile; see [circleTouchesTile] for why that is not upstream's own bounds test.
+ * line or polygon source renders. Which vertices this tile draws is [CircleVertexGate]'s decision:
+ * its own, plus the gathered neighbouring tiles' own vertices whose disc reaches in, because a tile
+ * is rasterized into its own bitmap here and cannot spill a disc over its neighbour the way
+ * upstream's viewport-wide framebuffer does.
  *
  * `circle-pitch-scale` and `circle-pitch-alignment` are inert: both describe how a circle reacts to
  * camera pitch, and MapComposeMP has no pitch.
@@ -44,6 +46,29 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         featureProperties: EvalFeature?,
         actualZoom: Double,
         featureKey: String?
+    ) = paint(
+        canvas, feature, style, canvasSize, extent, zoom, featureProperties, actualZoom, featureKey,
+        gate = CircleVertexGate(),
+    )
+
+    /**
+     * Draws [feature]'s vertices that [gate] accepts, at the offset the gate carries.
+     *
+     * The offset is what lets a *neighbouring* tile's features be drawn into this one: they are
+     * decoded in their own tile's space and shifted by a whole tile from there, rather than through
+     * a canvas translate, so the gate can test the shifted disc against this tile in one place.
+     */
+    suspend fun paint(
+        canvas: DrawScope,
+        feature: Tile.Feature,
+        style: CircleLayer,
+        canvasSize: Int,
+        extent: Int,
+        zoom: Double,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        featureKey: String?,
+        gate: CircleVertexGate,
     ) {
         val paint = style.paint
 
@@ -77,7 +102,7 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         val reach = (radius + strokeWidth + max(abs(translateX), abs(translateY))).toDouble()
         val points = geometryDecoders
             .decodeVertices(feature.geometry, extent = extent, canvasSize = canvasSize)
-            .filter { circleTouchesTile(it.x, it.y, canvasSize, reach) }
+            .filter { gate.accepts(it.x, it.y, canvasSize, reach) }
         if (points.isEmpty()) return
 
         val fillColor = color.withOpacity(opacity)
@@ -91,7 +116,10 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
 
         canvas.withTranslate(translate, translateAnchor) {
             for (point in points) {
-                val center = Offset(point.x.toFloat(), point.y.toFloat())
+                val center = Offset(
+                    (point.x + gate.offsetX).toFloat(),
+                    (point.y + gate.offsetY).toFloat(),
+                )
 
                 if (stops != null) {
                     val fillBrush = Brush.radialGradient(

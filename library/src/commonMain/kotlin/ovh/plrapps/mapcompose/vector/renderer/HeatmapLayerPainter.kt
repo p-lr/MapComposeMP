@@ -30,7 +30,8 @@ import kotlin.math.sqrt
  * One MVT tile adjacent to the tile being rasterized, and which way it lies.
  *
  * [dx] and [dy] are in tiles, each `-1`, `0` or `1`, so a point of [tile] lands in the drawn tile's
- * canvas space at `x + dx * canvasSize`. Only [HeatmapLayerPainter] needs these; see the class KDoc
+ * canvas space at `x + dx * canvasSize`. [HeatmapLayerPainter] and the circle layer's
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate] are what need these; see either
  * for why.
  */
 class NeighbourTile(val tile: Tile, val dx: Int, val dy: Int)
