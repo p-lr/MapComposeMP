@@ -173,8 +173,15 @@ class TileRenderer(
                 val needGeometry = styleLayer.filter?.filter?.needGeometry == true
 
                 val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
-                for (feature in tileLayer.features) {
-                    val featureIdKey = feature.id?.toString() ?: feature.hashCode().toString()
+                tileLayer.features.forEachIndexed { index, feature ->
+                    /* The feature's position in the tile layer, not its `id` or its `hashCode`.
+                     * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
+                     * features in one layer collides often enough to matter -- two features sharing
+                     * a key share both the cached `EvalFeature` and the cached geometry, so one is
+                     * drawn with the other's properties and the other's shape. The decode order is
+                     * deterministic and the decoded ancestor tile is shared by every sub-square, so
+                     * the index is stable exactly where the caches need it to be. */
+                    val featureIdKey = "f$index"
                     val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
                     val featureProperties = if (propertyKey != null) {
                         localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
@@ -182,9 +189,18 @@ class TileRenderer(
                         buildEvalFeature(feature, tileLayer, needGeometry)
                     }
 
-                    if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) continue
+                    if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
+                        return@forEachIndexed
+                    }
 
-                    val featureKey = if (tileKey != null) "$tileKey-${styleLayer.id}-$featureIdKey" else null
+                    /* [geometrySize] is what the polylines the key caches are measured in. It is a
+                     * pure function of the span today, which the tile key already carries, but
+                     * nothing in the key said so. */
+                    val featureKey = if (tileKey != null) {
+                        "$tileKey-$geometrySize-${styleLayer.id}-$featureIdKey"
+                    } else {
+                        null
+                    }
                     visible.add(VisibleFeature(feature, featureProperties, featureKey))
                 }
                 if (visible.isEmpty()) return

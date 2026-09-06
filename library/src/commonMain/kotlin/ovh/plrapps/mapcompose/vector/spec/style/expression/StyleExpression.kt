@@ -20,6 +20,10 @@ object ExpressionLogger {
  * [evaluate] never throws: on a runtime error it warns once per distinct message and returns the
  * property's default value. [evaluateWithoutErrorHandling] is the raw path, used by tests and by
  * callers that want to observe failures.
+ *
+ * One instance of this class exists per style property and is shared by every tile worker, so it
+ * holds no per-evaluation state: see [EvaluationContext] for why upstream's reused `_evaluator` is
+ * not ported.
  */
 class StyleExpression(
     val expression: Expression,
@@ -27,26 +31,31 @@ class StyleExpression(
     private val propertySpec: StylePropertySpec? = null,
     private val globalState: Map<String, Any?>? = null,
 ) {
-    private val evaluator = EvaluationContext()
     private val defaultValue: Any? = propertySpec?.defaultValue
     private val enumValues: Set<String>? = propertySpec?.enumValues
-    private val warningHistory = mutableSetOf<String>()
 
-    private fun prepare(
+    /**
+     * Copy-on-write, because [evaluate] runs on every tile worker at once and a `mutableSetOf` would
+     * be structurally mutated with no lock. A lost update costs a repeated warning line, which is all
+     * the dedup is there to avoid.
+     */
+    private var warningHistory: Set<String> = emptySet()
+
+    private fun contextFor(
         globals: GlobalProperties,
         feature: EvalFeature?,
         featureState: FeatureState?,
         canonical: CanonicalTileId?,
         availableImages: List<String>?,
         formattedSection: FormattedSection?,
-    ) {
-        evaluator.globals = if (globalState != null) globals.copy(globalState = globalState) else globals
-        evaluator.feature = feature
-        evaluator.featureState = featureState
-        evaluator.canonical = canonical
-        evaluator.availableImages = availableImages
-        evaluator.formattedSection = formattedSection
-    }
+    ) = EvaluationContext(
+        globals = if (globalState != null) globals.copy(globalState = globalState) else globals,
+        feature = feature,
+        featureState = featureState,
+        canonical = canonical,
+        availableImages = availableImages,
+        formattedSection = formattedSection,
+    )
 
     fun evaluateWithoutErrorHandling(
         globals: GlobalProperties,
@@ -56,7 +65,7 @@ class StyleExpression(
         availableImages: List<String>? = null,
         formattedSection: FormattedSection? = null,
     ): Any? {
-        prepare(globals, feature, featureState, canonical, availableImages, formattedSection)
+        val evaluator = contextFor(globals, feature, featureState, canonical, availableImages, formattedSection)
         return expression.evaluate(evaluator)
     }
 
@@ -68,7 +77,7 @@ class StyleExpression(
         availableImages: List<String>? = null,
         formattedSection: FormattedSection? = null,
     ): Any? {
-        prepare(globals, feature, featureState, canonical, availableImages, formattedSection)
+        val evaluator = contextFor(globals, feature, featureState, canonical, availableImages, formattedSection)
 
         return try {
             val value = expression.evaluate(evaluator)
@@ -87,7 +96,8 @@ class StyleExpression(
             val path = (e as? RuntimeError)?.path ?: ""
             val message = e.message ?: e.toString()
             val dedupKey = "$path|$message"
-            if (warningHistory.add(dedupKey)) {
+            if (dedupKey !in warningHistory) {
+                warningHistory = warningHistory + dedupKey
                 ExpressionLogger.warn(formatRuntimeWarning(rootKey, path, message, defaultValue))
             }
             defaultValue
