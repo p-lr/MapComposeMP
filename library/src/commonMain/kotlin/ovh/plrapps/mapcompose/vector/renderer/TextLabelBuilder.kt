@@ -53,9 +53,16 @@ internal class ResolvedTextStyle(
     val transform: String,
     val writingMode: List<String>?,
 ) {
-    /** A key that changes whenever anything visible about the label does. */
-    fun cacheKey(text: String): String = buildString {
-        append("T|").append(text)
+    /**
+     * A key that changes whenever anything visible about the label does.
+     *
+     * [perGlyph] is part of it because it changes what is *built*, not where the label is drawn --
+     * a line label carries per-glyph quads and a point label does not. It stays a boolean: nothing
+     * geometric may enter this key, or one label per anchor would be rasterized instead of one per
+     * (text, style).
+     */
+    fun cacheKey(text: String, perGlyph: Boolean): String = buildString {
+        append(if (perGlyph) "G|" else "T|").append(text)
         append('|').append(fontStack.joinToString(","))
         append('|').append(fontSize)
         append('|').append(color.toArgb())
@@ -86,18 +93,24 @@ internal class TextLabelBuilder(
     private val mutex: Mutex,
 ) {
 
+    /**
+     * @param perGlyph also rasterize each glyph on its own, which is what a label following a line
+     * needs. Only the glyph path can honour it; the Compose fallback ignores it and stays straight.
+     */
     suspend fun build(
         formatted: Formatted,
         style: ResolvedTextStyle,
         density: Density,
+        perGlyph: Boolean = false,
     ): LabelArt? {
         val plainText = formatted.toString()
         if (plainText.isBlank() || plainText.length > MAX_LABEL_LENGTH) return null
 
-        val key = style.cacheKey(plainText)
+        val key = style.cacheKey(plainText, perGlyph)
         mutex.withLock { cache.get(key) as? LabelArt }?.let { return it }
 
-        val art = renderWithGlyphs(formatted, style, plainText) ?: measureWithCompose(plainText, style, density)
+        val art = renderWithGlyphs(formatted, style, plainText, perGlyph)
+            ?: measureWithCompose(plainText, style, density)
         if (art != null) mutex.withLock { cache.put(key, art) }
         return art
     }
@@ -113,6 +126,7 @@ internal class TextLabelBuilder(
         formatted: Formatted,
         style: ResolvedTextStyle,
         plainText: String,
+        perGlyph: Boolean,
     ): LabelArt? {
         val manager = glyphManager?.takeIf { it.isConfigured } ?: return null
 
@@ -160,7 +174,21 @@ internal class TextLabelBuilder(
             haloBlur = style.haloBlur,
             opacity = style.opacity,
         ) ?: return null
-        return LabelArt.Glyphs(rendered, plainText)
+
+        /* A vertical or wrapped label has no per-glyph placement along a line: the walk is
+         * one-dimensional, so only a single horizontal run can follow the path. */
+        val quads = if (perGlyph && !shaped.vertical && shaped.lines.size == 1) {
+            GlyphRasterizer.renderGlyphs(
+                label = shaped,
+                fillColor = style.color,
+                haloColor = style.haloColor,
+                haloWidth = style.haloWidth,
+                haloBlur = style.haloBlur,
+                opacity = style.opacity,
+            )
+        } else null
+
+        return LabelArt.Glyphs(rendered, plainText, quads)
     }
 
     /**

@@ -27,6 +27,29 @@ class RenderedLabel(
 )
 
 /**
+ * One glyph of a label, rasterized on its own -- upstream's glyph quad.
+ *
+ * A label that follows a line is drawn glyph by glyph, each at its own angle, so the composited
+ * [RenderedLabel] cannot be used: it is one flat picture of the label as it would read straight.
+ * Blitting sub-rectangles of it does not work either, because a glyph's distance field reaches
+ * [GLYPH_BORDER] samples past its ink and so **overlaps** its neighbours' -- a sub-rect would
+ * double-composite the halo and drag a slice of the next glyph along at the wrong angle.
+ *
+ * The geometry is anchored at the glyph's own **centre** (upstream's
+ * `glyphOffset = shapedGlyph.x + halfAdvance`), because that is the point the draw pass rotates
+ * about: [alongOffset] is the signed arc distance from the label's centre to this glyph's, and
+ * [left] / [top] place the bitmap relative to that glyph centre. All in layout pixels.
+ */
+class RenderedGlyph(
+    val bitmap: ImageBitmap,
+    val alongOffset: Float,
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+)
+
+/**
  * Draws a [ShapedLabel]'s SDF glyphs into a bitmap.
  *
  * This is the CPU stand-in for maplibre-gl-js's `symbol_sdf` draw pass: every glyph's distance field
@@ -121,6 +144,89 @@ object GlyphRasterizer {
             boxWidth = label.width,
             boxHeight = label.height,
         )
+    }
+
+    /**
+     * The label's glyphs, each rasterized into its own bitmap.
+     *
+     * The per-glyph counterpart of [render], for a label that follows a line. Everything about a
+     * glyph's shading is identical -- the same [sdfPixel] call with the same arguments -- so a
+     * glyph drawn this way carries the same ink as the same glyph inside [render]'s composite, up
+     * to the sub-pixel phase of the sampling grid, which is the glyph's own here and the label's
+     * there. Compositing *neighbours* is left to the canvas, which is what upstream does too.
+     *
+     * Returns `null` when the label has no ink, and skips a glyph that has none (a space).
+     */
+    fun renderGlyphs(
+        label: ShapedLabel,
+        fillColor: Color,
+        haloColor: Color,
+        haloWidth: Float,
+        haloBlur: Float,
+        opacity: Float = 1f,
+    ): List<RenderedGlyph>? {
+        val glyphs = label.glyphs.filter { it.glyph.hasBitmap }
+        if (glyphs.isEmpty()) return null
+
+        val centreX = label.width / 2f
+        val centreY = label.height / 2f
+        val out = ArrayList<RenderedGlyph>(glyphs.size)
+
+        for (shaped in glyphs) {
+            val glyph = shaped.glyph
+            val border = GLYPH_BORDER * shaped.scale
+            /* Upstream's `quads.ts`: a glyph's quad is positioned by its pen plus half its advance,
+             * which is the point the label's arc-length walk steps along. */
+            val halfAdvance = glyph.advance * shaped.scale / 2f
+            val glyphCentreX = shaped.x + halfAdvance
+
+            val originX = shaped.inkLeft - border
+            val originY = shaped.inkTop - border
+            val width = ceil(glyph.bitmapWidth * shaped.scale).toInt()
+            val height = ceil(glyph.bitmapHeight * shaped.scale).toInt()
+            if (width <= 0 || height <= 0) continue
+
+            val pixels = IntArray(width * height)
+            val fill = (shaped.color ?: fillColor).withAlphaScaled(opacity)
+            val halo = haloColor.withAlphaScaled(opacity)
+            var hasInk = false
+
+            for (y in 0 until height) {
+                for (x in 0 until width) {
+                    /* The sample position matches [render]'s exactly: there the pixel grid is the
+                     * label bitmap's and the origin carries a fractional part, here the grid is the
+                     * glyph's own, so the origin is at zero. */
+                    val u = (x + 0.5f) / shaped.scale - 0.5f
+                    val v = (y + 0.5f) / shaped.scale - 0.5f
+                    val distance = sampleBilinear(glyph, u, v)
+                    if (distance <= 0f) continue
+
+                    val color = sdfPixel(
+                        distance = distance,
+                        fillColor = fill,
+                        haloColor = halo,
+                        haloWidth = haloWidth,
+                        haloBlur = haloBlur,
+                        fontScale = shaped.scale,
+                    )
+                    if (color.alpha <= 0f) continue
+                    pixels[y * width + x] = color.toArgb()
+                    hasInk = true
+                }
+            }
+            if (!hasInk) continue
+
+            out += RenderedGlyph(
+                bitmap = imageBitmapFromArgb(pixels, width, height),
+                alongOffset = glyphCentreX - centreX,
+                left = originX - glyphCentreX,
+                top = originY - centreY,
+                width = width.toFloat(),
+                height = height.toFloat(),
+            )
+        }
+
+        return out.takeIf { it.isNotEmpty() }
     }
 
     /**

@@ -9,8 +9,6 @@ import ovh.plrapps.mapcompose.vector.renderer.TextLabelBuilder
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.text.*
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
@@ -50,10 +48,18 @@ import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import kotlin.collections.zipWithNext
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
+
+/**
+ * How far past half a label's layout width its stretch of line is cut, as a multiple of that width.
+ *
+ * A label is walked in layout pixels and drawn in screen ones, and the two differ by the bucket's
+ * projection factor -- `2^(bucketZoom - displayZoom)`, never below a half -- so half the drawn width
+ * is at most a whole layout width. One and a half leaves room for that and for `line-offset`.
+ */
+private const val LINE_STRETCH_FACTOR = 1.5f
 
 internal class SymbolLayerLayout(
     private val textMeasurerState: MutableStateFlow<TextMeasurer?>,
@@ -238,6 +244,11 @@ internal class SymbolLayerLayout(
      *
      * [anchor] only matters for `text-justify: auto`, which upstream resolves against the anchor so
      * that a right-anchored label reads right-aligned.
+     *
+     * [lineLabel] is upstream's `symbol_layout.ts`:
+     * `const maxWidth = layout.get('symbol-placement') === 'point' ? layout.get('text-max-width') *
+     * ONE_EM : 0;`. A label that follows a line is never wrapped -- there is no sensible way to lay
+     * a second line along the same stretch of road, and the per-glyph draw pass has none either.
      */
     private fun resolvedTextStyle(
         layout: SymbolLayout,
@@ -246,6 +257,7 @@ internal class SymbolLayerLayout(
         actualZoom: Double,
         density: Density,
         anchor: TextAnchor,
+        lineLabel: Boolean,
     ): ResolvedTextStyle {
         val fontSize = (layout.textSize.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.TEXT_SIZE.toFloat()) * density.density
@@ -269,7 +281,7 @@ internal class SymbolLayerLayout(
                 ?: StyleSpecDefaults.TEXT_LETTER_SPACING.toFloat(),
             lineHeight = layout.textLineHeight.processAsFloat(featureProperties, actualZoom)
                 ?: StyleSpecDefaults.TEXT_LINE_HEIGHT.toFloat(),
-            maxWidth = layout.textMaxWidth.processAsFloat(featureProperties, actualZoom)
+            maxWidth = if (lineLabel) 0f else layout.textMaxWidth.processAsFloat(featureProperties, actualZoom)
                 ?: StyleSpecDefaults.TEXT_MAX_WIDTH.toFloat(),
             justify = TextLabelBuilder.resolveJustify(justify, anchor.value),
             transform = layout.textTransform?.processAsString(featureProperties, actualZoom)
@@ -304,6 +316,12 @@ internal class SymbolLayerLayout(
         return Formatted(sections)
     }
 
+    /**
+     * The label's art and the style it was built with, or null when the feature has no text.
+     *
+     * [lineLabel] says the label follows a line: it forbids wrapping (see [resolvedTextStyle]) and
+     * asks the builder for the per-glyph quads the curved draw pass needs.
+     */
     private suspend fun buildLabel(
         layout: SymbolLayout,
         paint: SymbolPaint,
@@ -311,11 +329,14 @@ internal class SymbolLayerLayout(
         actualZoom: Double,
         density: Density,
         anchor: TextAnchor,
+        lineLabel: Boolean,
     ): Pair<LabelArt, ResolvedTextStyle>? {
         val formatted = textFieldOf(layout, featureProperties, actualZoom) ?: return null
-        val style = resolvedTextStyle(layout, paint, featureProperties, actualZoom, density, anchor)
+        val style = resolvedTextStyle(
+            layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = lineLabel
+        )
         if (style.opacity <= 0f) return null
-        val art = labelBuilder.build(formatted, style, density) ?: return null
+        val art = labelBuilder.build(formatted, style, density, perGlyph = lineLabel) ?: return null
         return art to style
     }
 
@@ -731,8 +752,9 @@ internal class SymbolLayerLayout(
         val (spriteMeta, sprite) = spritePair
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
-        val (textArt, textStyle) = buildLabel(layout, paint, featureProperties, actualZoom, density, anchor)
-            ?: return null
+        val (textArt, textStyle) = buildLabel(
+            layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = false
+        ) ?: return null
 
         val iconWidth = spriteMeta.layoutWidth * scale
         val iconHeight = spriteMeta.layoutHeight * scale
@@ -937,8 +959,10 @@ internal class SymbolLayerLayout(
         val paint = style.paint ?: return emptyList()
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
-        val (art, textStyle) = buildLabel(layout, paint, featureProperties, actualZoom, density, anchor)
-            ?: return emptyList()
+        val (art, textStyle) = buildLabel(
+            layout, paint, featureProperties, actualZoom, density, anchor,
+            lineLabel = !lineStrings.isNullOrEmpty(),
+        ) ?: return emptyList()
 
         val userOffset = textOffsetPx(layout, featureProperties, actualZoom, anchor, textStyle.fontSize)
         val offset = userOffset + textTranslatePx(paint, featureProperties, actualZoom, density)
@@ -1073,6 +1097,19 @@ internal class SymbolLayerLayout(
 
                 val normalizedPoint =
                     tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), tileZ, canvasSize)
+                /* The stretch of road this label covers, cut around the anchor *before* the
+                 * offsets are applied -- the draw pass walks from there and applies them along the
+                 * path, as upstream's `lineOffsetX` / `lineOffsetY` do. The cut is generous: the
+                 * label is drawn in screen pixels and walked in layout ones, and the two differ by
+                 * the bucket's projection factor, which is never below a half. */
+                val stretch = SymbolProjection.labelPathOf(
+                    line = line,
+                    anchor = Offset(pos.first, pos.second),
+                    halfLength = textWidth * LINE_STRETCH_FACTOR + abs(dx),
+                )
+                val globalLine = stretch?.points?.map { point ->
+                    tileCoordToNormalized(tileX, tileY, point.x.toDouble(), point.y.toDouble(), tileZ, canvasSize)
+                }
 
                 val lineTextAngle = displayAngle + textRotateDeg
                 val labelPlacement = labelPlacementOf(
@@ -1102,6 +1139,11 @@ internal class SymbolLayerLayout(
                     value = art,
                     viewportAligned = textViewportAligned,
                     line = line,
+                    globalLine = globalLine,
+                    globalAnchorIndex = stretch?.anchorIndex ?: 0,
+                    lineOffsetX = dx,
+                    lineOffsetY = dy,
+                    keepUpright = keepUpright,
                     layoutSize = fontSize / density.density,
                     featureSizes = getFeatureSizes(
                         sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
