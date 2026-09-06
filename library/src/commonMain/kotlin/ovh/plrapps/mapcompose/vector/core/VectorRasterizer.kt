@@ -38,7 +38,6 @@ import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.DemTile
 import ovh.plrapps.mapcompose.vector.renderer.NeighbourTile
-import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
 import ovh.plrapps.mapcompose.vector.renderer.TileRenderer
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
@@ -55,7 +54,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import pbandk.decodeFromByteArray
 import kotlin.collections.component1
 import kotlin.collections.component2
-import kotlin.math.pow
 
 class VectorRasterizer(
     val configuration: MapLibreConfiguration,
@@ -916,9 +914,8 @@ class VectorRasterizer(
         val settled = previous == null || !previous.stillRecent(now, viewportInfo.fractionalZoom)
 
         if (previous == null || (settled && (inputsChanged || previous.isStale))) {
-            val order = placementOrder?.takeIf { it.matches(buckets) } ?: PlacementOrder(buckets).also {
-                placementOrder = it
-            }
+            val order = placementOrder?.takeIf { it.matches(buckets, viewportInfo) }
+                ?: PlacementOrder(buckets, viewportInfo).also { placementOrder = it }
 
             val placement = Placement(
                 viewportInfo = viewportInfo,

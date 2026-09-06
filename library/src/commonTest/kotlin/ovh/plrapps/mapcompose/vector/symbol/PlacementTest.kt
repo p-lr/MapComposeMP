@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.vector.symbol
 
 import androidx.compose.ui.geometry.Offset
 import ovh.plrapps.mapcompose.vector.renderer.Point
+import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -36,7 +37,7 @@ class PlacementTest {
             index.addLayer(layerId, layerBuckets, density = 1f)
         }
         val placement = Placement(viewportInfo, zoom, collisionDetectionEnabled)
-        placement.placeBuckets(PlacementOrder(buckets), previous)
+        placement.placeBuckets(PlacementOrder(buckets, viewportInfo), previous)
         placement.commit(previous, now)
         return placement
     }
@@ -138,9 +139,10 @@ class PlacementTest {
     fun `symbol-sort-key orders within a layer`() {
         val bucket = SymbolFixtures.bucket(
             listOf(
-                SymbolFixtures.textInstance("low priority", global = Point(0.5, 0.5), sortKey = 5.0, hasSortKey = true),
-                SymbolFixtures.textInstance("high priority", global = Point(0.505, 0.5), sortKey = 1.0, hasSortKey = true),
-            )
+                SymbolFixtures.textInstance("low priority", global = Point(0.5, 0.5), sortKey = 5.0),
+                SymbolFixtures.textInstance("high priority", global = Point(0.505, 0.5), sortKey = 1.0),
+            ),
+            ordering = SymbolFixtures.ordering(hasSortKey = true),
         )
 
         val placement = place(listOf(bucket))
@@ -149,17 +151,78 @@ class PlacementTest {
     }
 
     @Test
-    fun `symbol-z-order source ignores the sort key and keeps the tile's order`() {
+    fun `symbol-z-order source still orders by the sort key`() {
+        /* Upstream's flag is `zOrder !== 'viewport-y' && !sortKey.isConstant()`, so only `viewport-y`
+         * suppresses the key -- `source` decides the *y* question, not the key one. */
         val bucket = SymbolFixtures.bucket(
             listOf(
-                SymbolFixtures.textInstance(
-                    "first in tile", global = Point(0.5, 0.5),
-                    sortKey = 5.0, hasSortKey = true, zOrder = SYMBOL_Z_ORDER_SOURCE,
-                ),
-                SymbolFixtures.textInstance(
-                    "second in tile", global = Point(0.505, 0.5),
-                    sortKey = 1.0, hasSortKey = true, zOrder = SYMBOL_Z_ORDER_SOURCE,
-                ),
+                SymbolFixtures.textInstance("first in tile", global = Point(0.5, 0.5), sortKey = 5.0),
+                SymbolFixtures.textInstance("second in tile", global = Point(0.505, 0.5), sortKey = 1.0),
+            ),
+            ordering = SymbolFixtures.ordering(zOrder = SYMBOL_Z_ORDER_SOURCE, hasSortKey = true),
+        )
+
+        val placement = place(listOf(bucket))
+
+        assertContentEquals(listOf("second in tile"), placedTexts(placement))
+    }
+
+    @Test
+    fun `symbol-z-order source keeps the tile's order when no sort key varies`() {
+        val bucket = SymbolFixtures.bucket(
+            listOf(
+                SymbolFixtures.textInstance("first in tile", global = Point(0.5, 0.5)),
+                SymbolFixtures.textInstance("second in tile", global = Point(0.5, 0.495)),
+            ),
+            ordering = SymbolFixtures.ordering(zOrder = SYMBOL_Z_ORDER_SOURCE),
+        )
+
+        val placement = place(listOf(bucket))
+
+        assertContentEquals(listOf("first in tile"), placedTexts(placement), "y does not enter it")
+    }
+
+    @Test
+    fun `symbol-z-order viewport-y places the lower symbol first`() {
+        val bucket = SymbolFixtures.bucket(
+            listOf(
+                SymbolFixtures.textInstance("higher up", global = Point(0.5, 0.5)),
+                SymbolFixtures.textInstance("further down", global = Point(0.5, 0.505)),
+            ),
+            ordering = SymbolFixtures.ordering(zOrder = SYMBOL_Z_ORDER_VIEWPORT_Y),
+        )
+
+        val placement = place(listOf(bucket))
+
+        assertContentEquals(listOf("further down"), placedTexts(placement))
+    }
+
+    @Test
+    fun `symbol-z-order viewport-y follows the rotated viewport and not the geographic y`() {
+        /* Upstream keys on `sin * anchorX + cos * anchorY` at the map's bearing. Turned a quarter
+         * turn, the symbol further *east* is the one lower on screen and takes the ground. */
+        val bucket = SymbolFixtures.bucket(
+            listOf(
+                SymbolFixtures.textInstance("west", global = Point(0.495, 0.5)),
+                SymbolFixtures.textInstance("east", global = Point(0.505, 0.5)),
+            ),
+            ordering = SymbolFixtures.ordering(zOrder = SYMBOL_Z_ORDER_VIEWPORT_Y),
+        )
+
+        val turned = SymbolFixtures.viewport(angleRad = (PI / 2).toFloat())
+
+        assertContentEquals(listOf("east"), placedTexts(place(listOf(bucket), viewportInfo = turned)))
+    }
+
+    @Test
+    fun `symbol-z-order auto does not order by y when the layer forbids overlap`() {
+        /* `sortFeaturesByY = zOrderByViewportY && canOverlap`, and the placement pass reorders for a
+         * literal `viewport-y` alone -- so a default layer is placed in the order the source served,
+         * however its symbols sit on screen. */
+        val bucket = SymbolFixtures.bucket(
+            listOf(
+                SymbolFixtures.textInstance("first in tile", global = Point(0.5, 0.5)),
+                SymbolFixtures.textInstance("further down", global = Point(0.5, 0.505)),
             )
         )
 
@@ -169,17 +232,47 @@ class PlacementTest {
     }
 
     @Test
-    fun `symbol-z-order viewport-y places the lower symbol first`() {
+    fun `the lower sort key is drawn underneath`() {
+        /* The draw order is not the placement order reversed: upstream places the lower key first
+         * *and* draws it first, `tileRenderState.sort((a, b) => a.sortKey - b.sortKey)`. */
         val bucket = SymbolFixtures.bucket(
             listOf(
-                SymbolFixtures.textInstance("higher up", global = Point(0.5, 0.5), zOrder = SYMBOL_Z_ORDER_VIEWPORT_Y),
-                SymbolFixtures.textInstance("further down", global = Point(0.5, 0.505), zOrder = SYMBOL_Z_ORDER_VIEWPORT_Y),
-            )
+                SymbolFixtures.textInstance(
+                    "low priority", global = Point(0.5, 0.5), sortKey = 5.0,
+                    overlapMode = OverlapMode.Always,
+                ),
+                SymbolFixtures.textInstance(
+                    "high priority", global = Point(0.505, 0.5), sortKey = 1.0,
+                    overlapMode = OverlapMode.Always,
+                ),
+            ),
+            ordering = SymbolFixtures.ordering(hasSortKey = true, canOverlap = true),
         )
 
         val placement = place(listOf(bucket))
 
-        assertContentEquals(listOf("further down"), placedTexts(placement))
+        assertContentEquals(listOf("high priority", "low priority"), placedTexts(placement))
+    }
+
+    @Test
+    fun `a later style layer is placed first and drawn last`() {
+        val early = SymbolFixtures.bucket(
+            listOf(SymbolFixtures.textInstance("early", overlapMode = OverlapMode.Always)),
+            layerIndex = 0, layerId = "early",
+        )
+        val late = SymbolFixtures.bucket(
+            listOf(
+                SymbolFixtures.textInstance(
+                    "late", global = Point(0.505, 0.5), layerIndex = 1,
+                    overlapMode = OverlapMode.Always,
+                )
+            ),
+            layerIndex = 1, layerId = "late",
+        )
+
+        val placement = place(listOf(early, late))
+
+        assertContentEquals(listOf("early", "late"), placedTexts(placement), "style order, bottom up")
     }
 
     @Test
@@ -319,7 +412,7 @@ class PlacementTest {
         fun cycle(buckets: List<SymbolBucket>, now: Long, previous: Placement?): Placement {
             index.addLayer(SymbolFixtures.LAYER, buckets, density = 1f)
             val placement = Placement(viewportInfo, zoom = 6.0, collisionDetectionEnabled = true)
-            placement.placeBuckets(PlacementOrder(buckets), previous)
+            placement.placeBuckets(PlacementOrder(buckets, viewportInfo), previous)
             placement.commit(previous, now)
             placement.result(previous)
             return placement

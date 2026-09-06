@@ -564,9 +564,14 @@ Every one of these is documented at the file that causes it; this is the index.
   `SymbolComposer` draws every symbol of every symbol layer above the whole tile canvas, because
   collision has to run across the viewport rather than per tile. MapCompose's core composites every
   layer into **one** bitmap per tile (`core/TileCollector.kt`), so interleaving would mean a second
-  raster pass per band of style layers. Ordering *among* symbols is upstream's: style index
-  dominates, then `symbol-z-order` (`Placement.PlacementOrder`). Measured against the vendored
+  raster pass per band of style layers. Measured against the vendored
   styles, one layer in one style is affected (`test_style_swisstopo.json`'s `hazard` fill).
+  Ordering *among* symbols is upstream's, and upstream has **two** orders that are not each other
+  reversed (`SymbolOrdering`, `PlacementOrder`, `SymbolDrawOrder`): a later style layer is placed
+  first and drawn last, but a lower `symbol-sort-key` is placed first *and* drawn first, i.e.
+  underneath, and `symbol-z-order: viewport-y` orders by the anchor projected into the viewport,
+  descending for placement and ascending for drawing. `source` suppresses only the y ordering, not
+  the sort key; `auto` orders by y only where the layer allows overlap.
 - `raster-fade-duration` is inert. A tile is rasterized once and handed to the tile pipeline as
   bytes; there is no frame loop and no per-tile load timeline to cross-fade against.
 - Raster, hillshade and heatmap output is resampled twice — once into the tile bitmap, again when
