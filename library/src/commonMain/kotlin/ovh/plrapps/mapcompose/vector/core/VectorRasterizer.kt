@@ -49,7 +49,10 @@ import ovh.plrapps.mapcompose.vector.symbol.SymbolBucket
 import ovh.plrapps.mapcompose.vector.symbol.SymbolBucketBuilder
 import ovh.plrapps.mapcompose.vector.symbol.SYMBOL_FADE_DURATION_MS
 import ovh.plrapps.mapcompose.vector.utils.LruCache
+import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
+import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
 import ovh.plrapps.mapcompose.vector.spec.style.HeatmapLayer
+import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import pbandk.decodeFromByteArray
 import kotlin.collections.component1
@@ -79,6 +82,12 @@ class VectorRasterizer(
     // stay in byteCache for a cheap re-decode.
     private val rasterImageCache = LruCache<String, ImageBitmap>(maxSize = 30)
     private val rasterImageCacheMutex = Mutex()
+
+    /* Tiles cut out of a geojson document. `GeoJsonTiler.tile` clips and simplifies every feature
+     * of the document per call, and nothing else memoizes it -- which the neighbour gathering a
+     * `circle` layer needs would multiply by nine, over tiles the map is drawing anyway. */
+    private val geoJsonTileCache = LruCache<String, Tile>(maxSize = 30)
+    private val geoJsonTileCacheMutex = Mutex()
 
     // Decoded elevation tiles, keyed by the tile actually fetched. Building one costs its 8
     // neighbours' bytes too (see buildDem), so this cache is what keeps the border backfill to
@@ -116,6 +125,18 @@ class VectorRasterizer(
         configuration.style.layers.filterIsInstance<HeatmapLayer>()
             .mapNotNull { it.source?.takeIf { s -> s.isNotBlank() } }
             .filterTo(mutableSetOf()) { typeOf(it) == SourceType.VECTOR }
+    }
+
+    /* The sources a `circle` layer reads -- vector and geojson alike, unlike the heatmap's set,
+     * because a geojson document is cut into tiles here and its tiles have edges too. A disc
+     * straddling a tile boundary is drawn by both tiles, so the neighbouring tiles are gathered for
+     * these sources as well; see `renderer/utils/CircleVertexGate.kt`. */
+    private val circleSourceNames: Set<String> by lazy {
+        configuration.style.layers.filterIsInstance<CircleLayer>()
+            .mapNotNull { it.source?.takeIf { s -> s.isNotBlank() } }
+            .filterTo(mutableSetOf()) {
+                typeOf(it) == SourceType.VECTOR || configuration.geoJsonSources.containsKey(it)
+            }
     }
 
     /** The `geojson` sources any layer reads; each is cut from a document held in memory. */
@@ -219,7 +240,7 @@ class VectorRasterizer(
          * from `TileRenderer`'s point of view it is an ordinary vector tile from then on. */
         val geoJsonForSource: Map<String, Tile?> = geoJsonSourceNames.associateWith { sourceName ->
             val ref = refs[sourceName] ?: return@associateWith null
-            configuration.geoJsonSources[sourceName]?.tile(ref)
+            geoJsonTile(sourceName, ref)
         }
 
         /* Keyed by the tile actually fetched, like the raster and DEM caches below: an overzoomed
@@ -261,18 +282,32 @@ class VectorRasterizer(
             localPropCache = localPropCache
         )
 
-        /* Gated on a heatmap layer actually drawing at this zoom, because the neighbours cost 8
-         * fetches per source and a heatmap is commonly bounded to a narrow zoom range. */
-        val heatmapNeighboursForSource: Map<String, List<NeighbourTile>> = when {
-            heatmapSourceNames.isEmpty() -> emptyMap()
-            configuration.style.layers.none {
-                it is HeatmapLayer && tileRenderer.isLayerVisible(it) && tileRenderer.isZoomInRange(it, zoom)
-            } -> emptyMap()
+        /* Gated on a layer that needs them actually drawing at this zoom, because the neighbours
+         * cost 8 fetches per source -- a heatmap is commonly bounded to a narrow zoom range, and a
+         * style with no circle layer must not pay for one. A source read by both gathers once. */
+        fun needsNeighbours(predicate: (Layer) -> Boolean): Boolean =
+            configuration.style.layers.any {
+                predicate(it) && tileRenderer.isLayerVisible(it) && tileRenderer.isZoomInRange(it, zoom)
+            }
 
-            else -> heatmapSourceNames.associateWith { sourceName ->
-                refs[sourceName]?.let { neighbourVectorTiles(sourceName, it) } ?: emptyList()
+        val neighbourSourceNames = buildSet {
+            if (heatmapSourceNames.isNotEmpty() && needsNeighbours { it is HeatmapLayer }) {
+                addAll(heatmapSourceNames)
+            }
+            if (circleSourceNames.isNotEmpty() && needsNeighbours { it is CircleLayer }) {
+                addAll(circleSourceNames)
             }
         }
+
+        val neighboursForSource: Map<String, List<NeighbourTile>> =
+            neighbourSourceNames.associateWith { sourceName ->
+                val ref = refs[sourceName] ?: return@associateWith emptyList()
+                if (sourceName in geoJsonSourceNames) {
+                    neighbourGeoJsonTiles(sourceName, ref)
+                } else {
+                    neighbourVectorTiles(sourceName, ref)
+                }
+            }
 
         val imageBitmap = ImageBitmap(tileSize, tileSize)
         val canvas = Canvas(imageBitmap)
@@ -302,8 +337,8 @@ class VectorRasterizer(
                     demTile = sourceName?.let { demForSource[it] },
                     tileY = y,
                     tileX = x,
-                    heatmapNeighbours = sourceName
-                        ?.let { heatmapNeighboursForSource[it] }
+                    neighbours = sourceName
+                        ?.let { neighboursForSource[it] }
                         ?: emptyList(),
                     tileRef = ref,
                 )
@@ -315,10 +350,12 @@ class VectorRasterizer(
     /**
      * The 8 vector tiles around [z]/[x]/[y] of [sourceName], decoded.
      *
-     * Only a heatmap layer needs these, and only because its kernels cross tile boundaries -- see
-     * [ovh.plrapps.mapcompose.vector.renderer.HeatmapLayerPainter]. A neighbour that fails to fetch
-     * is simply left out, which costs the tile the heat of whatever that neighbour held rather than
-     * the whole layer.
+     * A heatmap layer and a circle layer need these, because a kernel and a disc both cross tile
+     * boundaries -- see [ovh.plrapps.mapcompose.vector.renderer.HeatmapLayerPainter] and
+     * [ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate]. A neighbour that fails to
+     * fetch is simply left out, which costs the tile whatever that neighbour held -- its heat, or
+     * the half of a disc it owns, which the MVT buffer's copy then draws instead -- rather than the
+     * whole layer.
      */
     private suspend fun neighbourVectorTiles(
         sourceName: String,
@@ -332,6 +369,43 @@ class VectorRasterizer(
                     val (dx, dy) = offset
                     NeighbourTile(tile = tile, dx = dx, dy = dy)
                 }
+        }
+    }
+
+    /**
+     * The 8 geojson tiles around [centre], cut from the document in memory.
+     *
+     * The geojson counterpart of [neighbourVectorTiles]: no network, but each cut walks the whole
+     * document, hence [geoJsonTile]'s cache.
+     */
+    private suspend fun neighbourGeoJsonTiles(
+        sourceName: String,
+        centre: TileRef,
+    ): List<NeighbourTile> {
+        val source = configuration.geoJsonSources[sourceName] ?: return emptyList()
+        return neighbourRefs(centre).mapNotNull { (offset, ref) ->
+            val tile = geoJsonTile(sourceName, ref, source) ?: return@mapNotNull null
+            val (dx, dy) = offset
+            NeighbourTile(tile = tile, dx = dx, dy = dy)
+        }
+    }
+
+    /**
+     * One tile cut out of a geojson document, memoized by the tile it names.
+     *
+     * Suspending because of the cache: an `LruCache` is not thread-safe and its `get` is a write --
+     * it reinserts the entry to record recency -- while several tiles rasterize concurrently.
+     */
+    private suspend fun geoJsonTile(
+        sourceName: String,
+        ref: TileRef,
+        source: GeoJsonSource? = configuration.geoJsonSources[sourceName],
+    ): Tile? {
+        source ?: return null
+        val key = getTileKey(sourceName, ref)
+        geoJsonTileCacheMutex.withLock { geoJsonTileCache.get(key) }?.let { return it }
+        return source.tile(ref)?.also {
+            geoJsonTileCacheMutex.withLock { geoJsonTileCache.put(key, it) }
         }
     }
 
@@ -790,7 +864,7 @@ class VectorRasterizer(
                 .map { (sourceName, ref) ->
                     getTileKey(sourceName, ref) to async {
                         when (sourceName) {
-                            in geoJsonSourceNames -> configuration.geoJsonSources[sourceName]?.tile(ref)
+                            in geoJsonSourceNames -> geoJsonTile(sourceName, ref)
                             // Symbols only come from vector sources; image tiles are never fetched here.
                             in vectorSourceNames -> decodeVectorTile(sourceName, ref)
                             else -> null

@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.evaluateSortKey
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
@@ -31,8 +32,10 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter], and see
  * [HillshadeLayerPainter] for hillshade's own divergences.
  *
- * A `heatmap` layer reads [heatmapNeighbours] in addition to [tile]: its kernels reach past the
- * tile they belong to, so the neighbouring tiles' points contribute too. See [HeatmapLayerPainter].
+ * A `heatmap` layer and a `circle` layer read [neighbours] in addition to [tile]: a kernel and a
+ * disc both reach past the tile they belong to, and a tile is rasterized into its own bitmap here,
+ * so the neighbouring tiles' points have to be drawn into this one. See [HeatmapLayerPainter] and
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate].
  *
  * When the source is *overzoomed* -- [tileRef] carries `span > 1`, so [tile] is an ancestor tile
  * covering `span x span` map tiles -- the geometry is decoded at `canvasSize * span` and the
@@ -61,6 +64,9 @@ class TileRenderer(
     /** And for heatmap, which paints a whole layer's points at once rather than one feature. */
     private val heatmapPainter = HeatmapLayerPainter()
 
+    /** Circles are painted through their own reference, which carries the vertex gate overload. */
+    private val circlePainter = CircleLayerPainter()
+
     /** Point decoding for the heatmap layer; the other layer types decode inside their painter. */
     private val geometryDecoders = GeometryDecoders()
 
@@ -76,7 +82,7 @@ class TileRenderer(
         demTile: DemTile? = null,
         tileY: Int = 0,
         tileX: Int = 0,
-        heatmapNeighbours: List<NeighbourTile> = emptyList(),
+        neighbours: List<NeighbourTile> = emptyList(),
         tileRef: TileRef = TileRef.whole(z = zoom.toInt(), x = tileX, y = tileY),
     ) {
         if (!isLayerVisible(styleLayer)) return
@@ -114,7 +120,7 @@ class TileRenderer(
                     canvas = canvas,
                     style = styleLayer,
                     points = heatmapPoints(
-                        tile, heatmapNeighbours, styleLayer, zoom, canvasSize, tileRef
+                        tile, neighbours, styleLayer, zoom, canvasSize, tileRef
                     ),
                     canvasSize = canvasSize,
                     actualZoom = actualZoom,
@@ -162,52 +168,28 @@ class TileRenderer(
                 )
             }
 
-            is CircleLayer,
+            is CircleLayer -> renderCircles(
+                canvas = canvas,
+                tile = tile,
+                styleLayer = styleLayer,
+                zoom = zoom,
+                canvasSize = canvasSize,
+                geometrySize = geometrySize,
+                actualZoom = actualZoom,
+                tileKey = tileKey,
+                tileRef = tileRef,
+                neighbours = neighbours,
+            )
+
             is FillLayer,
             is LineLayer -> {
                 if (tile == null || tile.layers.isEmpty()) return
                 val tileLayer = tileLayerFor(tile, styleLayer) ?: return
                 val extent = tileLayer.extent ?: DEFAULT_EXTENT
-
-                // Feature geometry is only decoded when a `within`/`distance` expression reads it.
-                val needGeometry = styleLayer.filter?.filter?.needGeometry == true
-
-                val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
-                tileLayer.features.forEachIndexed { index, feature ->
-                    /* The feature's position in the tile layer, not its `id` or its `hashCode`.
-                     * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
-                     * features in one layer collides often enough to matter -- two features sharing
-                     * a key share both the cached `EvalFeature` and the cached geometry, so one is
-                     * drawn with the other's properties and the other's shape. The decode order is
-                     * deterministic and the decoded ancestor tile is shared by every sub-square, so
-                     * the index is stable exactly where the caches need it to be. */
-                    val featureIdKey = "f$index"
-                    val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
-                    val featureProperties = if (propertyKey != null) {
-                        localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
-                    } else {
-                        buildEvalFeature(feature, tileLayer, needGeometry)
-                    }
-
-                    if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
-                        return@forEachIndexed
-                    }
-
-                    /* [geometrySize] is what the polylines the key caches are measured in. It is a
-                     * pure function of the span today, which the tile key already carries, but
-                     * nothing in the key said so. */
-                    val featureKey = if (tileKey != null) {
-                        "$tileKey-$geometrySize-${styleLayer.id}-$featureIdKey"
-                    } else {
-                        null
-                    }
-                    visible.add(VisibleFeature(feature, featureProperties, featureKey))
-                }
+                val visible = visibleFeatures(
+                    tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize
+                )
                 if (visible.isEmpty()) return
-
-                sortKeyOf(styleLayer)?.let { sortKey ->
-                    visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
-                }
 
                 /* A translate, never a scale: the geometry is already decoded at [geometrySize], and
                  * scaling here would multiply every style width by the span too. */
@@ -222,11 +204,6 @@ class TileRenderer(
                 try {
                     for (entry in visible) {
                         when (styleLayer) {
-                            is CircleLayer -> painterFor(styleLayer).paint(
-                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                entry.properties, actualZoom, entry.cacheKey
-                            )
-
                             is FillLayer -> painterFor(styleLayer).paint(
                                 canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
                                 entry.properties, actualZoom, entry.cacheKey
@@ -243,6 +220,138 @@ class TileRenderer(
                 }
             }
         }
+    }
+
+    /**
+     * Draws a `circle` layer, from this tile **and** from the neighbouring tiles that were gathered.
+     *
+     * A circle spills over the tile boundary and this tile's bitmap is the clip, so the half that
+     * falls outside has to be drawn by the neighbour it falls into -- see [CircleVertexGate], which
+     * is what keeps a vertex from being drawn twice once both tiles carry it. The neighbours are the
+     * same set the heatmap reads, gathered only when a circle layer actually draws at this zoom.
+     *
+     * A neighbour's features are keyed by nothing: [visibleFeatures]' cache keys name the tile being
+     * rasterized, and reusing them for another tile's features would hand one feature's properties
+     * to another's geometry.
+     */
+    private suspend fun renderCircles(
+        canvas: DrawScope,
+        tile: Tile?,
+        styleLayer: CircleLayer,
+        zoom: Double,
+        canvasSize: Int,
+        geometrySize: Int,
+        actualZoom: Double,
+        tileKey: String?,
+        tileRef: TileRef,
+        neighbours: List<NeighbourTile>,
+    ) {
+        val span = tileRef.span.coerceAtLeast(1)
+        val covered = neighbours.mapTo(mutableSetOf()) { it.dx to it.dy }
+
+        val nativeCanvas = canvas.drawContext.canvas
+        if (span > 1) {
+            nativeCanvas.save()
+            nativeCanvas.translate(
+                -tileRef.subX.toFloat() * canvasSize,
+                -tileRef.subY.toFloat() * canvasSize,
+            )
+        }
+        try {
+            if (tile != null && tile.layers.isNotEmpty()) {
+                paintCircles(
+                    canvas, tile, styleLayer, zoom, geometrySize, actualZoom, tileKey,
+                    CircleVertexGate(coveredDirections = covered)
+                )
+            }
+            for (neighbour in neighbours) {
+                paintCircles(
+                    canvas, neighbour.tile, styleLayer, zoom, geometrySize, actualZoom,
+                    tileKey = null,
+                    gate = CircleVertexGate.forNeighbour(neighbour.dx, neighbour.dy, geometrySize)
+                )
+            }
+        } finally {
+            if (span > 1) nativeCanvas.restore()
+        }
+    }
+
+    /** One tile's contribution to a `circle` layer, gated by [gate]. */
+    private suspend fun paintCircles(
+        canvas: DrawScope,
+        tile: Tile,
+        styleLayer: CircleLayer,
+        zoom: Double,
+        geometrySize: Int,
+        actualZoom: Double,
+        tileKey: String?,
+        gate: CircleVertexGate,
+    ) {
+        val tileLayer = tileLayerFor(tile, styleLayer) ?: return
+        val extent = tileLayer.extent ?: DEFAULT_EXTENT
+        val visible = visibleFeatures(tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize)
+        for (entry in visible) {
+            circlePainter.paint(
+                canvas, entry.feature, styleLayer, geometrySize, extent, zoom, entry.properties,
+                actualZoom, entry.cacheKey, gate
+            )
+        }
+    }
+
+    /**
+     * The features of [tileLayer] that [styleLayer] draws, in draw order.
+     *
+     * Ordering is the tile's own feature order unless the layer declares a `*-sort-key`, which
+     * MapLibre sorts ascending so that a higher key draws on top. A [tileKey] of `null` means the
+     * caches are skipped -- there is no key that names this tile.
+     */
+    private fun visibleFeatures(
+        tileLayer: Tile.Layer,
+        styleLayer: Layer,
+        zoom: Double,
+        actualZoom: Double,
+        tileKey: String?,
+        geometrySize: Int,
+    ): List<VisibleFeature> {
+        // Feature geometry is only decoded when a `within`/`distance` expression reads it.
+        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
+
+        val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
+        tileLayer.features.forEachIndexed { index, feature ->
+            /* The feature's position in the tile layer, not its `id` or its `hashCode`.
+             * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
+             * features in one layer collides often enough to matter -- two features sharing
+             * a key share both the cached `EvalFeature` and the cached geometry, so one is
+             * drawn with the other's properties and the other's shape. The decode order is
+             * deterministic and the decoded ancestor tile is shared by every sub-square, so
+             * the index is stable exactly where the caches need it to be. */
+            val featureIdKey = "f$index"
+            val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
+            val featureProperties = if (propertyKey != null) {
+                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
+            } else {
+                buildEvalFeature(feature, tileLayer, needGeometry)
+            }
+
+            if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
+                return@forEachIndexed
+            }
+
+            /* [geometrySize] is what the polylines the key caches are measured in. It is a
+             * pure function of the span today, which the tile key already carries, but
+             * nothing in the key said so. */
+            val featureKey = if (tileKey != null) {
+                "$tileKey-$geometrySize-${styleLayer.id}-$featureIdKey"
+            } else {
+                null
+            }
+            visible.add(VisibleFeature(feature, featureProperties, featureKey))
+        }
+
+        sortKeyOf(styleLayer)?.let { sortKey ->
+            visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
+        }
+        return visible
     }
 
     /**
@@ -317,7 +426,7 @@ class TileRenderer(
         painters.getOrPut(styleLayer) {
             when (styleLayer) {
                 is BackgroundLayer -> BackgroundLayerPainter(configuration.spriteManager, patternBrushes)
-                is CircleLayer -> CircleLayerPainter()
+                is CircleLayer -> circlePainter
                 is FillLayer -> FillLayerPainter(
                     pathCache, pathCacheMutex, configuration.spriteManager, patternBrushes
                 )
