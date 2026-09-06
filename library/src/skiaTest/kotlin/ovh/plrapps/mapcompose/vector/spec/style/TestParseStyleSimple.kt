@@ -5,11 +5,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFormatted
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
-import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -21,29 +17,16 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 import mapcompose_mp.library.generated.resources.Res
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 
-@OptIn(ExperimentalTestApi::class)
 class TestParseStyleSimple {
 
     @OptIn(ExperimentalResourceApi::class)
     @Test
-    fun `style_simple correct parsed`() = runComposeUiTest {
-        var simpleStyle: MapLibreConfiguration? = null
+    fun `style_simple correct parsed`() = runTest {
         val loadResource: suspend (String) -> RawSource? = { null }
 
-        setContent {
-            val style by produceState<MapLibreConfiguration?>(null) {
-                value = Res.readBytes("files/test_style_simple.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
-                }
-            }
-            simpleStyle = style
-        }
-
-        waitUntil(timeoutMillis = 5000) {
-            simpleStyle != null
-        }
-
-        val style = simpleStyle!!.style
+        val source = Res.readBytes("files/test_style_simple.json").decodeToString()
+        val style = getMapLibreConfiguration(style = source, loadResource = loadResource)
+            .getOrThrow().style
 
         assertEquals(8, style.version)
         assertEquals("MapLibre", style.name)
