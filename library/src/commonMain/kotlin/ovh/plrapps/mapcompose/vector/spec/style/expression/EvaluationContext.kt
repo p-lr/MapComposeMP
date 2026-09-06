@@ -51,21 +51,29 @@ data class GlobalProperties(
 )
 
 /**
- * Mutable evaluation state, reused across evaluations to avoid per-feature allocation — exactly as
- * upstream does (`StyleExpression._evaluator`).
+ * The state one evaluation reads: the camera globals, the feature, and the tile it came from.
  *
- * Ported from `maplibre-style-spec/src/expression/evaluation_context.ts`.
+ * Ported from `maplibre-style-spec/src/expression/evaluation_context.ts`, with one deliberate
+ * divergence. Upstream's context is a *mutable* object that `StyleExpression` reuses across
+ * evaluations (`StyleExpression._evaluator`) to avoid per-feature allocation, which is safe there
+ * because JS is single-threaded. Here a style's parsed expressions are one object graph shared by
+ * the whole tile-worker pool (`core/TileCollector.kt`) and by the symbol layout pass, so a reused
+ * context is a data race: one worker overwrites [feature] while another is mid-tree-walk, that walk
+ * reads the wrong properties, the resulting type error is caught by [StyleExpression.evaluate], and
+ * the property falls back to its spec default -- which is how a white road rendered black.
+ *
+ * So the context is immutable and built per evaluation. Nothing in the expression definitions ever
+ * wrote to it -- every access is a read -- so the only cost is one six-field allocation, next to the
+ * [GlobalProperties] the caller already allocates for the same call.
  */
-class EvaluationContext {
-    var globals: GlobalProperties? = null
-    var feature: EvalFeature? = null
-    var featureState: FeatureState? = null
-    var formattedSection: FormattedSection? = null
-    var availableImages: List<String>? = null
-    var canonical: CanonicalTileId? = null
-
-    private val parseColorCache = mutableMapOf<String, Color?>()
-
+class EvaluationContext(
+    val globals: GlobalProperties? = null,
+    val feature: EvalFeature? = null,
+    val featureState: FeatureState? = null,
+    val formattedSection: FormattedSection? = null,
+    val availableImages: List<String>? = null,
+    val canonical: CanonicalTileId? = null,
+) {
     fun id(): Any? = feature?.id
 
     fun geometryType(): String? = feature?.type
@@ -76,7 +84,34 @@ class EvaluationContext {
 
     fun properties(): Map<String, Any?> = feature?.properties ?: emptyMap()
 
-    fun parseColor(input: String): Color? = parseColorCache.getOrPut(input) {
-        ColorParser.parseColorStringOrNull(input)
+    fun parseColor(input: String): Color? = RuntimeColorCache.parse(input)
+}
+
+/**
+ * Memoises `to-color` applied to a value that is not a literal.
+ *
+ * [ParsingContext] constant-folds every all-literal subtree, so the only colour strings parsed at
+ * run time come from feature data -- rare, but then repeated once per feature. The cache used to sit
+ * on [EvaluationContext], which is now per-evaluation, and a plain map here would be the same
+ * unguarded `LinkedHashMap` shared across the worker pool that the context itself was. Copy-on-write
+ * instead: a lost update costs one re-parse, where a raced map costs correctness. The bound exists
+ * because the key space is feature data.
+ */
+internal object RuntimeColorCache {
+    private const val MAX_SIZE = 256
+
+    private var entries: Map<String, Color?> = emptyMap()
+
+    fun parse(input: String): Color? {
+        val snapshot = entries
+        if (snapshot.containsKey(input)) return snapshot[input]
+
+        val parsed = ColorParser.parseColorStringOrNull(input)
+        entries = if (snapshot.size >= MAX_SIZE) {
+            mapOf(input to parsed)
+        } else {
+            snapshot + (input to parsed)
+        }
+        return parsed
     }
 }

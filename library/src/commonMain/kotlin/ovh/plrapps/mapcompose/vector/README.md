@@ -491,6 +491,21 @@ Parsing never throws: errors accumulate in `ParsingContext.errors` and surface a
 `MapLibreConfiguration.diagnostics`, and a property that fails to compile becomes
 `ExpressionOrValue.Invalid`, evaluates to null, and lets the painter's `?: default` apply.
 
+**Evaluation holds no state, which is a divergence.** Upstream's `StyleExpression` reuses one
+mutable `EvaluationContext` across evaluations (`_evaluator`) to avoid per-feature allocation; that
+is safe in maplibre-gl-js because JS has one thread. Here a parsed style is one object graph, so
+there is one `StyleExpression` per style property shared by every tile worker
+(`core/TileCollector.kt`) and by the symbol layout pass. `EvaluationContext` is therefore immutable
+and built per evaluation. A shared one is a data race with a specific and misleading symptom: a
+worker overwrites `feature` mid-tree-walk, the walk reads another feature's properties, the type
+error is caught by `StyleExpression.evaluate`, and the property falls back to its spec default —
+`line-color`'s default is black, so swisstopo's white roads rendered black; and a raced *filter*
+simply drops `road_fill`, leaving the dark casing. It showed under overzoom because all `span²`
+sibling map tiles walk the same ancestor's whole feature list at once. `StyleExpression.warningHistory`
+and the runtime `to-color` cache are copy-on-write for the same reason, as is
+`SpriteManager`'s sprite cache — an `LruCache.get` reinserts the entry, so an unguarded read is a
+write.
+
 **Tile scale.** A style is authored in CSS pixels, which is what a `Dp` is here. Tile content is
 drawn into `mapState.tileSize * relativeScale` *device* pixels, so `addVectorLayer` sets the map's
 magnifying factor from the screen density (`magnifyingFactorForDensity`) to put one style pixel on

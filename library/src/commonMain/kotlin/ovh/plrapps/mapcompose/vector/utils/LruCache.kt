@@ -1,5 +1,17 @@
 package ovh.plrapps.mapcompose.vector.utils
 
+/**
+ * A least-recently-used map.
+ *
+ * **Not thread-safe, and `get` is a write**: it removes and reinserts the entry to record recency,
+ * so two threads reading concurrently structurally mutate one `LinkedHashMap`. Every holder must
+ * therefore confine it to one coroutine or guard it -- `VectorRasterizer` takes `pathCacheMutex`,
+ * `tileCacheMutex`, `byteCacheMutex`, `rasterImageCacheMutex`, `demCacheMutex` and
+ * `symbolBucketCacheMutex`, `TextLabelBuilder` takes its own `mutex`, and `PatternBrushCache` and
+ * `TileRenderer.painters` are confined because a `TileRenderer` is built per `renderTile`.
+ * `SpriteManager` is the one that could not be guarded -- its reader is not `suspend` -- and holds a
+ * copy-on-write map instead.
+ */
 class LruCache<K, V>(maxSize: Int) {
     private val cache = LinkedHashMap<K, V>(0, 0.75f)
 
