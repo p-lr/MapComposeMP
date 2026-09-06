@@ -18,7 +18,6 @@ import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.renderer.utils.sdfPixel
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
-import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -88,7 +87,17 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
 
     fun getSpriteInfo(spriteId: String): Sprite? = entries[spriteId]?.first
 
-    private val spriteCache = LruCache<String, ImageBitmap>(maxSize = 100)
+    /**
+     * Cut-out sprites, keyed by id plus the tint and SDF shading applied to them.
+     *
+     * Copy-on-write, and deliberately not an `LruCache`: [getSprite] is reached from every tile
+     * worker at once (through the non-suspend `PatternBrushCache.get`, so there is no `Mutex` to
+     * take), and `LruCache.get` structurally mutates its `LinkedHashMap` to record recency -- an
+     * unguarded read is therefore a write, and the pool can lose entries or spin. The key space is
+     * the style's sprite ids times the tint and SDF combinations they are drawn with, so it is
+     * bounded by the style; the cap is a backstop and clears rather than evicting by recency.
+     */
+    private var spriteCache: Map<String, ImageBitmap> = emptyMap()
 
     /**
      * Cuts one sprite out of its sheet, tinted or SDF-shaded as the layer asks.
@@ -103,7 +112,7 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
         val (spriteInfo, sheetImage) = entries[spriteId] ?: return null
 
         val cacheKey = "$spriteId-${tintColor?.toArgb() ?: "none"}-${sdf?.hashCode() ?: "none"}"
-        spriteCache.get(cacheKey)?.let {
+        spriteCache[cacheKey]?.let {
             return spriteInfo to it
         }
 
@@ -126,13 +135,21 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
             )
         }
 
-        spriteCache.put(cacheKey, sprite)
+        val snapshot = spriteCache
+        spriteCache = if (snapshot.size >= SPRITE_CACHE_MAX_SIZE) {
+            mapOf(cacheKey to sprite)
+        } else {
+            snapshot + (cacheKey to sprite)
+        }
         return spriteInfo to sprite
     }
 
     fun getAvailableSprites(): List<String> = availableImages
 
     companion object {
+        /** Backstop on [spriteCache]; the live set is bounded by the style, not by this. */
+        private const val SPRITE_CACHE_MAX_SIZE = 512
+
         /**
          * The size an SDF entry is magnified to before it is shaded.
          *
