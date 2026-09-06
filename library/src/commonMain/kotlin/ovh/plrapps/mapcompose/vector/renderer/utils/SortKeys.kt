@@ -21,9 +21,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
  * Layout wins when both are present.
  */
 fun sortKeyOf(styleLayer: Layer): ExpressionOrValue<Double>? = when (styleLayer) {
-    is FillLayer -> styleLayer.layout?.fillSortKey
-    is LineLayer -> styleLayer.layout?.lineSortKey
-    is CircleLayer -> styleLayer.layout?.circleSortKey ?: styleLayer.paint?.circleSortKey
+    is FillLayer -> styleLayer.layout.fillSortKey
+    is LineLayer -> styleLayer.layout.lineSortKey
+    is CircleLayer -> styleLayer.layout.circleSortKey ?: styleLayer.paint.circleSortKey
     else -> null
 }
 

@@ -144,7 +144,7 @@ internal class SymbolOrdering(
  * property that failed to compile evaluates to null everywhere, which is as constant as it gets.
  */
 internal fun symbolOrderingFor(styleLayer: SymbolLayer, zoom: Double): SymbolOrdering {
-    val layout = styleLayer.layout ?: return SymbolOrdering.DEFAULT
+    val layout = styleLayer.layout
     val zOrder = layout.symbolZOrder?.processAsString(null, zoom) ?: StyleSpecDefaults.SYMBOL_Z_ORDER
     val canOverlap =
         resolveTextOverlapMode(layout, null, zoom) != OverlapMode.Never ||

@@ -427,8 +427,7 @@ internal class SymbolLayerLayout(
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-    ): String = style.layout?.let { placementModeOf(it, featureProperties, actualZoom) }
-        ?: StyleSpecDefaults.SYMBOL_PLACEMENT
+    ): String = placementModeOf(style.layout, featureProperties, actualZoom)
 
     /**
      * The plain text of `text-field`, which is the key upstream's `mergeLines` stitches lines on.
@@ -439,8 +438,7 @@ internal class SymbolLayerLayout(
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-    ): String? = style.layout
-        ?.let { textFieldOf(it, featureProperties, actualZoom) }
+    ): String? = textFieldOf(style.layout, featureProperties, actualZoom)
         ?.sections?.joinToString("") { it.text }
         ?.takeIf { it.isNotEmpty() }
 
@@ -557,8 +555,8 @@ internal class SymbolLayerLayout(
         sizes: SymbolSizes,
     ): SymbolInstance? {
         val spriteManager = spriteManager ?: return null
-        val paint = style.paint ?: return null
-        val layout = style.layout ?: return null
+        val paint = style.paint
+        val layout = style.layout
 
         val spriteId =
             layout.iconImage.processAsImageName(featureProperties, actualZoom, availableImages)
@@ -699,8 +697,8 @@ internal class SymbolLayerLayout(
         layerIndex: Int,
         sizes: SymbolSizes,
     ): SymbolInstance? {
-        val layout = style.layout ?: return null
-        val paint = style.paint ?: return null
+        val layout = style.layout
+        val paint = style.paint
         val spriteManager = spriteManager ?: return null
 
         val spriteId =
@@ -924,8 +922,8 @@ internal class SymbolLayerLayout(
         sizes: SymbolSizes,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<SymbolInstance> {
-        val layout = style.layout ?: return emptyList()
-        val paint = style.paint ?: return emptyList()
+        val layout = style.layout
+        val paint = style.paint
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
         val (art, textStyle) = buildLabel(
@@ -1268,8 +1266,7 @@ internal class SymbolLayerLayout(
         preDecodedLines: List<List<Pair<Float, Float>>>? = null,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<SymbolInstance> {
-        val layout = style.layout ?: return emptyList()
-        style.paint ?: return emptyList()
+        val layout = style.layout
 
         val placementMode = placementModeOf(layout, featureProperties, actualZoom)
         val hasSprite = layout.iconImage != null && spriteManager != null
