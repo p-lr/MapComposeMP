@@ -101,8 +101,10 @@ internal class SymbolBucketBuilder(
         // Feature geometry is only decoded when a `within`/`distance` expression reads it.
         val needGeometry = styleLayer.filter?.filter?.needGeometry == true
 
-        for (feature in tileLayer.features) {
-            val featureIdKey = feature.id?.toString() ?: feature.hashCode().toString()
+        for ((index, feature) in tileLayer.features.withIndex()) {
+            /* The feature's position in the tile layer. See the note in `TileRenderer.render`: an
+             * MVT feature usually has no `id`, and a hash collides. */
+            val featureIdKey = "f$index"
             val propertyKey = if (ref.x != 0 || ref.y != 0) "T-${ref.x}-${ref.y}-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
                 localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
@@ -114,7 +116,7 @@ internal class SymbolBucketBuilder(
             if (!isShouldRenderFeature) continue
 
             val extent = tileLayer.extent ?: 4096
-            val id = feature.id?.toString() ?: "unknown_${feature.hashCode()}"
+            val id = feature.id?.toString() ?: "unknown_$index"
 
             if (feature.type != Tile.GeomType.POINT &&
                 symbolsLayout.symbolPlacementOf(styleLayer, featureProperties, zoom) == SYMBOL_PLACEMENT_LINE
