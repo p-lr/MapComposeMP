@@ -61,8 +61,6 @@ internal object SymbolFixtures {
         overlapMode: OverlapMode = OverlapMode.Never,
         ignorePlacement: Boolean = false,
         sortKey: Double = 0.0,
-        hasSortKey: Boolean = false,
-        zOrder: String = ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO,
     ): LabelPlacement = LabelPlacement(
         text = text,
         position = ObbPoint(center.x, center.y),
@@ -76,8 +74,6 @@ internal object SymbolFixtures {
         inLayerPriority = sortKey,
         overlapMode = overlapMode,
         ignorePlacement = ignorePlacement,
-        zOrder = zOrder,
-        hasSortKey = hasSortKey,
     )
 
     /**
@@ -97,8 +93,6 @@ internal object SymbolFixtures {
         overlapMode: OverlapMode = OverlapMode.Never,
         ignorePlacement: Boolean = false,
         sortKey: Double = 0.0,
-        hasSortKey: Boolean = false,
-        zOrder: String = ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO,
         line: List<Pair<Float, Float>>? = null,
         globalLine: List<Point>? = null,
         globalAnchorIndex: Int = 0,
@@ -112,7 +106,7 @@ internal object SymbolFixtures {
             text = key, center = Offset(tileAnchor.x, tileAnchor.y),
             width = width, height = height, angle = angle, layerIndex = layerIndex,
             overlapMode = overlapMode, ignorePlacement = ignorePlacement,
-            sortKey = sortKey, hasSortKey = hasSortKey, zOrder = zOrder,
+            sortKey = sortKey,
         )
         return SymbolInstance.Text(
             id = key,
@@ -145,6 +139,8 @@ internal object SymbolFixtures {
         span: Int = 1,
         /** The zoom the bucket is *shown* at, which is above [z] when the source is overzoomed. */
         bucketZoom: Int = z,
+        /** `symbol-z-order` and friends, which are layer properties -- see [SymbolOrdering]. */
+        ordering: SymbolOrdering = SymbolOrdering.DEFAULT,
     ): SymbolBucket = SymbolBucket(
         ref = TileRef(z = z, x = x, y = y, subX = 0, subY = 0, span = span),
         layerIndex = layerIndex,
@@ -155,7 +151,15 @@ internal object SymbolFixtures {
         textSizeData = textSizeData,
         iconSizeData = iconSizeData,
         instances = instances,
+        ordering = ordering,
     )
+
+    /** A layer that orders by [zOrder], with [canOverlap] and a per-feature `symbol-sort-key`. */
+    fun ordering(
+        zOrder: String = ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO,
+        hasSortKey: Boolean = false,
+        canOverlap: Boolean = false,
+    ): SymbolOrdering = SymbolOrdering(zOrder = zOrder, hasSortKey = hasSortKey, canOverlap = canOverlap)
 
     /**
      * A viewport centred on [centroid] whose world is exactly [worldPx] wide, so a normalized

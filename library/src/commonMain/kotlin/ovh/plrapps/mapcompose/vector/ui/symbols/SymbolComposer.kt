@@ -89,8 +89,9 @@ internal fun SymbolComposer(
         }) {
             for (phase in symbolState.visiblePhases) {
                 val phaseOffsetPx = phase * zoomPRState.fullWidth * zoomPRState.scale
-                /* A view, not a copy: this runs once per phase on every frame. */
-                for (placed in placement.symbols.asReversed()) {
+                /* Already in draw order -- ascending, so the first entry is underneath. It is not
+                 * the placement order reversed; see `SymbolDrawOrder`. */
+                for (placed in placement.symbols) {
                     val symbol = placed.instance
                     val iconAlpha = placed.opacity.icon.alphaAt(fadeChange)
                     val textAlpha = placed.opacity.text.alphaAt(fadeChange)

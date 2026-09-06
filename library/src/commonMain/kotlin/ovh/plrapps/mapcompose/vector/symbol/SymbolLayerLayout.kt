@@ -88,32 +88,6 @@ internal class SymbolLayerLayout(
             else       -> defaultViewportAligned
         }
 
-    private fun resolveIconOverlapMode(
-        layout: SymbolLayout,
-        props: EvalFeature?,
-        zoom: Double
-    ): OverlapMode =
-        layout.iconOverlap?.processAsString(props, zoom)?.let { v ->
-            when (v) {
-                "always" -> OverlapMode.Always
-                "cooperative" -> OverlapMode.Cooperative
-                else -> OverlapMode.Never
-            }
-        } ?: if ((layout.iconAllowOverlap?.processAsBoolean(props, zoom) ?: StyleSpecDefaults.ICON_ALLOW_OVERLAP)) OverlapMode.Always else OverlapMode.Never
-
-    private fun resolveTextOverlapMode(
-        layout: SymbolLayout,
-        props: EvalFeature?,
-        zoom: Double
-    ): OverlapMode =
-        layout.textOverlap?.processAsString(props, zoom)?.let { v ->
-            when (v) {
-                "always" -> OverlapMode.Always
-                "cooperative" -> OverlapMode.Cooperative
-                else -> OverlapMode.Never
-            }
-        } ?: if ((layout.textAllowOverlap?.processAsBoolean(props, zoom) ?: StyleSpecDefaults.TEXT_ALLOW_OVERLAP)) OverlapMode.Always else OverlapMode.Never
-
     /**
      * How an SDF entry is recoloured, or `null` when the sprite is a plain image.
      *
@@ -535,11 +509,6 @@ internal class SymbolLayerLayout(
         inLayerPriority = sortKeyOf(layout, featureProperties, actualZoom),
         overlapMode = overlapMode,
         ignorePlacement = ignorePlacement,
-        zOrder = layout.symbolZOrder?.processAsString(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.SYMBOL_Z_ORDER,
-        /* `symbol-z-order: auto` means "sort-key if the layer has one, viewport-y otherwise", so
-         * whether the property was *set* matters, not just what it evaluates to. */
-        hasSortKey = layout.symbolSortKey != null,
     )
 
     private fun sortKeyOf(
@@ -1428,6 +1397,40 @@ internal fun textKey(text: String): String = "t:$text"
 
 /** The cross-tile identity of an icon; see [textKey]. */
 internal fun iconKey(spriteId: String): String = "i:$spriteId"
+
+/**
+ * `icon-overlap`, falling back to the deprecated `icon-allow-overlap` -- upstream's `getOverlapMode`
+ * (`style/style_layer/symbol_style_layer.ts`).
+ *
+ * Top-level rather than a member because the *layer* value, evaluated with no feature, is what
+ * [symbolOrderingFor] needs for upstream's `canOverlap`.
+ */
+internal fun resolveIconOverlapMode(
+    layout: SymbolLayout,
+    props: EvalFeature?,
+    zoom: Double
+): OverlapMode =
+    layout.iconOverlap?.processAsString(props, zoom)?.let { v ->
+        when (v) {
+            "always" -> OverlapMode.Always
+            "cooperative" -> OverlapMode.Cooperative
+            else -> OverlapMode.Never
+        }
+    } ?: if ((layout.iconAllowOverlap?.processAsBoolean(props, zoom) ?: StyleSpecDefaults.ICON_ALLOW_OVERLAP)) OverlapMode.Always else OverlapMode.Never
+
+/** See [resolveIconOverlapMode]; `text-overlap` / `text-allow-overlap`. */
+internal fun resolveTextOverlapMode(
+    layout: SymbolLayout,
+    props: EvalFeature?,
+    zoom: Double
+): OverlapMode =
+    layout.textOverlap?.processAsString(props, zoom)?.let { v ->
+        when (v) {
+            "always" -> OverlapMode.Always
+            "cooperative" -> OverlapMode.Cooperative
+            else -> OverlapMode.Never
+        }
+    } ?: if ((layout.textAllowOverlap?.processAsBoolean(props, zoom) ?: StyleSpecDefaults.TEXT_ALLOW_OVERLAP)) OverlapMode.Always else OverlapMode.Never
 
 /** Whether a `symbol-placement` value puts symbols along a line rather than on a point. */
 private fun String.isLinePlacement(): Boolean =
