@@ -70,19 +70,19 @@ class HillshadeLayerPainter {
     ) {
         val paint = style.paint
 
-        val exaggeration = paint?.hillshadeExaggeration.processAsDouble(zoom = actualZoom)
+        val exaggeration = paint.hillshadeExaggeration.processAsDouble(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_EXAGGERATION
         /* Upstream's `hasOffscreenPass()` drops the layer entirely at zero intensity, which is also
          * the only value where the shading below would be uniformly transparent anyway. */
         if (exaggeration == 0.0) return
 
-        val illuminationDirection = paint?.hillshadeIlluminationDirection.processAsDouble(zoom = actualZoom)
+        val illuminationDirection = paint.hillshadeIlluminationDirection.processAsDouble(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_ILLUMINATION_DIRECTION
-        val shadow = paint?.hillshadeShadowColor.processAsColor(zoom = actualZoom)
+        val shadow = paint.hillshadeShadowColor.processAsColor(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_SHADOW_COLOR
-        val highlight = paint?.hillshadeHighlightColor.processAsColor(zoom = actualZoom)
+        val highlight = paint.hillshadeHighlightColor.processAsColor(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_HIGHLIGHT_COLOR
-        val accent = paint?.hillshadeAccentColor.processAsColor(zoom = actualZoom)
+        val accent = paint.hillshadeAccentColor.processAsColor(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_ACCENT_COLOR
 
         val dem = demTile.dem

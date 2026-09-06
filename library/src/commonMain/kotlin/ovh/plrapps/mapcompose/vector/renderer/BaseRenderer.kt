@@ -57,7 +57,7 @@ abstract class BaseRenderer(
      * painter.
      */
     fun isLayerVisible(styleLayer: Layer): Boolean =
-        styleLayer.layout?.visibility != StyleSpecDefaults.VISIBILITY_NONE
+        styleLayer.layout.visibility != StyleSpecDefaults.VISIBILITY_NONE
 
     /**
      * The tile layer a style layer draws from.

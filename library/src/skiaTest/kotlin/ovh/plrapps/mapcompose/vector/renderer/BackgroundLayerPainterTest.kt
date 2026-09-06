@@ -79,6 +79,26 @@ class BackgroundLayerPainterTest {
         assertColorEquals(Color.Red, bitmap.pixelAt(32, 32))
     }
 
+    @Test
+    fun `a layer that declares no paint draws the spec defaults`() = runTest {
+        // Regression: an omitted `paint` object used to suppress the layer; upstream always
+        // populates one from the spec (`style_layer.ts`).
+        val bitmap = renderToBitmap(size = SIZE) {
+            BackgroundLayerPainter(spriteManager = null).paint(
+                canvas = this,
+                feature = EMPTY_FEATURE,
+                style = BackgroundLayer(id = "background"),
+                canvasSize = SIZE,
+                extent = Mvt.DEFAULT_EXTENT,
+                zoom = 10.0,
+                featureProperties = null,
+                actualZoom = 10.0,
+            )
+        }
+
+        assertColorEquals(Color.Black, bitmap.pixelAt(32, 32), message = "default background-color")
+    }
+
     private companion object {
         const val SIZE = 64
 

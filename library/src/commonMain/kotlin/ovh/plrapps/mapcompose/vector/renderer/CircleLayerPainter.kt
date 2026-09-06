@@ -45,7 +45,7 @@ class CircleLayerPainter : BaseLayerPainter<CircleLayer>() {
         actualZoom: Double,
         featureKey: String?
     ) {
-        val paint = style.paint ?: return
+        val paint = style.paint
 
         val density = canvas.density
 

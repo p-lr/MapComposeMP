@@ -32,7 +32,7 @@ class BackgroundLayerPainter(
         actualZoom: Double,
         featureKey: String?
     ) {
-        val paint = style.paint ?: return
+        val paint = style.paint
 
         val color = paint.backgroundColor?.processAsColor(featureProperties, actualZoom)
             ?: StyleSpecDefaults.BACKGROUND_COLOR

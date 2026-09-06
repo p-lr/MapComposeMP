@@ -26,7 +26,7 @@ class LineLayerPainterTest {
 
     private suspend fun render(
         paint: LinePaint,
-        layout: LineLayout? = null,
+        layout: LineLayout = LineLayout(),
         feature: Tile.Feature = horizontalLine(),
     ) = renderToBitmap(size = SIZE) {
         painter.paint(

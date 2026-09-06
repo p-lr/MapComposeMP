@@ -194,7 +194,7 @@ internal fun symbolSizesFor(styleLayer: SymbolLayer, bucketZoom: Double): Symbol
     val tileZoom = bucketZoom - 1.0
     return SymbolSizes(
         tileZoom = tileZoom,
-        textSizeData = getSizeData(tileZoom, styleLayer.layout?.textSize, StyleSpecDefaults.TEXT_SIZE),
-        iconSizeData = getSizeData(tileZoom, styleLayer.layout?.iconSize, StyleSpecDefaults.ICON_SIZE),
+        textSizeData = getSizeData(tileZoom, styleLayer.layout.textSize, StyleSpecDefaults.TEXT_SIZE),
+        iconSizeData = getSizeData(tileZoom, styleLayer.layout.iconSize, StyleSpecDefaults.ICON_SIZE),
     )
 }

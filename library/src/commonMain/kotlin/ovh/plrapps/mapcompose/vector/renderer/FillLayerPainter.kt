@@ -58,7 +58,7 @@ class FillLayerPainter(
     ) {
         if (feature.type != Tile.GeomType.POLYGON) return
 
-        val paint = style.paint ?: return
+        val paint = style.paint
 
         val path: Path? = if (featureKey != null && pathCache != null && mutex != null) {
             mutex.withLock {

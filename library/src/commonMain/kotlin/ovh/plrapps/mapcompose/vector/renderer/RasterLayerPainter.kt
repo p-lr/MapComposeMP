@@ -84,19 +84,19 @@ class RasterLayerPainter {
     ) {
         val paint = style.paint
 
-        val opacity = paint?.rasterOpacity.processAsFloat(zoom = actualZoom)
+        val opacity = paint.rasterOpacity.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_OPACITY.toFloat()
-        val hueRotate = paint?.rasterHueRotate.processAsFloat(zoom = actualZoom)
+        val hueRotate = paint.rasterHueRotate.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_HUE_ROTATE.toFloat()
-        val saturation = paint?.rasterSaturation.processAsFloat(zoom = actualZoom)
+        val saturation = paint.rasterSaturation.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_SATURATION.toFloat()
-        val contrast = paint?.rasterContrast.processAsFloat(zoom = actualZoom)
+        val contrast = paint.rasterContrast.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_CONTRAST.toFloat()
-        val brightnessMin = paint?.rasterBrightnessMin.processAsFloat(zoom = actualZoom)
+        val brightnessMin = paint.rasterBrightnessMin.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_BRIGHTNESS_MIN.toFloat()
-        val brightnessMax = paint?.rasterBrightnessMax.processAsFloat(zoom = actualZoom)
+        val brightnessMax = paint.rasterBrightnessMax.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_BRIGHTNESS_MAX.toFloat()
-        val resampling = paint?.rasterResampling.processAsString(zoom = actualZoom)
+        val resampling = paint.rasterResampling.processAsString(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_RESAMPLING
 
         val colorFilter = rasterColorMatrix(
