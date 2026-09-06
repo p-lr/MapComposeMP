@@ -1,10 +1,11 @@
 package ovh.plrapps.mapcompose.vector.utils.rtree
 
-import kotlinx.datetime.Clock
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration
+import kotlin.time.TimeSource
 
 class RtreeTest {
     @Test
@@ -384,31 +385,39 @@ class RtreeTest {
             AABB(1000f, 1000f, 1010f, 1010f) // Area outside grid
         )
 
-        // Create results string
+        // Every area is searched this many times before its duration is read.
+        val repeats = 20
+
+        // Create results string. Timings are monotonic and accumulated over `repeats` runs of every
+        // area, then compared once: a single search of one area is far below the resolution of the
+        // wasm browser's clock, where both sides measured 0 ms and `rtreeTime < naiveTime` failed on
+        // equality rather than on speed.
         val results = StringBuilder()
-        var totalRtreeTime = 0L
-        var totalNaiveTime = 0L
+        var totalRtreeTime = Duration.ZERO
+        var totalNaiveTime = Duration.ZERO
         var totalElementsFound = 0
 
         for (area in searchAreas) {
             println("\nSearching in area: $area")
 
             // R-tree search
-            val rtreeStartTime = Clock.System.now()
-            val rtreeResults = rtree.search(area)
-            val rtreeEndTime = Clock.System.now()
-            val rtreeTime = rtreeEndTime - rtreeStartTime
-            totalRtreeTime += rtreeTime.inWholeMilliseconds
+            var rtreeResults = emptySet<String>()
+            val rtreeMark = TimeSource.Monotonic.markNow()
+            repeat(repeats) { rtreeResults = rtree.search(area) }
+            val rtreeTime = rtreeMark.elapsedNow()
+            totalRtreeTime += rtreeTime
 
             // Naive search
-            val naiveStartTime = Clock.System.now()
-            val naiveResults = allElements
-                .filter { (bounds, _) -> bounds.intersects(area) }
-                .map { it.second }
-                .toSet()
-            val naiveEndTime = Clock.System.now()
-            val naiveTime = naiveEndTime - naiveStartTime
-            totalNaiveTime += naiveTime.inWholeMilliseconds
+            var naiveResults = emptySet<String>()
+            val naiveMark = TimeSource.Monotonic.markNow()
+            repeat(repeats) {
+                naiveResults = allElements
+                    .filter { (bounds, _) -> bounds.intersects(area) }
+                    .map { it.second }
+                    .toSet()
+            }
+            val naiveTime = naiveMark.elapsedNow()
+            totalNaiveTime += naiveTime
             totalElementsFound += naiveResults.size
 
             // Print detailed results
@@ -422,22 +431,25 @@ class RtreeTest {
             }
 
             results.append("\nSearch in area $area:\n")
-            results.append("R-tree: found ${rtreeResults.size} elements in ${rtreeTime.inWholeMilliseconds}ms\n")
-            results.append("Naive: found ${naiveResults.size} elements in ${naiveTime.inWholeMilliseconds}ms\n")
-            results.append("Speedup: ${naiveTime.inWholeMilliseconds.toDouble() / rtreeTime.inWholeMilliseconds}x\n")
+            results.append("R-tree: found ${rtreeResults.size} elements in $rtreeTime\n")
+            results.append("Naive: found ${naiveResults.size} elements in $naiveTime\n")
 
             // Verify correctness
             assertEquals(naiveResults, rtreeResults, "Search results should match")
-
-            // Verify that R-tree is indeed faster
-            assertTrue(rtreeTime < naiveTime, "R-tree should be faster than naive search")
         }
+
+        // Verify that R-tree is indeed faster. Asserted once, on the total: over 50,000 elements the
+        // gap is orders of magnitude, while a single area's two durations can both round to zero.
+        assertTrue(
+            totalRtreeTime < totalNaiveTime,
+            "R-tree should be faster than naive search: $totalRtreeTime vs $totalNaiveTime"
+        )
 
         // Print summary statistics
         results.append("\nSummary Statistics:\n")
-        results.append("Total R-tree time: ${totalRtreeTime}ms\n")
-        results.append("Total Naive time: ${totalNaiveTime}ms\n")
-        results.append("Average speedup: ${totalNaiveTime.toDouble() / totalRtreeTime}x\n")
+        results.append("Total R-tree time: $totalRtreeTime\n")
+        results.append("Total Naive time: $totalNaiveTime\n")
+        results.append("Average speedup: ${totalNaiveTime / totalRtreeTime}x\n")
         results.append("Tree depth: ${rtree.depth()}\n")
         results.append("Total elements: ${rtree.size()}\n")
         results.append("Average elements per search: ${totalElementsFound.toDouble() / searchAreas.size}\n")

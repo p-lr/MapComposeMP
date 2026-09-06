@@ -736,7 +736,7 @@ class SymbolLayerLayoutTest {
     }
 
     @Test
-    fun `canOverlap follows text-overlap, icon-allow-overlap and the ignore-placement pair`() {
+    fun `canOverlap follows text-overlap and icon-allow-overlap and the ignore-placement pair`() {
         fun ordering(layout: String) = symbolOrderingFor(layer(layout), zoom = 6.0)
 
         assertEquals(false, ordering("""{"text-field":"ab","text-font":["Test Regular"]}""").canOverlap)
