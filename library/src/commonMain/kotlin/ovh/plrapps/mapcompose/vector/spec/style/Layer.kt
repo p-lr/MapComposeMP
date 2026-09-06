@@ -40,8 +40,16 @@ sealed class Layer {
     abstract val filter: FilterHolder?
     abstract val minzoom: Double?
     abstract val maxzoom: Double?
-    abstract val layout: LayoutInterface?
-    abstract val paint: PaintInterface?
+    /**
+     * Never null: an omitted `layout` is the same as `"layout": {}`, as it is upstream, where
+     * `StyleLayer`'s constructor always builds a fully populated `PossiblyEvaluated` from the
+     * style spec (`src/style/style_layer.ts`). A painter reads every property through its
+     * `?: StyleSpecDefaults.X` fallback, so an empty object *is* the spec's defaults.
+     */
+    abstract val layout: LayoutInterface
+
+    /** Never null, for the reason [layout] is not; see there. */
+    abstract val paint: PaintInterface
 }
 
 @Serializable
@@ -56,8 +64,8 @@ data class LineLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: LineLayout? = null,
-    override val paint: LinePaint? = null,
+    override val layout: LineLayout = LineLayout(),
+    override val paint: LinePaint = LinePaint(),
 ) : Layer()
 
 @Serializable
@@ -72,8 +80,8 @@ data class FillLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: FillLayout? = null,
-    override val paint: FillPaint? = null,
+    override val layout: FillLayout = FillLayout(),
+    override val paint: FillPaint = FillPaint(),
 ) : Layer()
 
 @Serializable
@@ -88,8 +96,8 @@ data class SymbolLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: SymbolLayout? = null,
-    override val paint: SymbolPaint? = null,
+    override val layout: SymbolLayout = SymbolLayout(),
+    override val paint: SymbolPaint = SymbolPaint(),
 ) : Layer()
 
 @Serializable
@@ -104,8 +112,8 @@ data class CircleLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: CircleLayout? = null,
-    override val paint: CirclePaint? = null,
+    override val layout: CircleLayout = CircleLayout(),
+    override val paint: CirclePaint = CirclePaint(),
 ) : Layer()
 
 @Serializable
@@ -120,8 +128,8 @@ data class BackgroundLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: BackgroundLayout? = null,
-    override val paint: BackgroundPaint? = null,
+    override val layout: BackgroundLayout = BackgroundLayout(),
+    override val paint: BackgroundPaint = BackgroundPaint(),
 ) : Layer()
 
 @Serializable
@@ -136,8 +144,8 @@ data class RasterLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: RasterLayout? = null,
-    override val paint: RasterPaint? = null,
+    override val layout: RasterLayout = RasterLayout(),
+    override val paint: RasterPaint = RasterPaint(),
 ) : Layer()
 
 @Serializable
@@ -152,8 +160,8 @@ data class HillshadeLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: HillshadeLayout? = null,
-    override val paint: HillshadePaint? = null,
+    override val layout: HillshadeLayout = HillshadeLayout(),
+    override val paint: HillshadePaint = HillshadePaint(),
 ) : Layer()
 
 @Serializable
@@ -168,8 +176,8 @@ data class HeatmapLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: HeatmapLayout? = null,
-    override val paint: HeatmapPaint? = null,
+    override val layout: HeatmapLayout = HeatmapLayout(),
+    override val paint: HeatmapPaint = HeatmapPaint(),
 ) : Layer()
 
 @Serializable
@@ -182,8 +190,8 @@ data class FillExtrusionLayer(
     override val sourceLayer: String? = null,
     @Serializable(with = FeatureFilterSerializer::class)
     override val filter: FilterHolder? = null,
-    override val layout: FillExtrusionLayout? = null,
-    override val paint: FillExtrusionPaint? = null,
+    override val layout: FillExtrusionLayout = FillExtrusionLayout(),
+    override val paint: FillExtrusionPaint = FillExtrusionPaint(),
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null
 ) : Layer()
@@ -200,7 +208,7 @@ data class SkyLayer(
     override val filter: FilterHolder? = null,
     override val minzoom: Double? = null,
     override val maxzoom: Double? = null,
-    override val layout: SkyLayout? = null,
-    override val paint: SkyPaint? = null,
+    override val layout: SkyLayout = SkyLayout(),
+    override val paint: SkyPaint = SkyPaint(),
 ) : Layer()
 
