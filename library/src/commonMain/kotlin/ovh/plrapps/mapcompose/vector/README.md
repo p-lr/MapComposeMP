@@ -103,14 +103,30 @@ approximate it. A dashed line is cut into its painted runs before tessellation
 **Inert:** `circle-pitch-scale`, `circle-pitch-alignment`.
 
 A circle is drawn at *every vertex* of the feature, whatever its geometry type — straight from
-upstream's `CircleBucket.addFeature`. A vertex is dropped only once its whole disc misses this tile
-(`renderer/utils/TileBounds.kt`, `circleTouchesTile`), which is **not** upstream's own rule: it drops
-every vertex outside the tile because it draws circles into one viewport-wide framebuffer with
-`StencilMode.disabled`, so the tile that owns a point spills the whole disc across the boundary. A
-tile is rasterized on its own here and its bitmap is the clip, so that rule left a disc straddling a
-seam chopped in half with neither tile drawing the rest. Both tiles now draw it, each clipped to its
-own bitmap, which cover disjoint ground. What still uses the strict rule is anything that *counts*
-points rather than drawing them — the heatmap's accumulation and a symbol's anchor.
+upstream's `CircleBucket.addFeature`.
+
+**A disc straddling a tile boundary is drawn by both tiles.** Upstream drops every vertex outside
+the tile because it draws circles into one viewport-wide framebuffer with `StencilMode.disabled`
+(`draw_circle.ts`), so the tile that owns a point spills the whole disc across the boundary. A tile
+is rasterized into its own bitmap here and that bitmap is the clip, so the half that falls outside
+has to be drawn by the *neighbour*, which means the neighbour has to carry the point. The
+neighbouring tiles are therefore **gathered** for a circle layer, the way they already were for the
+heatmap (`NeighbourTile`, `VectorRasterizer.neighbourVectorTiles` /
+`neighbourGeoJsonTiles`), and each contributes the vertices it owns, offset by a tile.
+
+`renderer/utils/TileBounds.kt`'s `CircleVertexGate` is what keeps that from drawing a vertex twice —
+an MVT buffer duplicates a point near an edge into both tiles, and drawing it from both doubles a
+translucent circle's alpha along the seam. A vertex the tile owns (`isInsideTile`, half-open) is
+always drawn; one it does not is drawn from the buffered copy only when the neighbour that owns it
+was **not** gathered, which is the fallback for a neighbour whose fetch failed. Before the gathering
+the buffered copy was the only repair, and it is bounded by the source's buffer: at the usual 64
+units of a 4096 extent a disc reaching further than `tileBitmapSize / 64` pixels was drawn by nobody.
+
+Gathering is gated on a circle layer being visible and in zoom range, since it costs 8 fetches per
+source — a style with no circle layer at that zoom pays nothing, and a source a heatmap reads too
+gathers once. What remains bounded is a disc reaching further than one whole tile, the same limit
+`heatmap-radius` has. What still uses the strict rule is anything that *counts* points rather than
+drawing them — the heatmap's accumulation and a symbol's anchor.
 
 ### symbol — `symbol/SymbolLayerLayout.kt`, `renderer/TextLabelBuilder.kt`
 
