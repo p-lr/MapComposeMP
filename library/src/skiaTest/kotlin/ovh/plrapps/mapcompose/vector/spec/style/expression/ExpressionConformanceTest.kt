@@ -1,10 +1,7 @@
 package ovh.plrapps.mapcompose.vector.spec.style.expression
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -43,28 +40,15 @@ import kotlin.test.fail
  *
  * [KNOWN_DIVERGENCES] lists the cases this port deliberately does not satisfy, each with a reason.
  */
-@OptIn(ExperimentalTestApi::class)
 class ExpressionConformanceTest {
 
     @OptIn(ExperimentalResourceApi::class)
     @Test
-    fun `maplibre expression conformance suite`() = runComposeUiTest {
-        var bundle: JsonObject? = null
+    fun `maplibre expression conformance suite`() = runTest {
+        val text = Res.readBytes("files/expression-tests.json").decodeToString()
+        val bundle = json.parseToJsonElement(text).jsonObject
 
-        setContent {
-            val loaded by produceState<JsonObject?>(null) {
-                val text = Res.readBytes("files/expression-tests.json").decodeToString()
-                value = json.parseToJsonElement(text).jsonObject
-            }
-            bundle = loaded
-        }
-
-        // 5s, like the sibling TestParseStyle* tests. A longer wait outlives karma's 2s ping timeout
-        // on the wasm browser target, where Res.readBytes never resolves, and killing the browser
-        // session would take every later test down with it.
-        waitUntil(timeoutMillis = 5_000) { bundle != null }
-
-        val tests = bundle!!["tests"]!!.jsonObject
+        val tests = bundle["tests"]!!.jsonObject
         val failures = mutableListOf<String>()
         var ran = 0
         var skipped = 0

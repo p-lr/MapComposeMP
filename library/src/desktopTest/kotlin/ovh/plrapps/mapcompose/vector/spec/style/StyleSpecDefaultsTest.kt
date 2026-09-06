@@ -27,7 +27,7 @@ import kotlin.test.fail
  *
  * It lives in `desktopTest` rather than `commonTest` because it reads a Compose resource, and
  * Compose Resources are unavailable on androidHostTest -- `Res.readBytes` there fails with
- * "No instrumentation registered", which is also why the style-parsing tests fail on that target.
+ * "No instrumentation registered", which is also why the style-parsing tests sit in `skiaTest`.
  * [StyleSpecDefaults] is common code with no platform behaviour, so asserting it once on the JVM
  * covers every target.
  *
