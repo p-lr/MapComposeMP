@@ -1,6 +1,14 @@
 package ovh.plrapps.mapcompose.vector.symbol
 
 import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
+import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO
+import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_VIEWPORT_Y
+import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvaluationKind
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 import kotlin.math.log2
 
 /**
@@ -61,6 +69,7 @@ internal class SymbolBucket(
     val textSizeData: SizeData,
     val iconSizeData: SizeData,
     val instances: List<SymbolInstance>,
+    val ordering: SymbolOrdering = SymbolOrdering.DEFAULT,
 ) {
     /** The cache and cross-tile identities key on this: the tile *fetched*, plus the style layer. */
     val key: String get() = "$sourceName-${ref.z}-${ref.x}-${ref.y}-s${ref.span}-L$layerIndex"
@@ -71,4 +80,89 @@ internal class SymbolBucket(
      * what [CrossTileSymbolIndex] retires a stale index entry by.
      */
     var bucketInstanceId: Long = 0L
+}
+
+/**
+ * How one style layer's symbols are ordered, upstream's `SymbolBucket` sort flags
+ * (`data/bucket/symbol_bucket.ts`):
+ *
+ * ```
+ * this.canOverlap = getOverlapMode(layout, 'text-overlap', 'text-allow-overlap') !== 'never' || ...
+ * this.sortFeaturesByKey = zOrder !== 'viewport-y' && !sortKey.isConstant();
+ * const zOrderByViewportY = zOrder === 'viewport-y' || (zOrder === 'auto' && !this.sortFeaturesByKey);
+ * this.sortFeaturesByY = zOrderByViewportY && this.canOverlap;
+ * ```
+ *
+ * All three are **layer** properties there, not per-symbol ones, and one of them cannot be anything
+ * else: [canOverlap] spans an icon and the label it names, which no single [LabelPlacement] covers.
+ *
+ * The two flags the port reads are deliberately different, because upstream's two orders are:
+ * [sortFeaturesByY] is the **draw** order's (`sortFeatures`, which rewrites the index buffers), and
+ * [placeByViewportY] is the **placement** order's -- `placeLayerBucketPart`'s own
+ * `const zOrderByViewportY = layout.get('symbol-z-order') === 'viewport-y'`, which is neither gated
+ * on [canOverlap] nor extended to `auto`.
+ */
+internal class SymbolOrdering(
+    /** `symbol-z-order`. */
+    val zOrder: String,
+    /** Whether `symbol-sort-key` varies per feature; upstream's `!sortKey.isConstant()`. */
+    val hasSortKey: Boolean,
+    /** Upstream's `canOverlap`. */
+    val canOverlap: Boolean,
+) {
+    /** Upstream's `sortFeaturesByKey`: order by `symbol-sort-key`, `source` z-order included. */
+    val sortFeaturesByKey: Boolean = zOrder != SYMBOL_Z_ORDER_VIEWPORT_Y && hasSortKey
+
+    /** Upstream's local `zOrderByViewportY` in the `SymbolBucket` constructor. */
+    val zOrderByViewportY: Boolean =
+        zOrder == SYMBOL_Z_ORDER_VIEWPORT_Y ||
+            (zOrder == SYMBOL_Z_ORDER_AUTO && !sortFeaturesByKey)
+
+    /** Upstream's `sortFeaturesByY`; the **draw** order only. */
+    val sortFeaturesByY: Boolean = zOrderByViewportY && canOverlap
+
+    /** Upstream's `zOrderByViewportY` in `placeLayerBucketPart`; the **placement** order only. */
+    val placeByViewportY: Boolean = zOrder == SYMBOL_Z_ORDER_VIEWPORT_Y
+
+    /** Whether either order depends on where the viewport currently is. */
+    val isViewDependent: Boolean = sortFeaturesByY || placeByViewportY
+
+    companion object {
+        val DEFAULT = SymbolOrdering(
+            zOrder = StyleSpecDefaults.SYMBOL_Z_ORDER,
+            hasSortKey = false,
+            canOverlap = false,
+        )
+    }
+}
+
+/**
+ * [SymbolOrdering] for a style layer, read at the layer level as upstream's `layout.get(...)` is.
+ *
+ * `isConstant` is upstream's: a property that does not vary per **feature**. Zoom is already
+ * resolved at the bucket's own zoom, so a camera expression counts as constant there too, and a
+ * property that failed to compile evaluates to null everywhere, which is as constant as it gets.
+ */
+internal fun symbolOrderingFor(styleLayer: SymbolLayer, zoom: Double): SymbolOrdering {
+    val layout = styleLayer.layout ?: return SymbolOrdering.DEFAULT
+    val zOrder = layout.symbolZOrder?.processAsString(null, zoom) ?: StyleSpecDefaults.SYMBOL_Z_ORDER
+    val canOverlap =
+        resolveTextOverlapMode(layout, null, zoom) != OverlapMode.Never ||
+            resolveIconOverlapMode(layout, null, zoom) != OverlapMode.Never ||
+            (layout.textIgnorePlacement?.processAsBoolean(null, zoom)
+                ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT) ||
+            (layout.iconIgnorePlacement?.processAsBoolean(null, zoom)
+                ?: StyleSpecDefaults.ICON_IGNORE_PLACEMENT)
+    return SymbolOrdering(
+        zOrder = zOrder,
+        hasSortKey = !layout.symbolSortKey.isFeatureConstant(),
+        canOverlap = canOverlap,
+    )
+}
+
+/** Upstream's `PossiblyEvaluatedPropertyValue.isConstant()`: does this vary per feature? */
+private fun ExpressionOrValue<*>?.isFeatureConstant(): Boolean = when (this) {
+    null, is ExpressionOrValue.Value, is ExpressionOrValue.Invalid -> true
+    is ExpressionOrValue.Expression ->
+        expression.kind == EvaluationKind.CONSTANT || expression.kind == EvaluationKind.CAMERA
 }

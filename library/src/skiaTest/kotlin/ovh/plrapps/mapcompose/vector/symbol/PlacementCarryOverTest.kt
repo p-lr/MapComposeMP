@@ -64,9 +64,22 @@ class PlacementCarryOverTest {
 
     private fun placed(buckets: List<SymbolBucket>, previous: Placement?, now: Long): Placement =
         Placement(viewportInfo = viewport, zoom = 6.0, collisionDetectionEnabled = true).also {
-            it.placeBuckets(PlacementOrder(buckets), previous)
+            it.placeBuckets(PlacementOrder(buckets, viewport), previous)
             it.commit(previous, now)
         }
+
+    @Test
+    fun `the icon of a variable-anchor symbol is drawn under its label`() {
+        /* The pair is accepted as two entries under one `crossTileID` and shares one draw order, so
+         * only the stable sort keeps them the right way up. It used to rely on the draw pass walking
+         * the placement list backwards. */
+        val symbol = spriteWithText("poi")
+        val bucket = SymbolFixtures.bucket(listOf(symbol))
+
+        val drawn = placed(listOf(bucket), previous = null, now = 0L).result().symbols
+
+        assertEquals(listOf("poi_s", "poi_t"), drawn.map { it.instance.id }, "icon first, so underneath")
+    }
 
     @Test
     fun `a symbol whose bucket left keeps both of its halves while it fades`() {

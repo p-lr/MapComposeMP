@@ -4,8 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import ovh.plrapps.mapcompose.vector.core.ViewportInfo
 import ovh.plrapps.mapcompose.vector.renderer.Point
-import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_SOURCE
-import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_VIEWPORT_Y
 import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
@@ -34,6 +32,8 @@ internal class PlacedSymbol(
     val opacity: JointOpacityState,
     private val textSizeData: SizeData,
     private val iconSizeData: SizeData,
+    /** Where this symbol sits in the **draw** order; see [SymbolDrawOrder]. */
+    val drawOrder: SymbolDrawOrder = SymbolDrawOrder.NONE,
 ) {
     /** `text-size` at the zoom being drawn, over the size the label was rasterized at. */
     fun textScaleAt(zoom: Double): Float =
@@ -45,7 +45,36 @@ internal class PlacedSymbol(
 
     /** The same symbol at a later cycle's fade state, for one held over a departing bucket. */
     fun withOpacity(opacity: JointOpacityState): PlacedSymbol =
-        PlacedSymbol(instance, crossTileID, opacity, textSizeData, iconSizeData)
+        PlacedSymbol(instance, crossTileID, opacity, textSizeData, iconSizeData, drawOrder)
+}
+
+/**
+ * A symbol's place in the **draw** order, which is not the reverse of the placement order.
+ *
+ * Upstream keeps the two apart and they agree on only one axis. A style layer declared later is
+ * placed *first* (it wins the ground) and drawn *last* (it covers), so that axis does invert. A
+ * lower `symbol-sort-key` is placed first **and drawn first**, i.e. underneath -- upstream's
+ * `tileRenderState.sort((a, b) => a.sortKey - b.sortKey)` in `draw_symbol.ts`, gated on
+ * `hasSortKey && bucket.canOverlap`. Drawing the reverse of the placement order therefore stacked
+ * ranked icons upside down wherever two of them overlapped.
+ *
+ * [withinLayer] is ascending in every case: screen y for a [SymbolOrdering.sortFeaturesByY] layer
+ * (upstream's `sortFeatures`, which rewrites the index buffers in `getSortedSymbolIndexes` order),
+ * the sort key where one is read, and 0 otherwise, leaving [tie] -- the order the source served --
+ * to decide. [tie] is *negated* for the y case, upstream's `featureIndexes[b] - featureIndexes[a]`.
+ */
+internal class SymbolDrawOrder(
+    val layerIndex: Int,
+    val withinLayer: Double,
+    val tie: Int,
+) {
+    companion object {
+        val NONE = SymbolDrawOrder(0, 0.0, 0)
+
+        /** Ascending: earlier is drawn first, and so ends up underneath. */
+        val COMPARATOR: Comparator<SymbolDrawOrder> =
+            compareBy({ it.layerIndex }, { it.withinLayer }, { it.tie })
+    }
 }
 
 /** A size property at [zoom], over the size the symbol was laid out at; upstream's `*Scale`. */
@@ -159,7 +188,16 @@ internal class Placement(
         val instance: SymbolInstance,
         val crossTileID: Long,
         val bucket: SymbolBucket,
+        val drawOrder: SymbolDrawOrder,
     )
+
+    /**
+     * The draw order of the candidate being placed, which [accept] stamps on what it keeps.
+     *
+     * A field rather than a parameter because [place] fans out into five branches that all end at
+     * [accept], and the order is a property of the candidate, not of the decision.
+     */
+    private var currentDrawOrder: SymbolDrawOrder = SymbolDrawOrder.NONE
 
     private val mapRotationDeg: Float = viewportInfo.angleRad * (180f / kotlin.math.PI.toFloat())
 
@@ -173,6 +211,7 @@ internal class Placement(
     fun placeBuckets(order: PlacementOrder, previous: Placement?) {
         placedOrder = order
         for (candidate in order.candidates) {
+            currentDrawOrder = candidate.drawOrder
             place(candidate.bucket, candidate.instance, previous, seenCrossTileIDs)
         }
     }
@@ -280,8 +319,6 @@ internal class Placement(
                 collisionDetector.insert(spriteViewportPlacement)
                 collisionDetector.insert(textVPPlacement)
                 if (crossTileID != 0L) variableOffsets[crossTileID] = index
-                /* Text first: `SymbolComposer` draws the list reversed, so an earlier entry is on
-                 * top, and a label belongs above the icon it names. */
                 accept(
                     symbol.textOnly(
                         id = "${symbol.id}_t",
@@ -434,8 +471,11 @@ internal class Placement(
         viewportPos: Offset,
         extra: SymbolInstance? = null,
     ) {
-        accepted += AcceptedSymbol(instance, crossTileID, bucket)
-        if (extra != null) accepted += AcceptedSymbol(extra, crossTileID, bucket)
+        /* [extra] first: it is the icon of a label placed at a `text-variable-anchor`, the two share
+         * one [SymbolDrawOrder], and the draw pass sorts stably -- so whatever goes in first is
+         * drawn first, and a label belongs above the icon it names. */
+        if (extra != null) accepted += AcceptedSymbol(extra, crossTileID, bucket, currentDrawOrder)
+        accepted += AcceptedSymbol(instance, crossTileID, bucket, currentDrawOrder)
         if (crossTileID != 0L) {
             placements[crossTileID] = JointPlacement(
                 text = text,
@@ -610,6 +650,7 @@ internal class Placement(
                 opacity = opacities[a.crossTileID] ?: fullyVisible,
                 textSizeData = a.bucket.textSizeData,
                 iconSizeData = a.bucket.iconSizeData,
+                drawOrder = a.drawOrder,
             )
         }
 
@@ -637,11 +678,15 @@ internal class Placement(
                 opacity = opacity,
                 textSizeData = candidate.bucket.textSizeData,
                 iconSizeData = candidate.bucket.iconSizeData,
+                drawOrder = candidate.drawOrder,
             )
         }
 
+        /* Stable, and that is load-bearing: an icon and the label it names share one draw order, and
+         * the icon was accepted first precisely so it stays underneath. A symbol carried over from
+         * [previous] keeps the order it was drawn with. */
         return PlacementResult(
-            symbols = symbols,
+            symbols = symbols.sortedWith(compareBy(SymbolDrawOrder.COMPARATOR) { it.drawOrder }),
             commitTime = commitTime,
             lastPlacementChangeTime = lastPlacementChangeTime,
             prevZoomAdjustment = prevZoomAdjustment,
@@ -730,55 +775,109 @@ internal class Placement(
 }
 
 /** One symbol queued for placement, together with the bucket that laid it out. */
-internal class PlacementCandidate(val bucket: SymbolBucket, val instance: SymbolInstance)
+internal class PlacementCandidate(
+    val bucket: SymbolBucket,
+    val instance: SymbolInstance,
+    /** Where this symbol goes in the draw order, which is *not* this list reversed. */
+    val drawOrder: SymbolDrawOrder,
+)
 
 /**
- * The order symbols are placed in: whichever comes first gets the ground it asks for.
+ * The order symbols are **placed** in: whichever comes first gets the ground it asks for.
  *
- * Style order dominates -- a layer declared later in the style wins over an earlier one -- and
- * `symbol-z-order` decides the order *within* a layer, as upstream's `SymbolBucket` does:
+ * Style order dominates -- a layer declared later in the style is placed first, upstream's
+ * `PauseablePlacement` walking `style._order` backwards -- and `symbol-z-order` decides the order
+ * *within* a layer, as upstream's `SymbolBucket` flags do ([SymbolOrdering]):
  *
- * - `viewport-y` sorts by screen y, so a symbol nearer the bottom of the map is placed first and so
- *   drawn on top, which is what makes a field of markers read as a depth ordering;
- * - `source` keeps the order the tile served, ignoring `symbol-sort-key`;
- * - `auto`, the default, is `symbol-sort-key` when the layer sets one and `viewport-y` otherwise.
+ * - `symbol-sort-key` ascending whenever the layer has a per-feature one and `symbol-z-order` is not
+ *   `viewport-y` -- **`source` included**, which is upstream's `zOrder !== 'viewport-y' &&
+ *   !sortKey.isConstant()` and not the "source means no ordering" this port used to have;
+ * - screen y descending for `symbol-z-order: viewport-y`, so a symbol nearer the bottom of the map
+ *   is placed first. Upstream's `placeLayerBucketPart` walks `getSortedSymbolIndexes`' ascending
+ *   list backwards, and that list is keyed on the anchor rotated **into viewport space**
+ *   (`sin * anchorX + cos * anchorY`), not on the geographic y this port used to sort by -- which is
+ *   why nothing re-stacked when the map was rotated. Only a literal `viewport-y` reorders the
+ *   placement: `auto` does not, however the draw order reads it;
+ * - the order the source served, otherwise.
  *
  * The final tie-break is production order, which makes a run reproducible.
  *
- * Every one of those keys is view-independent, so this is computed once per set of buckets rather
- * than once per placement cycle -- re-sorting every symbol on screen at the placement cadence would
- * give back much of what splitting layout from placement bought.
+ * The **draw** order is computed here too, once, because it reads the same flags off the same
+ * buckets -- see [SymbolDrawOrder] for why it is not this order reversed.
+ *
+ * Only a `viewport-y` or [SymbolOrdering.sortFeaturesByY] layer makes any of this depend on the
+ * view; [matches] therefore keeps the cached order across viewport updates unless one of those is
+ * present, which is upstream's `sortedAngle` cache with a wider key.
  */
-internal class PlacementOrder(private val buckets: List<SymbolBucket>) {
+internal class PlacementOrder(
+    private val buckets: List<SymbolBucket>,
+    private val viewportInfo: ViewportInfo,
+) {
+
+    private val isViewDependent: Boolean = buckets.any { it.ordering.isViewDependent }
 
     val candidates: List<PlacementCandidate> = buckets
-        .flatMap { bucket -> bucket.instances.map { PlacementCandidate(bucket, it) } }
+        .flatMap { bucket -> bucket.instances.map { bucket to it } }
         .withIndex()
+        .map { (index, pair) ->
+            val (bucket, instance) = pair
+            IndexedValue(index, PlacementCandidate(bucket, instance, drawOrderOf(bucket, instance, index)))
+        }
         .sortedWith(
             compareByDescending<IndexedValue<PlacementCandidate>> {
-                it.value.instance.placement.spritePlacement.layerIndex
+                it.value.bucket.layerIndex
             }.thenBy {
-                withinLayerOrder(it.value.instance)
+                placementOrderOf(it.value.bucket, it.value.instance)
             }.thenBy {
                 it.index
             }
         )
         .map { it.value }
 
-    /** Whether this order still describes [other], compared by identity as the cache hands it back. */
-    fun matches(other: List<SymbolBucket>): Boolean =
-        buckets.size == other.size && buckets.indices.all { buckets[it] === other[it] }
+    /**
+     * Whether this order still describes [other] at [viewport].
+     *
+     * The buckets are compared by identity, as the cache hands them back; the viewport only matters
+     * to a layer that orders by screen y.
+     */
+    fun matches(other: List<SymbolBucket>, viewport: ViewportInfo): Boolean =
+        buckets.size == other.size &&
+            buckets.indices.all { buckets[it] === other[it] } &&
+            (!isViewDependent || viewportInfo == viewport)
 
-    /** The `symbol-z-order` comparator's key for one symbol; lower is placed first. */
-    private fun withinLayerOrder(instance: SymbolInstance): Double {
-        val placement = instance.placement.spritePlacement
-        return when (placement.zOrder) {
-            SYMBOL_Z_ORDER_SOURCE -> 0.0
-            SYMBOL_Z_ORDER_VIEWPORT_Y -> -instance.global.y
-            // auto
-            else -> if (placement.hasSortKey) placement.inLayerPriority else -instance.global.y
+    /** The placement comparator's key for one symbol; lower is placed first. */
+    private fun placementOrderOf(bucket: SymbolBucket, instance: SymbolInstance): Double {
+        val ordering = bucket.ordering
+        return when {
+            ordering.sortFeaturesByKey -> instance.placement.spritePlacement.inLayerPriority
+            ordering.placeByViewportY -> -screenY(instance)
+            else -> 0.0
         }
     }
+
+    /** See [SymbolDrawOrder]; ascending, so the first entry is drawn underneath. */
+    private fun drawOrderOf(bucket: SymbolBucket, instance: SymbolInstance, index: Int): SymbolDrawOrder {
+        val ordering = bucket.ordering
+        return when {
+            ordering.sortFeaturesByY ->
+                SymbolDrawOrder(bucket.layerIndex, screenY(instance), -index)
+
+            ordering.hasSortKey && ordering.canOverlap ->
+                SymbolDrawOrder(bucket.layerIndex, instance.placement.spritePlacement.inLayerPriority, index)
+
+            else -> SymbolDrawOrder(bucket.layerIndex, 0.0, index)
+        }
+    }
+
+    /**
+     * The symbol's anchor in viewport pixels, upstream's rotated `sin * anchorX + cos * anchorY`.
+     *
+     * Projecting rather than rotating tile units costs one transform per symbol per rebuild -- paid
+     * only by a style that actually asks for y ordering -- and in exchange the world wrap of an
+     * infinite-scroll map is handled by the same arithmetic everything else here uses.
+     */
+    private fun screenY(instance: SymbolInstance): Double =
+        mercatorToViewport(instance.global.x, instance.global.y, viewportInfo).y.toDouble()
 }
 
 /** A [SymbolInstance]'s icon layout size, which only a combined symbol carries separately. */

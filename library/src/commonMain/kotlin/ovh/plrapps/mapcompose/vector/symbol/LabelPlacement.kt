@@ -7,8 +7,11 @@ import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 /**
  * One symbol's collision box, and everything the placement pass needs to order it.
  *
- * [inLayerPriority] is the layer's `symbol-sort-key`; [hasSortKey] says whether the style actually
- * set one, which is what `symbol-z-order: auto` keys off. [zOrder] is that property's value.
+ * [inLayerPriority] is this feature's `symbol-sort-key`. Everything *else* ordering needs --
+ * `symbol-z-order`, whether the sort key is constant, whether the layer allows overlap -- is a
+ * property of the **layer**, not of one symbol, and lives on [SymbolOrdering] instead: upstream
+ * reads all three off `SymbolBucket`, and `canOverlap` spans an icon and its label, which no single
+ * [LabelPlacement] covers.
  *
  * [circles], when non-null, *replaces* [obb] for collision -- upstream's `placeCollisionCircles`
  * against `placeCollisionBox` (`symbol/collision_index.ts`). A label laid along a line is a chain of
@@ -27,7 +30,5 @@ data class LabelPlacement(
     val inLayerPriority: Double,
     val overlapMode: OverlapMode,
     val ignorePlacement: Boolean,
-    val zOrder: String = ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_Z_ORDER_AUTO,
-    val hasSortKey: Boolean = false,
     val circles: List<CollisionCircle>? = null,
 )
