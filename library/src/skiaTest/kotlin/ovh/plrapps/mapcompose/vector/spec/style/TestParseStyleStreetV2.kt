@@ -1,10 +1,6 @@
 package ovh.plrapps.mapcompose.vector.spec.style
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
-import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,13 +15,11 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 
-@OptIn(ExperimentalTestApi::class)
 class TestParseStyleStreetV2 {
 
     @OptIn(ExperimentalResourceApi::class)
     @Test
-    fun `style_streetV2 correct parsed`() = runComposeUiTest {
-        var styleStreetV2: MapLibreConfiguration? = null
+    fun `style_streetV2 correct parsed`() = runTest {
         val loadResource: suspend (String) -> RawSource? = { url ->
             when {
                 url.endsWith(".json") -> {
@@ -44,20 +38,9 @@ class TestParseStyleStreetV2 {
             }
         }
 
-        setContent {
-            val style by produceState<MapLibreConfiguration?>(null) {
-                value = Res.readBytes("files/test_style_street_v2.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
-                }
-            }
-            styleStreetV2 = style
-        }
-
-        waitUntil(timeoutMillis = 5000) {
-            styleStreetV2 != null
-        }
-
-        val style = styleStreetV2!!.style
+        val source = Res.readBytes("files/test_style_street_v2.json").decodeToString()
+        val style = getMapLibreConfiguration(style = source, loadResource = loadResource)
+            .getOrThrow().style
 
         assertEquals(8, style.version)
         assertEquals("streets-v2", style.id)

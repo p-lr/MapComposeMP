@@ -3,16 +3,12 @@ package ovh.plrapps.mapcompose.vector.spec.style
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.runComposeUiTest
+import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import mapcompose_mp.library.generated.resources.Res
-import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import kotlin.test.Test
@@ -20,13 +16,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalTestApi::class)
 class TestParseStyleBright {
 
     @OptIn(ExperimentalResourceApi::class)
     @Test
-    fun `style_bright correct parsed`() = runComposeUiTest {
-        var simpleStyle: MapLibreConfiguration? = null
+    fun `style_bright correct parsed`() = runTest {
         val loadResource: suspend (String) -> RawSource? = { url ->
             when {
                 url.endsWith(".json") -> {
@@ -45,20 +39,9 @@ class TestParseStyleBright {
             }
         }
 
-        setContent {
-            val style by produceState<MapLibreConfiguration?>(null) {
-                value = Res.readBytes("files/test_style_bright.json").decodeToString().let { source ->
-                    getMapLibreConfiguration(style = source, loadResource = loadResource).getOrThrow()
-                }
-            }
-            simpleStyle = style
-        }
-
-        waitUntil(timeoutMillis = 5000) {
-            simpleStyle != null
-        }
-
-        val style = simpleStyle!!.style
+        val source = Res.readBytes("files/test_style_bright.json").decodeToString()
+        val style = getMapLibreConfiguration(style = source, loadResource = loadResource)
+            .getOrThrow().style
 
 
         assertEquals(8, style.version)
