@@ -62,6 +62,8 @@ internal class SymbolBucketBuilder(
         val zoom = bucketZoom.toDouble()
         val canvasSize = layoutTileSize(density.density, ref.span)
         val sizes = symbolSizesFor(styleLayer, zoom)
+        /* Layer-level, so it is read once here rather than per feature -- see [SymbolOrdering]. */
+        val ordering = symbolOrderingFor(styleLayer, zoom)
         val empty = SymbolBucket(
             ref = ref,
             layerIndex = layerIndex,
@@ -72,6 +74,7 @@ internal class SymbolBucketBuilder(
             textSizeData = sizes.textSizeData,
             iconSizeData = sizes.iconSizeData,
             instances = emptyList(),
+            ordering = ordering,
         )
 
         if (!isLayerVisible(styleLayer)) return empty
@@ -176,6 +179,7 @@ internal class SymbolBucketBuilder(
             textSizeData = sizes.textSizeData,
             iconSizeData = sizes.iconSizeData,
             instances = symbols,
+            ordering = ordering,
         )
     }
 }

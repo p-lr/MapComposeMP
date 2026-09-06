@@ -699,26 +699,65 @@ class SymbolLayerLayoutTest {
             )
             val placement = symbols.filterIsInstance<SymbolInstance.Text>().single().placement.spritePlacement
             assertEquals(7.0, placement.inLayerPriority)
-            assertTrue(placement.hasSortKey)
         }
+    }
+
+    @Test
+    fun `a constant sort key does not order the layer`() {
+        /* Upstream's `!sortKey.isConstant()`: a literal is the same for every feature, so it says
+         * nothing about their order, and `symbol-z-order: auto` falls through to y. */
+        val constant = layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-sort-key":7}""")
+        val dataDriven = layer(
+            """{"text-field":"ab","text-font":["Test Regular"],"symbol-sort-key":["get","rank"]}"""
+        )
+
+        assertEquals(false, symbolOrderingFor(constant, zoom = 6.0).hasSortKey)
+        assertTrue(symbolOrderingFor(dataDriven, zoom = 6.0).sortFeaturesByKey)
     }
 
     @Test
     fun `a layer without a sort key says so`() {
-        runTest {
-            val symbols = produce(layer("""{"text-field":"ab","text-font":["Test Regular"]}"""))
-            assertEquals(false, symbols.first().placement.spritePlacement.hasSortKey)
-        }
+        assertEquals(
+            false,
+            symbolOrderingFor(layer("""{"text-field":"ab","text-font":["Test Regular"]}"""), zoom = 6.0)
+                .hasSortKey,
+        )
     }
 
     @Test
-    fun `symbol-z-order reaches the placement`() {
-        runTest {
-            val symbols = produce(
-                layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-z-order":"viewport-y"}""")
-            )
-            assertEquals("viewport-y", symbols.first().placement.spritePlacement.zOrder)
-        }
+    fun `symbol-z-order reaches the bucket's ordering`() {
+        val ordering = symbolOrderingFor(
+            layer("""{"text-field":"ab","text-font":["Test Regular"],"symbol-z-order":"viewport-y"}"""),
+            zoom = 6.0,
+        )
+        assertEquals("viewport-y", ordering.zOrder)
+        assertTrue(ordering.placeByViewportY)
+        assertEquals(false, ordering.sortFeaturesByY, "the draw order needs `canOverlap` too")
+    }
+
+    @Test
+    fun `canOverlap follows text-overlap, icon-allow-overlap and the ignore-placement pair`() {
+        fun ordering(layout: String) = symbolOrderingFor(layer(layout), zoom = 6.0)
+
+        assertEquals(false, ordering("""{"text-field":"ab","text-font":["Test Regular"]}""").canOverlap)
+        assertTrue(ordering("""{"text-field":"ab","text-font":["Test Regular"],"text-overlap":"always"}""").canOverlap)
+        assertTrue(ordering("""{"text-field":"ab","text-font":["Test Regular"],"icon-allow-overlap":true}""").canOverlap)
+        assertTrue(
+            ordering("""{"text-field":"ab","text-font":["Test Regular"],"text-ignore-placement":true}""").canOverlap
+        )
+    }
+
+    @Test
+    fun `symbol-z-order auto orders by y only where the layer allows overlap`() {
+        val plain = symbolOrderingFor(layer("""{"text-field":"ab","text-font":["Test Regular"]}"""), zoom = 6.0)
+        val overlapping = symbolOrderingFor(
+            layer("""{"text-field":"ab","text-font":["Test Regular"],"text-allow-overlap":true}"""),
+            zoom = 6.0,
+        )
+
+        assertTrue(plain.zOrderByViewportY, "auto with no data-driven sort key")
+        assertEquals(false, plain.sortFeaturesByY)
+        assertTrue(overlapping.sortFeaturesByY)
     }
 
     @Test

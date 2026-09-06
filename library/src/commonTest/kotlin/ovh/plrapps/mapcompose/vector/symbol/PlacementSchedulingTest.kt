@@ -30,12 +30,13 @@ class PlacementSchedulingTest {
             listOf(SymbolFixtures.textInstance("label", global = Point(0.5, 0.5)))
         )
         CrossTileSymbolIndex().addLayer(SymbolFixtures.LAYER, listOf(bucket), density = 1f)
+        val viewport = SymbolFixtures.viewport(fractionalZoom = zoom)
         val placement = Placement(
-            viewportInfo = SymbolFixtures.viewport(fractionalZoom = zoom),
+            viewportInfo = viewport,
             zoom = zoom,
             collisionDetectionEnabled = true,
         )
-        placement.placeBuckets(PlacementOrder(listOf(bucket)), previous = null)
+        placement.placeBuckets(PlacementOrder(listOf(bucket), viewport), previous = null)
         placement.commit(previous = null, now = now)
         return placement
     }
