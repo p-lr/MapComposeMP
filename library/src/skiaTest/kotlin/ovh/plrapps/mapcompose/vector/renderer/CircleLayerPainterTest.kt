@@ -1,7 +1,6 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
@@ -181,15 +180,23 @@ class CircleLayerPainterTest {
     }
 
     @Test
-    fun `a vertex outside the tile is not drawn`() = runTest {
-        // Upstream drops it so that a point the MVT buffer duplicated into a neighbouring tile is
-        // not drawn twice, doubling a translucent circle's alpha along every seam.
-        val outside = render(CirclePaint(circleColor = red), Mvt.pointFeature(-200 to 2048))
+    fun `a vertex whose disc misses the tile entirely is not drawn`() = runTest {
+        // Two tile widths away, so nothing of it can reach in whatever the radius.
+        val outside = render(CirclePaint(circleColor = red), Mvt.pointFeature(-8192 to 2048))
         assertEquals(0, outside.opaquePixelCount())
+    }
 
-        // The right and bottom edges belong to the next tile.
+    @Test
+    fun `a vertex outside the tile still draws the part of its disc that reaches in`() = runTest {
+        // The seam case. The MVT buffer carries this point into both tiles; upstream drops it here
+        // because it draws every circle into one viewport-wide framebuffer, so the tile that owns
+        // the point spills the whole disc across the boundary. A tile is rasterized on its own
+        // here, so dropping it left the disc chopped in half with nobody drawing the rest.
         val onEdge = render(CirclePaint(circleColor = red), Mvt.pointFeature(4096 to 2048))
-        assertEquals(0, onEdge.opaquePixelCount())
+        assertTrue(onEdge.opaquePixelCount() > 0, "the half of the disc inside this tile")
+        assertColorEquals(Color.Red, onEdge.pixelAt(SIZE - 1, SIZE / 2))
+        // ...and only that half: the centre of the tile is nowhere near it.
+        assertEquals(0f, onEdge.pixelAt(SIZE / 2, SIZE / 2).alpha)
     }
 
     private fun centrePoint() = Mvt.pointFeature(2048 to 2048)

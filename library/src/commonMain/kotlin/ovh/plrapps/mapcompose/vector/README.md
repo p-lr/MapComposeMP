@@ -63,8 +63,9 @@ both ends hold an `ImageBitmap`. See [Tile encoding](#tile-encoding).
 
 Universal gating, in `renderer/BaseRenderer.kt` and `renderer/TileRenderer.kt`: `visibility`,
 `minzoom`/`maxzoom`, the layer `filter`, and `*-sort-key` ordering within a layer. Filters are
-evaluated at the tile's *integer* zoom and paint properties at the fractional map zoom, as upstream
-does — do not "fix" that.
+evaluated at the tile's *integer* zoom, as upstream's buckets are. **Paint properties are evaluated
+at that same integer zoom**, where upstream evaluates them at the fractional map zoom — see
+[Divergences](#divergences).
 
 The property columns below are the style spec's own, from the table
 `library/tools/fetch-style-spec-defaults.sh` vendors into
@@ -101,8 +102,15 @@ approximate it. A dashed line is cut into its painted runs before tessellation
 `-stroke-opacity`, `-translate`, `-translate-anchor`, `circle-sort-key`. Supported.
 **Inert:** `circle-pitch-scale`, `circle-pitch-alignment`.
 
-A circle is drawn at *every vertex* of the feature, whatever its geometry type, and vertices outside
-the tile are dropped — both straight from upstream's `CircleBucket.addFeature`.
+A circle is drawn at *every vertex* of the feature, whatever its geometry type — straight from
+upstream's `CircleBucket.addFeature`. A vertex is dropped only once its whole disc misses this tile
+(`renderer/utils/TileBounds.kt`, `circleTouchesTile`), which is **not** upstream's own rule: it drops
+every vertex outside the tile because it draws circles into one viewport-wide framebuffer with
+`StencilMode.disabled`, so the tile that owns a point spills the whole disc across the boundary. A
+tile is rasterized on its own here and its bitmap is the clip, so that rule left a disc straddling a
+seam chopped in half with neither tile drawing the rest. Both tiles now draw it, each clipped to its
+own bitmap, which cover disjoint ground. What still uses the strict rule is anything that *counts*
+points rather than drawing them — the heatmap's accumulation and a symbol's anchor.
 
 ### symbol — `symbol/SymbolLayerLayout.kt`, `renderer/TextLabelBuilder.kt`
 
@@ -118,6 +126,22 @@ offset. A style's own `text-offset` is authored to clear the icon it is drawn wi
 gap on top of it — which this port used to add, half the icon's height plus 2 dp — hangs every label
 about a text line too low. `spriteWithTextBounds` is the union of the two boxes, and is what
 `SymbolComposer` positions the pair by and what `Symbol.SpriteWithText.align` is derived from.
+
+**A label that follows a line is drawn glyph by glyph**, along the projected line, as upstream's
+`placeGlyphsAlongLine` (`symbol/projection.ts`) does — the collision pass already walked that curve
+(`Placement.circleChain`), so a label on a bend used to be tested against a chain of circles and then
+drawn as a straight bar poking out of it. The walk happens **at draw time**
+(`ui/symbols/CurvedLabel.kt`, `SymbolComposer`), for the same reason the size and the fade change do:
+a placement is held for at least a fade duration, so a bend baked at commit would step once per cycle
+through a gesture instead of following the road. What is projected each frame is the label's own
+stretch of line, cut by the layout pass (`SymbolInstance.Text.globalLine`): a merged road arrives as
+one linestring of hundreds of vertices, and each of its labels would otherwise re-project every one
+of them on every frame. `text-keep-upright` is decided there too, by
+comparing the first and last glyph in *screen* space (upstream's `requiresOrientationChange`), which
+is what makes it right on a rotated map; layout's own `makeTextUpright` decides in the bucket's space
+and stays only for the straight paths. `text-max-angle` is unchanged — a layout-time gate — but it
+finally shows, since an accepted span is now drawn along its bend. `text-max-width` is forced to `0`
+for line placement, as `symbol_layout.ts` does, so a line label is never wrapped.
 
 Layout: `icon-image`, `-size`, `-anchor`, `-offset`, `-rotate`, `-padding`, `-keep-upright`,
 `-allow-overlap`, `-overlap`, `-ignore-placement`, `-optional`, `-rotation-alignment`,
@@ -442,7 +466,10 @@ tile. `GlyphLayout` is the port of `symbol/shaping.ts` — advances, `text-lette
 `text-line-height`, `text-transform`, `text-justify`, vertical `text-writing-mode`, and upstream's
 balanced line breaking for `text-max-width`. `GlyphRasterizer` composites the shaped glyphs' distance
 fields through the same `sdfPixel` the icons go through, which is what makes `text-halo-width` a real
-dilated outline.
+dilated outline. It also rasterizes each glyph on its own (`renderGlyphs`, upstream's quads) for a
+label that follows a line, because that one is drawn glyph by glyph; blitting sub-rectangles of the
+composite instead cannot work, since a glyph's distance field reaches `GLYPH_BORDER` samples past its
+ink and so overlaps its neighbours'.
 
 A style with no `glyphs` URL falls back to Compose's own text stack (`LabelArt.Measured`): labels
 still render, with the platform's default font, `text-font` ignored and the halo approximated by a
@@ -521,6 +548,25 @@ Every one of these is documented at the file that causes it; this is the index.
 
 **Forced by drawing into a tile bitmap rather than sampling a texture:**
 
+- **Paint properties are evaluated at the tile's integer zoom**, where upstream evaluates them at
+  the fractional map zoom, per frame, from uniforms (`renderer/BaseRenderer.kt`,
+  `core/VectorRasterizer.kt`'s `actualZoom`). A tile reaches the vector package through a
+  `TileStreamProvider`, whose only zoom is the tile's, and it is rasterized once and cached by
+  `(row, col, z)`. Two consequences show: an `["interpolate", …, ["zoom"], …]` on `line-width` or
+  `circle-radius` steps at integer zooms instead of moving continuously, and such a width scales
+  with the tile between pyramid levels rather than staying put in screen pixels. Fixing it means
+  re-rasterizing the viewport as the map zooms — and doing it for *some* tiles would seam wherever
+  a line crosses a tile edge, because two neighbours rendered at different zooms disagree about
+  every width. Two knock-on effects: `patternZoomScale` (`renderer/utils/PaintUtils.kt`) is
+  therefore always `1`, and `HillshadeLayerPainter`'s `slopeDivisor` gets the integer zoom.
+- **Symbols are one viewport overlay above all tile content**, so a non-symbol style layer declared
+  *after* a symbol layer cannot cover its labels. `TileRenderer` skips symbol layers and
+  `SymbolComposer` draws every symbol of every symbol layer above the whole tile canvas, because
+  collision has to run across the viewport rather than per tile. MapCompose's core composites every
+  layer into **one** bitmap per tile (`core/TileCollector.kt`), so interleaving would mean a second
+  raster pass per band of style layers. Ordering *among* symbols is upstream's: style index
+  dominates, then `symbol-z-order` (`Placement.PlacementOrder`). Measured against the vendored
+  styles, one layer in one style is affected (`test_style_swisstopo.json`'s `hazard` fill).
 - `raster-fade-duration` is inert. A tile is rasterized once and handed to the tile pipeline as
   bytes; there is no frame loop and no per-tile load timeline to cross-fade against.
 - Raster, hillshade and heatmap output is resampled twice — once into the tile bitmap, again when
@@ -572,7 +618,11 @@ Every one of these is documented at the file that causes it; this is the index.
   AABB query is the broad phase; `OBB.intersects` (separating axis) is the exact test.
 - **A line label is a chain of circles** (`LabelPlacement.circles`), upstream's
   `placeCollisionCircles` against `placeCollisionBox`, because the straight envelope of a label
-  following a curve claims far more ground than the label covers. `symbol/SymbolProjection.kt` walks
+  following a curve claims far more ground than the label covers. The walk is by half the label's
+  **drawn** width, converted into layout units by the bucket's own projection factor
+  (`2^(bucketZoom - displayZoom)`, in (0.5, 1]); walking half its *layout* width, as this used to,
+  made the chain that factor too short, so two labels the eye sees overlapping were both placed.
+  `symbol/SymbolProjection.kt` walks
   the label's own stretch of line, projects it, and spaces circles along it at upstream's
   `radius * 2.5`; `symbol/CollisionGeometry.kt` ports `_circlesCollide` and `_circleAndRectCollide`
   from `grid_index.ts` and adds the circle-against-oriented-box test upstream has no need of, and
@@ -611,6 +661,17 @@ Every one of these is documented at the file that causes it; this is the index.
   does not clip.
 - `symbol-avoid-edges` is honoured, dropping a label whose padded box crosses the tile edge.
   Upstream declares the property and never reads it, relying on its cross-tile index instead.
+- **A line label whose glyphs do not fit on its path is drawn straight**, at the path's chord
+  angle, where upstream's `placeGlyphsAlongLine` hides it (`notEnoughRoom`). Hiding it here would
+  flicker: the placement pass has already decided the label fits and would keep re-placing it. A
+  path that bends less than half a dp likewise takes the single-blit path — the chord, not the
+  anchor segment's angle, so a label does not jump as the map zooms across that threshold.
+- **The Compose fallback (`LabelArt.Measured`) is never bent.** A `TextLayoutResult` can only be
+  drawn whole, so a per-glyph pass would repaint the entire paragraph once per glyph and would split
+  on UTF-16 code units rather than clusters. A style with a `glyphs` URL — which is every style that
+  renders text the way MapLibre does — takes the glyph path.
+- **`text-rotate` does not reach a line label**, as it does not upstream: the glyph angles come from
+  the line.
 - Text is shaped in logical order: there is no bidirectional reordering (upstream delegates that to
   an optional `rtl-text-plugin`) and no Arabic contextual shaping.
 - A codepoint the glyph server has no glyph for is dropped, where upstream falls back to a locally
