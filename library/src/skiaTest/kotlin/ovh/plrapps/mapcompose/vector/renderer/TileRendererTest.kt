@@ -413,4 +413,92 @@ class TileRendererTest {
 
         assertColorEquals(Color.Green, render(styleLayer, tile).pixelAt(32, 32))
     }
+
+    /* ---------------------------------------------------------------------------------------- *
+     * `*-layer-opacity`: composited once, after the whole layer is drawn.
+     *
+     * The two overlapping polygons below cover 0..40 px and 24..64 px of a 64 px tile, so (8, 32)
+     * is one feature alone and (32, 32) is both. That is the case the spec's own doc draws the
+     * distinction on: per-feature opacity accumulates in the overlap, layer opacity does not.
+     * ---------------------------------------------------------------------------------------- */
+
+    @Test
+    fun `fill-layer-opacity composites the layer once`() = runTest {
+        val bitmap = render(overlappingFills(""""fill-layer-opacity":0.5"""), overlappingPolygons())
+
+        assertEquals(0.5f, bitmap.pixelAt(8, 32).alpha, absoluteTolerance = 0.02f, message = "one feature")
+        assertEquals(0.5f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f, message = "the overlap")
+    }
+
+    @Test
+    fun `fill-opacity accumulates where two features overlap`() = runTest {
+        val bitmap = render(overlappingFills(""""fill-opacity":0.5"""), overlappingPolygons())
+
+        assertEquals(0.5f, bitmap.pixelAt(8, 32).alpha, absoluteTolerance = 0.02f, message = "one feature")
+        assertEquals(0.75f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f, message = "the overlap")
+    }
+
+    @Test
+    fun `fill-opacity accumulates and fill-layer-opacity then composites the result`() = runTest {
+        val style = overlappingFills(""""fill-opacity":0.5,"fill-layer-opacity":0.5""")
+        val bitmap = render(style, overlappingPolygons())
+
+        assertEquals(0.25f, bitmap.pixelAt(8, 32).alpha, absoluteTolerance = 0.02f, message = "one feature")
+        assertEquals(0.375f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f, message = "the overlap")
+    }
+
+    @Test
+    fun `a fully opaque fill-layer-opacity draws what an absent one does`() = runTest {
+        val tile = overlappingPolygons()
+        val absent = render(overlappingFills(""), tile)
+        val explicit = render(overlappingFills(""""fill-layer-opacity":1"""), tile)
+
+        assertEquals(absent.opaquePixelCount(), explicit.opaquePixelCount())
+        assertColorEquals(Color.Red, explicit.pixelAt(32, 32))
+    }
+
+    @Test
+    fun `fill-layer-opacity of zero draws nothing`() = runTest {
+        val bitmap = render(overlappingFills(""""fill-layer-opacity":0"""), overlappingPolygons())
+
+        assertEquals(0f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f)
+    }
+
+    @Test
+    fun `line-layer-opacity composites the layer once`() = runTest {
+        val bitmap = render(crossingLines(""""line-layer-opacity":0.5"""), crossedLines())
+
+        assertEquals(0.5f, bitmap.pixelAt(8, 32).alpha, absoluteTolerance = 0.02f, message = "one line")
+        assertEquals(0.5f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f, message = "the crossing")
+    }
+
+    @Test
+    fun `line-opacity accumulates where two lines cross`() = runTest {
+        val bitmap = render(crossingLines(""""line-opacity":0.5"""), crossedLines())
+
+        assertEquals(0.5f, bitmap.pixelAt(8, 32).alpha, absoluteTolerance = 0.02f, message = "one line")
+        assertEquals(0.75f, bitmap.pixelAt(32, 32).alpha, absoluteTolerance = 0.02f, message = "the crossing")
+    }
+
+    /** Two opaque red squares overlapping over 24..40 px of the 64 px tile. */
+    private fun overlappingPolygons() = tileWith(
+        Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2560, 4096), id = 1L),
+        Mvt.polygonFeature(Mvt.clockwiseRing(1536, 0, 4096, 4096), id = 2L),
+    )
+
+    private fun overlappingFills(extraPaint: String) = layer(
+        """{"id":"fill","type":"fill","source":"src","source-layer":"test",
+            "paint":{"fill-color":"#ff0000","fill-antialias":false${if (extraPaint.isEmpty()) "" else ",$extraPaint"}}}"""
+    )
+
+    /** One horizontal and one vertical opaque blue line, crossing at the tile's centre. */
+    private fun crossedLines() = tileWith(
+        Mvt.lineFeature(listOf(0 to 2048, 4096 to 2048), id = 1L),
+        Mvt.lineFeature(listOf(2048 to 0, 2048 to 4096), id = 2L),
+    )
+
+    private fun crossingLines(extraPaint: String) = layer(
+        """{"id":"line","type":"line","source":"src","source-layer":"test",
+            "paint":{"line-color":"#0000ff","line-width":12,$extraPaint}}"""
+    )
 }
