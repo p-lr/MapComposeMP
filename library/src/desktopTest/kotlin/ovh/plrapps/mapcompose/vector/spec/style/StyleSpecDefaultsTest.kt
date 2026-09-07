@@ -135,12 +135,14 @@ class StyleSpecDefaultsTest {
         with(StyleSpecDefaults) {
             checkColor("paint_fill", "fill-color", FILL_COLOR)
             checkNumber("paint_fill", "fill-opacity", FILL_OPACITY)
+            checkNumber("paint_fill", "fill-layer-opacity", FILL_LAYER_OPACITY)
             checkBoolean("paint_fill", "fill-antialias", FILL_ANTIALIAS)
             checkNumberPair("paint_fill", "fill-translate", FILL_TRANSLATE)
             checkString("paint_fill", "fill-translate-anchor", FILL_TRANSLATE_ANCHOR)
 
             checkColor("paint_line", "line-color", LINE_COLOR)
             checkNumber("paint_line", "line-opacity", LINE_OPACITY)
+            checkNumber("paint_line", "line-layer-opacity", LINE_LAYER_OPACITY)
             checkNumber("paint_line", "line-width", LINE_WIDTH)
             checkNumber("paint_line", "line-gap-width", LINE_GAP_WIDTH)
             checkNumber("paint_line", "line-offset", LINE_OFFSET)

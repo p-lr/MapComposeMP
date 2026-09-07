@@ -1,5 +1,8 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
@@ -8,6 +11,7 @@ import ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.evaluateSortKey
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
+import ovh.plrapps.mapcompose.vector.renderer.utils.layerOpacityOf
 import ovh.plrapps.mapcompose.vector.renderer.utils.sortKeyOf
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.*
@@ -20,6 +24,11 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * Layers arrive in style order and are drawn in that order; within a layer, features keep their
  * order in the tile unless the layer declares a `*-sort-key`, which MapLibre sorts by ascending so
  * that a higher key draws on top.
+ *
+ * A `fill` or `line` layer that sets `*-layer-opacity` is drawn into a `saveLayer` and composited
+ * once at that alpha, which is upstream's per-layer framebuffer pass (`draw_layer_opacity.ts`) --
+ * see [ovh.plrapps.mapcompose.vector.renderer.utils.layerOpacityOf]. The spec default of `1` takes
+ * no offscreen.
  *
  * Only the 2D layer types are drawn here. `symbol` is produced separately by [SymbolBucketBuilder] so
  * that collision detection can run across the whole viewport rather than per tile, and
@@ -191,9 +200,26 @@ class TileRenderer(
                 )
                 if (visible.isEmpty()) return
 
+                /* `*-layer-opacity` composites the whole layer once, after every feature is drawn,
+                 * rather than scaling each feature's own alpha -- see [layerOpacityOf]. A
+                 * `saveLayer` is upstream's per-layer framebuffer: the features accumulate inside
+                 * it exactly as they do today, and the result is blitted at this alpha. Fully
+                 * opaque is the spec default and allocates nothing. */
+                val layerOpacity = layerOpacityOf(styleLayer, actualZoom)
+                if (layerOpacity <= 0f) return
+                val compositeLayer = layerOpacity < 1f
+
                 /* A translate, never a scale: the geometry is already decoded at [geometrySize], and
                  * scaling here would multiply every style width by the span too. */
                 val nativeCanvas = canvas.drawContext.canvas
+                if (compositeLayer) {
+                    /* Before the span translate, so the offscreen covers the tile bitmap rather
+                     * than the ancestor's magnified space. */
+                    nativeCanvas.saveLayer(
+                        bounds = Rect(Offset.Zero, canvas.size),
+                        paint = Paint().apply { alpha = layerOpacity },
+                    )
+                }
                 if (span > 1) {
                     nativeCanvas.save()
                     nativeCanvas.translate(
@@ -217,6 +243,7 @@ class TileRenderer(
                     }
                 } finally {
                     if (span > 1) nativeCanvas.restore()
+                    if (compositeLayer) nativeCanvas.restore()
                 }
             }
         }

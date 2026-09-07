@@ -11,7 +11,7 @@
 #
 set -euo pipefail
 
-REF="${1:-d881eef3be6a3602ff3434e1d9a20067b3fe1a31}"
+REF="${1:-487a7ad67e216306ebbd4ffb4d762c7774dce3ad}"
 REPO="https://github.com/maplibre/maplibre-style-spec.git"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

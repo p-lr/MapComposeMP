@@ -28,6 +28,7 @@ object StyleSpecDefaults {
     // paint_fill
     val FILL_COLOR = Color.Black
     const val FILL_OPACITY = 1.0
+    const val FILL_LAYER_OPACITY = 1.0
     const val FILL_ANTIALIAS = true
     val FILL_TRANSLATE = listOf(0.0, 0.0)
     const val FILL_TRANSLATE_ANCHOR = ANCHOR_MAP
@@ -35,6 +36,7 @@ object StyleSpecDefaults {
     // paint_line
     val LINE_COLOR = Color.Black
     const val LINE_OPACITY = 1.0
+    const val LINE_LAYER_OPACITY = 1.0
     const val LINE_WIDTH = 1.0
     const val LINE_GAP_WIDTH = 0.0
     const val LINE_OFFSET = 0.0
