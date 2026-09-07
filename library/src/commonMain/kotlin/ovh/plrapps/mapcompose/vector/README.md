@@ -105,6 +105,30 @@ approximate it. A dashed line is cut into its painted runs before tessellation
 A circle is drawn at *every vertex* of the feature, whatever its geometry type — straight from
 upstream's `CircleBucket.addFeature`.
 
+**The radial profile is `circle.fragment.glsl`, sampled into a gradient.**
+`renderer/utils/CircleShading.kt` holds the shader's two `smoothstep`s. Both are governed by one band
+width `B = max(1 / R, circle-blur)`, where `R = circle-radius + circle-stroke-width`: `opacity_t`
+fades the whole disc's alpha over the last `B` of `R`, and `color_t` cross-fades the fill colour into
+the stroke colour over the `B` *inside* the fill radius. Two things follow that were wrong before.
+`circle-blur` feathers the **stroke** as well as the fill, over the combined radius, rather than
+fading the fill alone and leaving the ring sharp. And `circle-radius: 0` with a positive
+`circle-stroke-width` is a solid disc of the stroke colour, not nothing — the geometry reaches `R`
+whatever the radius, and `radius / R` of 0 puts `color_t` at 1 everywhere.
+
+Reaching a fragment shader from Compose means a radial gradient, so `circleGradientStops` samples the
+profile: the breakpoints of the two ramps, then a fixed count of samples per interval between them
+(a count, not a spacing, because a band is a fraction of `R` and the error is then scale-invariant).
+The mix runs **premultiplied**, as the shader's does — upstream's `Color` stores `r`, `g`, `b`
+already multiplied by alpha — and is unpremultiplied back to a Compose `Color` afterwards, which is
+what keeps the outermost stop carrying the disc's hue: Skia interpolates gradient stops
+unpremultiplied, and a transparent *black* stop would drag every coloured circle's edge dark. Two
+residual divergences: the profile is interpolated linearly between samples rather than evaluated per
+fragment (under 0.005 of alpha), and Skia's own coverage antialiasing still applies at `R`, on top of
+the feathered edge, so the outermost pixel is marginally softer than upstream's. A circle that is
+neither blurred nor stroked skips the gradient — its profile is flat but for the one-pixel
+faux-antialiasing, which is what Skia's coverage antialiasing already is — and is drawn as a plain
+solid disc, which is what a dense point layer costs.
+
 **A disc straddling a tile boundary is drawn by both tiles.** Upstream drops every vertex outside
 the tile because it draws circles into one viewport-wide framebuffer with `StencilMode.disabled`
 (`draw_circle.ts`), so the tile that owns a point spills the whole disc across the boundary. A tile
