@@ -125,8 +125,77 @@ class CircleLayerPainterTest {
 
         assertColorEquals(Color.Red, blurred.pixelAt(32, 32), message = "the centre stays opaque")
         assertEquals(1f, sharp.pixelAt(32, 18).alpha, absoluteTolerance = 0.02f, message = "no blur, no fade")
-        val faded = blurred.pixelAt(32, 18).alpha
-        assertTrue(faded > 0f && faded < 0.9f, "the edge should be partly transparent, was $faded")
+        // The point sits on the pixel corner (32, 32), so this pixel's centre is 13.51 px out.
+        // `opacity_t` is smoothstep(0, -1, d/20 - 1), which is 0.248 there; the linear fade over
+        // `1 / (1 + blur)` of the radius this painter used to draw gave 0.62.
+        assertEquals(
+            0.248f, blurred.pixelAt(32, 18).alpha, absoluteTolerance = 0.02f,
+            message = "the shader's cubic fade, 13.51 px from the centre"
+        )
+    }
+
+    @Test
+    fun `circle-blur feathers the stroke and not only the fill`() = runTest {
+        // The band is a fraction of `radius + stroke_width`, so it is the *stroke's* outer edge that
+        // fades. radius 10 + stroke 6 with a blur of 0.5 starts the fade at d = 8, well inside the
+        // ring, and at this pixel's 13.51 px `opacity_t` is 0.230.
+        val paint = CirclePaint(
+            circleRadius = ExpressionOrValue.Value(10.0),
+            circleColor = red,
+            circleStrokeWidth = ExpressionOrValue.Value(6.0),
+            circleStrokeColor = ExpressionOrValue.Value(Color.Blue),
+        )
+        val sharp = render(paint)
+        val blurred = render(paint.copy(circleBlur = ExpressionOrValue.Value(0.5)))
+
+        assertEquals(1f, sharp.pixelAt(32, 18).alpha, absoluteTolerance = 0.02f, message = "no blur, no fade")
+        assertEquals(
+            0.230f, blurred.pixelAt(32, 18).alpha, absoluteTolerance = 0.02f,
+            message = "the stroke fades with the disc"
+        )
+    }
+
+    @Test
+    fun `the fill and the stroke meet with no seam`() = runTest {
+        // Regression: the fill used to be a disc drawn at `radius` and the stroke a ring over
+        // `[radius, radius + strokeWidth]`, each antialiased by Skia on its own. Both then covered
+        // the pixel at `radius` by half, which composites to 0.75 -- a light hairline around every
+        // filled circle, where upstream's `color_t` smoothstep has none.
+        val bitmap = render(
+            CirclePaint(
+                circleRadius = ExpressionOrValue.Value(10.0),
+                circleColor = red,
+                circleStrokeWidth = ExpressionOrValue.Value(6.0),
+                circleStrokeColor = ExpressionOrValue.Value(Color.Blue),
+            )
+        )
+
+        // Everything inside the disc's own one-pixel antialias band is fully opaque.
+        for (dy in -14..14) {
+            assertEquals(
+                1f, bitmap.pixelAt(32, 32 + dy).alpha, absoluteTolerance = 0.02f,
+                message = "$dy px from the centre"
+            )
+        }
+    }
+
+    @Test
+    fun `a circle-radius of zero still draws its stroke`() = runTest {
+        // Upstream keeps the geometry -- the quad reaches `radius + stroke_width` whatever the
+        // radius -- and `radius / (radius + stroke_width)` of 0 makes `color_t` 1 everywhere, so the
+        // whole disc is stroke-coloured. This painter used to return on `radius <= 0`.
+        val bitmap = render(
+            CirclePaint(
+                circleRadius = ExpressionOrValue.Value(0.0),
+                circleColor = red,
+                circleStrokeWidth = ExpressionOrValue.Value(8.0),
+                circleStrokeColor = ExpressionOrValue.Value(Color.Blue),
+            )
+        )
+
+        assertColorEquals(Color.Blue, bitmap.pixelAt(32, 32), message = "a disc of the stroke colour")
+        assertColorEquals(Color.Blue, bitmap.pixelAt(32, 26), message = "6 px out, still inside")
+        assertEquals(0f, bitmap.pixelAt(32, 22).alpha, "10 px out is past the stroke width")
     }
 
     @Test
