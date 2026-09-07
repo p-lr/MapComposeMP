@@ -58,7 +58,7 @@ class LayerDefaultsTest {
             """{"id":"c","type":"circle","source":"s","paint":{},"layout":{}}"""
 
         val TYPES = listOf(
-            "background", "circle", "fill", "fill-extrusion", "heatmap",
+            "background", "circle", "color-relief", "fill", "fill-extrusion", "heatmap",
             "hillshade", "line", "raster", "sky", "symbol",
         )
     }

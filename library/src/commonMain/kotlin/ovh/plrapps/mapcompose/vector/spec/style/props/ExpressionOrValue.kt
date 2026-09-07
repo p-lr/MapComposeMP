@@ -10,6 +10,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StylePropertyExpression
+import ovh.plrapps.mapcompose.vector.spec.style.expression.definitions.Interpolate
 import ovh.plrapps.mapcompose.vector.spec.style.expression.isExpression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
@@ -191,6 +192,40 @@ fun ExpressionOrValue<Color>?.processAsHeatmapColor(
         feature = null,
     ) as? Color
 }
+
+/**
+ * Evaluates a `color-relief-color` at one elevation, in metres.
+ *
+ * The third global-reading colour property, alongside [processAsGradientColor] and
+ * [processAsHeatmapColor]: `color-relief-color` is defined over `["elevation"]`. No zoom is
+ * supplied, for the reason [processAsHeatmapColor] supplies none -- upstream builds the ramp once
+ * per paint value in `ColorReliefStyleLayer._createColorRamp`, whose evaluation context carries the
+ * elevation and nothing else, so a style that references `zoom` here reads it as 0 in MapLibre too.
+ */
+fun ExpressionOrValue<Color>?.processAsElevationColor(
+    elevation: Double,
+): Color? = when (this) {
+    null -> null
+    is ExpressionOrValue.Value -> value
+    is ExpressionOrValue.Invalid -> null
+    is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
+        globals = GlobalProperties(zoom = 0.0, elevation = elevation),
+        feature = null,
+    ) as? Color
+}
+
+/**
+ * The top-level `interpolate` of a `color-relief-color`, or `null` when the property is not one.
+ *
+ * Upstream's `expression._styleExpression.expression instanceof Interpolate`
+ * (`src/style/style_layer/color_relief_style_layer.ts`), which is what decides whether a colour ramp
+ * can be built at all -- see
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.colorReliefRamp]. No annotation node stands in the
+ * way: `ParsingContext` only wraps a sub-expression whose actual type is `value` or `string`, and an
+ * `interpolate` with colour outputs already types as `color`.
+ */
+fun ExpressionOrValue<Color>?.elevationInterpolate(): Interpolate? =
+    (this as? ExpressionOrValue.Expression)?.expression?.styleExpression?.expression as? Interpolate
 
 /**
  * Evaluates a list-valued property without coercing its items.
