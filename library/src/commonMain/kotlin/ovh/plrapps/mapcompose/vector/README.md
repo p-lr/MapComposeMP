@@ -33,7 +33,7 @@ VectorTileStreamProvider (interface)
   → VectorLayer            wires the MapState viewport to the rasterizer, on two cadences
   → VectorRasterizer       fetches and decodes sources, drives one TileRenderer per tile
         → TileRenderer     per-layer gating, then dispatch to a painter
-              → Background / Fill / Line / Circle / Raster / Hillshade / Heatmap painters
+              → Background / Fill / Line / Circle / Raster / Hillshade / ColorRelief / Heatmap painters
         │
         │  symbols, in two passes with different lifetimes (see Symbol layout and placement)
         ├─ SymbolBucketBuilder   layout: one SymbolBucket per canonical tile per style layer
@@ -233,6 +233,31 @@ decoded DEM and then `hillshade.fragment.glsl`'s lighting, both in `renderer/uti
 backfilled from the 8 neighbouring tiles, which is what keeps the slope continuous across a tile
 boundary. Upstream's `19.2562` hardcodes a 512 px DEM tile; the ground resolution is derived from the
 tile's own size here, so a 256 px DEM is right too.
+
+### color-relief — `renderer/ColorReliefLayerPainter.kt`
+
+`color-relief-color`, `-opacity`, and `resampling` — which really is spelled without the layer-type
+prefix, in the spec and in upstream's `layer.paint.get('resampling')`. Supported.
+
+The second layer type that reads a `raster-dem` source. Upstream uploads the DEM as one texture and
+the ramp as two more, and `color_relief.fragment.glsl` unpacks an elevation, binary-searches the
+elevation stops and lets GL's `LINEAR` filter blend the two neighbouring colour texels; the DEM is
+already unpacked into metres at decode here (`data/DemData.kt`), so `renderer/utils/ColorReliefRamp.kt`
+is that search and blend as pure functions and the painter is one CPU loop over the DEM's samples.
+
+**Only a top-level `interpolate` over `["elevation"]` produces a ramp.** That is upstream's rule and
+not this port's: `ColorReliefStyleLayer._createColorRamp` reads the stop *labels* off the interpolate
+and evaluates the expression at each of them, so a `step`, a `case` or a plain colour string leaves
+the ramp empty, upstream pads it to one transparent stop, and the layer draws nothing. Reading the
+labels rather than the expression also means the blend between two stops is **linear** whatever the
+interpolation type said — an `["exponential", 2]` ramp is flattened between its stops, because the
+GPU only ever sees two colours and a texture filter.
+
+Divergences, beyond the ones raster and hillshade already have (resampled twice, `bounds` ignored):
+the elevation stops are exact metres, where upstream round-trips each through `packDEMData` and
+quantizes it to the DEM encoding's step; there is no `MAX_TEXTURE_SIZE` cap on the number of stops,
+so a very long ramp renders in full rather than decimated; and `resampling` filters the resulting
+*colours* rather than the elevations, the same divergence hillshade has and with the same scope.
 
 ### heatmap — `renderer/HeatmapLayerPainter.kt`
 
@@ -643,10 +668,14 @@ Every one of these is documented at the file that causes it; this is the index.
   the sort key; `auto` orders by y only where the layer allows overlap.
 - `raster-fade-duration` is inert. A tile is rasterized once and handed to the tile pipeline as
   bytes; there is no frame loop and no per-tile load timeline to cross-fade against.
-- Raster, hillshade and heatmap output is resampled twice — once into the tile bitmap, again when
+- Raster, hillshade, color-relief and heatmap output is resampled twice — once into the tile bitmap, again when
   that bitmap is drawn. That is the price of keeping those layers in style order among the vector
   layers rather than making them overlays.
 - A source's `bounds` is not honoured.
+- `hillshade`'s and `color-relief`'s output is computed per DEM sample and the resulting *colours*
+  are then filtered onto the tile, where upstream filters the DEM texture and shades per screen
+  pixel. It shows only where one DEM sample covers several screen pixels, and it is what
+  `color-relief`'s `resampling` ends up selecting between.
 - `heatmap-opacity` is folded into the colour ramp at rasterization, so it cannot animate — the same
   root cause as `raster-fade-duration`.
 - Only the 8 immediate neighbours are gathered for a heatmap, so a `heatmap-radius` past roughly one
@@ -806,9 +835,9 @@ one is hand-rolled. It is a 122-byte header plus one pixel copy.
 Two source sets, split by what needs a graphics backend:
 
 - **`commonTest`** — pure maths and decoding: the expression engine and its 577-case upstream
-  conformance suite, filters, geometry decoding, `HillshadeShading`, `HeatmapKernel`, `SdfShading`,
-  `StretchableIcon`, `AnchorOffsets`, `GlyphPbf`, `GlyphLayout`, `GlyphManager`, `GeoJson`,
-  `GeoJsonTiler`, the R-tree and the OBB. MVT fixtures are built by hand in
+  conformance suite, filters, geometry decoding, `HillshadeShading`, `ColorReliefRamp`,
+  `HeatmapKernel`, `SdfShading`, `StretchableIcon`, `AnchorOffsets`, `GlyphPbf`, `GlyphLayout`,
+  `GlyphManager`, `GeoJson`, `GeoJsonTiler`, the R-tree and the OBB. MVT fixtures are built by hand in
   `commonTest/.../renderer/MvtFixtures.kt` and glyph ranges in
   `commonTest/.../data/glyphs/GlyphFixtures.kt`, so no binary fixture is needed anywhere.
 - **`skiaTest`** (desktop, iOS, wasm) — anything that allocates an `ImageBitmap`: every layer

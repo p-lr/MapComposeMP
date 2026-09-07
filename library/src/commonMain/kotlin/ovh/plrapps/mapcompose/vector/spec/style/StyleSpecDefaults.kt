@@ -18,10 +18,11 @@ import androidx.compose.ui.graphics.Color
  *
  * Properties whose spec default is `undefined` (`fill-outline-color`, `line-dasharray`,
  * `line-gradient`, every `*-pattern`, every `*-sort-key`, and on `symbol` also `icon-image`,
- * `icon-overlap`, `text-overlap`, `text-variable-anchor` and `text-variable-anchor-offset`) are
- * deliberately absent: "unset" is not a value, and each painter handles it specifically --
- * `fill-outline-color`, for instance, falls back to the *evaluated* `fill-color` rather than to a
- * constant, and an absent `icon-overlap` means "read `icon-allow-overlap` instead".
+ * `icon-overlap`, `text-overlap`, `text-variable-anchor` and `text-variable-anchor-offset`, and on
+ * `color-relief` also `color-relief-color`) are deliberately absent: "unset" is not a value, and
+ * each painter handles it specifically -- `fill-outline-color`, for instance, falls back to the
+ * *evaluated* `fill-color` rather than to a constant, and an absent `icon-overlap` means "read
+ * `icon-allow-overlap` instead".
  */
 object StyleSpecDefaults {
 
@@ -84,6 +85,12 @@ object StyleSpecDefaults {
     val HILLSHADE_SHADOW_COLOR = Color.Black
     val HILLSHADE_HIGHLIGHT_COLOR = Color.White
     val HILLSHADE_ACCENT_COLOR = Color.Black
+
+    /* paint_color-relief. `color-relief-color` has no spec default -- "unset" is not a colour, and
+     * without a ramp there is nothing to draw -- so it is handled at the painter, like every other
+     * undefined-default property. */
+    const val COLOR_RELIEF_OPACITY = 1.0
+    const val COLOR_RELIEF_RESAMPLING = RESAMPLING_LINEAR
 
     // paint_heatmap
     const val HEATMAP_WEIGHT = 1.0
