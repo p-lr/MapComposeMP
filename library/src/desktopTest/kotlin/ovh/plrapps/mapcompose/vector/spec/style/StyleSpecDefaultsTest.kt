@@ -190,6 +190,10 @@ class StyleSpecDefaultsTest {
             checkColor("paint_hillshade", "hillshade-highlight-color", HILLSHADE_HIGHLIGHT_COLOR)
             checkColor("paint_hillshade", "hillshade-accent-color", HILLSHADE_ACCENT_COLOR)
 
+            checkNumber("paint_color-relief", "color-relief-opacity", COLOR_RELIEF_OPACITY)
+            // Not `color-relief-resampling`: this one property carries no layer-type prefix.
+            checkString("paint_color-relief", "resampling", COLOR_RELIEF_RESAMPLING)
+
             checkNumber("paint_heatmap", "heatmap-weight", HEATMAP_WEIGHT)
             checkNumber("paint_heatmap", "heatmap-intensity", HEATMAP_INTENSITY)
             checkNumber("paint_heatmap", "heatmap-radius", HEATMAP_RADIUS)
@@ -288,6 +292,7 @@ class StyleSpecDefaultsTest {
             "layout_symbol" to "text-variable-anchor",
             "layout_symbol" to "text-variable-anchor-offset",
             "layout_symbol" to "text-writing-mode",
+            "paint_color-relief" to "color-relief-color",
         )
     }
 }

@@ -10,6 +10,8 @@ import ovh.plrapps.mapcompose.vector.spec.style.background.BackgroundLayout
 import ovh.plrapps.mapcompose.vector.spec.style.background.BackgroundPaint
 import ovh.plrapps.mapcompose.vector.spec.style.circle.CircleLayout
 import ovh.plrapps.mapcompose.vector.spec.style.circle.CirclePaint
+import ovh.plrapps.mapcompose.vector.spec.style.colorRelief.ColorReliefLayout
+import ovh.plrapps.mapcompose.vector.spec.style.colorRelief.ColorReliefPaint
 import ovh.plrapps.mapcompose.vector.spec.style.fill.FillLayout
 import ovh.plrapps.mapcompose.vector.spec.style.fill.FillPaint
 import ovh.plrapps.mapcompose.vector.spec.style.fillExtrusion.FillExtrusionLayout
@@ -162,6 +164,22 @@ data class HillshadeLayer(
     override val maxzoom: Double? = null,
     override val layout: HillshadeLayout = HillshadeLayout(),
     override val paint: HillshadePaint = HillshadePaint(),
+) : Layer()
+
+@Serializable
+@SerialName("color-relief")
+data class ColorReliefLayer(
+    override val id: String,
+    override val type: String = "color-relief",
+    override val source: String? = null,
+    @SerialName("source-layer")
+    override val sourceLayer: String? = null,
+    @Serializable(with = FeatureFilterSerializer::class)
+    override val filter: FilterHolder? = null,
+    override val minzoom: Double? = null,
+    override val maxzoom: Double? = null,
+    override val layout: ColorReliefLayout = ColorReliefLayout(),
+    override val paint: ColorReliefPaint = ColorReliefPaint(),
 ) : Layer()
 
 @Serializable

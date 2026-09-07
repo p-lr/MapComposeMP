@@ -35,11 +35,11 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * `fill-extrusion` / `sky` are not implemented -- see the note in each painter for what each would
  * need.
  *
- * A `raster` layer is drawn from [rasterImage] and a `hillshade` layer from [demTile], rather than
- * from [tile]: their sources serve images, not MVT, so
+ * A `raster` layer is drawn from [rasterImage], and a `hillshade` or `color-relief` layer from
+ * [demTile], rather than from [tile]: their sources serve images, not MVT, so
  * [ovh.plrapps.mapcompose.vector.core.VectorRasterizer] decodes them separately and passes what
  * covers this tile. `raster-fade-duration` is inert here; see [RasterLayerPainter], and see
- * [HillshadeLayerPainter] for hillshade's own divergences.
+ * [HillshadeLayerPainter] and [ColorReliefLayerPainter] for the two DEM layers' own divergences.
  *
  * A `heatmap` layer and a `circle` layer read [neighbours] in addition to [tile]: a kernel and a
  * disc both reach past the tile they belong to, and a tile is rasterized into its own bitmap here,
@@ -69,6 +69,9 @@ class TileRenderer(
 
     /** Likewise for hillshade: one stateless instance, never routed through [painterFor]. */
     private val hillshadePainter = HillshadeLayerPainter()
+
+    /** And for the other DEM-reading layer type. */
+    private val colorReliefPainter = ColorReliefLayerPainter()
 
     /** And for heatmap, which paints a whole layer's points at once rather than one feature. */
     private val heatmapPainter = HeatmapLayerPainter()
@@ -160,6 +163,19 @@ class TileRenderer(
                     canvasSize = canvasSize,
                     tileZ = zoom.toInt(),
                     tileY = tileY,
+                    actualZoom = actualZoom,
+                )
+            }
+
+            is ColorReliefLayer -> {
+                // No DEM means the source had nothing for this tile -- below its minzoom, or the
+                // fetch failed. Either way there is nothing to colour.
+                demTile ?: return
+                colorReliefPainter.paint(
+                    canvas = canvas,
+                    style = styleLayer,
+                    demTile = demTile,
+                    canvasSize = canvasSize,
                     actualZoom = actualZoom,
                 )
             }
