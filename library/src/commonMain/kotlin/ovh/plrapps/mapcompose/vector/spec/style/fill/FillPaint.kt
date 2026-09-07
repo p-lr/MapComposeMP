@@ -19,6 +19,15 @@ data class FillPaint(
     @SerialName("fill-opacity")
     val fillOpacity: ExpressionOrValue<Double>? = null,
 
+    /**
+     * Opacity applied to the layer as a whole, once, rather than per feature: overlapping fills read
+     * as a single surface at this opacity instead of accumulating. Composited by
+     * [ovh.plrapps.mapcompose.vector.renderer.TileRenderer]; see
+     * [ovh.plrapps.mapcompose.vector.renderer.utils.layerOpacityOf].
+     */
+    @SerialName("fill-layer-opacity")
+    val fillLayerOpacity: ExpressionOrValue<Double>? = null,
+
     @SerialName("fill-outline-color")
     @Serializable(with = ExpressionOrValueColorSerializer::class)
     val fillOutlineColor: ExpressionOrValue<Color>? = null,

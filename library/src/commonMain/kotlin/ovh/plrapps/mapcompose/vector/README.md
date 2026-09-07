@@ -78,16 +78,25 @@ modelled and parsed but cannot change what is drawn; the reason is in [Divergenc
 
 ### fill — `renderer/FillLayerPainter.kt`
 
-`fill-color`, `fill-opacity`, `fill-antialias`, `fill-outline-color`, `fill-pattern`,
-`fill-translate`, `fill-translate-anchor`, `fill-sort-key`. All supported. Rings are grouped into
-polygons and holes by `classifyRings`, the port of upstream's `classify_rings.ts`, and holes are cut
-with the non-zero fill rule rather than identified explicitly.
+`fill-color`, `fill-opacity`, `fill-layer-opacity`, `fill-antialias`, `fill-outline-color`,
+`fill-pattern`, `fill-translate`, `fill-translate-anchor`, `fill-sort-key`. All supported. Rings are
+grouped into polygons and holes by `classifyRings`, the port of upstream's `classify_rings.ts`, and
+holes are cut with the non-zero fill rule rather than identified explicitly.
+
+`fill-layer-opacity` is **not** `fill-opacity` under another name, and neither is
+`line-layer-opacity`. Per-feature opacity — and the alpha of `fill-color` itself — accumulates where
+two features of the layer overlap; layer opacity is applied once to the finished layer, so the
+overlap reads as a single surface. Upstream draws the layer into its own framebuffer and blits it at
+that alpha (`src/webgl/draw/draw_layer_opacity.ts`); `TileRenderer` wraps the layer's feature loop in
+a `Canvas.saveLayer`, which is the same offscreen-then-composite. Setting both keeps the
+accumulation and then composites it, as the spec says. See `renderer/utils/LayerOpacity.kt`; the
+default of `1` allocates no offscreen. Only `fill` and `line` have such a property.
 
 ### line — `renderer/LineLayerPainter.kt`
 
-`line-color`, `-opacity`, `-width`, `-gap-width`, `-offset`, `-blur`, `-dasharray`, `-pattern`,
-`-gradient`, `-translate`, `-translate-anchor`, `line-cap`, `line-join`, `line-miter-limit`,
-`line-round-limit`, `line-sort-key`. All supported.
+`line-color`, `-opacity`, `-layer-opacity`, `-width`, `-gap-width`, `-offset`, `-blur`,
+`-dasharray`, `-pattern`, `-gradient`, `-translate`, `-translate-anchor`, `line-cap`, `line-join`,
+`line-miter-limit`, `line-round-limit`, `line-sort-key`. All supported.
 
 A feature is tessellated into the triangle ribbon upstream's `line_bucket.ts` builds
 (`renderer/utils/LineTessellation.kt`) and drawn with `Canvas.drawVertices`, each vertex carrying the
@@ -590,6 +599,11 @@ Every one of these is documented at the file that causes it; this is the index.
 - The consequences that show are listed in their own painters — `raster-fade-duration` and
   `heatmap-opacity` cannot animate, a raster source is resampled twice, and everything under the
   bearing group below.
+- **`fill-layer-opacity` / `line-layer-opacity`** composite the layer once **per tile bitmap**,
+  where upstream composites once per viewport framebuffer. The result is the same: a tile is clipped
+  to its own bitmap and tiles are disjoint on screen, so no two features of the layer overlap across
+  a seam, and `over(dst, alpha * layer)` is what upstream's blit does either way. What is inert is
+  the property's `transition`, as it is for every transitionable property here.
 
 **Forced by having no camera pitch or bearing at rasterization time:**
 

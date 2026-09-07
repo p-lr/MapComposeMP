@@ -12,6 +12,15 @@ data class LinePaint(
     @SerialName("line-opacity")
     val lineOpacity: ExpressionOrValue<Double>? = null,
 
+    /**
+     * Opacity applied to the layer as a whole, once, rather than per feature: overlapping lines read
+     * as a single surface at this opacity instead of accumulating. Composited by
+     * [ovh.plrapps.mapcompose.vector.renderer.TileRenderer]; see
+     * [ovh.plrapps.mapcompose.vector.renderer.utils.layerOpacityOf].
+     */
+    @SerialName("line-layer-opacity")
+    val lineLayerOpacity: ExpressionOrValue<Double>? = null,
+
     @SerialName("line-color")
     @Serializable(with = ExpressionOrValueColorSerializer::class)
     val lineColor: ExpressionOrValue<Color>? = null,
