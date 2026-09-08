@@ -1,13 +1,17 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.utils.rasterColorMatrix
+import ovh.plrapps.mapcompose.vector.renderer.utils.sampleWindow
 import ovh.plrapps.mapcompose.vector.spec.style.RESAMPLING_NEAREST
 import ovh.plrapps.mapcompose.vector.spec.style.RasterLayer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
@@ -15,40 +19,18 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 
 /**
- * The part of a decoded raster tile that covers one map tile.
+ * A decoded raster tile and which map tile is being drawn from it.
  *
- * [srcOffset] and [srcSize] are the crop within [image]: the whole image when the source has the
- * requested zoom, and one sub-square of it when the source is overzoomed -- see
- * [ovh.plrapps.mapcompose.vector.data.MapLibreTileSource.resolve].
+ * [ref] is the whole tile in the common case, and one sub-square of an overzoomed ancestor
+ * otherwise -- see [ovh.plrapps.mapcompose.vector.data.MapLibreTileSource.resolve]. The sub-square
+ * is resolved at draw time by
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.sampleWindow] rather than being cropped here,
+ * because it is fractional once the source is overzoomed past its own pixel count.
  */
 class RasterTileImage(
     val image: ImageBitmap,
-    val srcOffset: IntOffset,
-    val srcSize: IntSize,
-) {
-    companion object {
-        /**
-         * Crops [image] to the sub-square [ref] names.
-         *
-         * Returns `null` when the crop would be empty, which happens only if a source is overzoomed
-         * so far that a sub-square is narrower than a pixel -- there is nothing meaningful to
-         * magnify at that point.
-         */
-        fun of(image: ImageBitmap, ref: TileRef): RasterTileImage? {
-            if (ref.span <= 1) {
-                return RasterTileImage(image, IntOffset.Zero, IntSize(image.width, image.height))
-            }
-            val width = image.width / ref.span
-            val height = image.height / ref.span
-            if (width <= 0 || height <= 0) return null
-            return RasterTileImage(
-                image = image,
-                srcOffset = IntOffset(ref.subX * width, ref.subY * height),
-                srcSize = IntSize(width, height),
-            )
-        }
-    }
-}
+    val ref: TileRef,
+)
 
 /**
  * Draws `raster` layers -- one image tile covering the whole map tile.
@@ -58,6 +40,11 @@ class RasterTileImage(
  * `-brightness-max`) collapse into one [ColorFilter]; see
  * [ovh.plrapps.mapcompose.vector.renderer.utils.rasterColorMatrix]. `raster-opacity` is not part of
  * it because upstream applies it to alpha alone, which [DrawScope.drawImage]'s `alpha` already does.
+ *
+ * An overzoomed source is magnified over a **fractional** window of the ancestor's pixels, which is
+ * what upstream's texture coordinates amount to; see
+ * [ovh.plrapps.mapcompose.vector.renderer.utils.SampleWindow] for why the window cannot be an
+ * integer crop.
  *
  * This does not extend [BaseLayerPainter]: that contract is shaped around a feature, an `extent` and
  * a `source-layer`, and a raster layer has none of them -- the same reason [SymbolBucketBuilder] sits
@@ -115,15 +102,30 @@ class RasterLayerPainter {
             FilterQuality.Low
         }
 
-        canvas.drawImage(
-            image = image.image,
-            srcOffset = image.srcOffset,
-            srcSize = image.srcSize,
-            dstOffset = IntOffset.Zero,
-            dstSize = IntSize(canvasSize, canvasSize),
-            alpha = opacity,
-            colorFilter = colorFilter,
-            filterQuality = filterQuality,
-        )
+        val bitmap = image.image
+        if (bitmap.width <= 0 || bitmap.height <= 0) return
+        val ref = image.ref
+        /* The axes are resolved separately because nothing guarantees a square source image, as the
+         * integer crop this replaced did not assume one either. */
+        val x = sampleWindow(dim = bitmap.width, sub = ref.subX, span = ref.span, canvasSize = canvasSize)
+        val y = sampleWindow(dim = bitmap.height, sub = ref.subY, span = ref.span, canvasSize = canvasSize)
+
+        /* The window is placed by a transform rather than by `dstOffset`/`dstSize`, which are
+         * integers and cannot express a sub-pixel origin or a magnification that is not a whole
+         * number of pixels per sample. The tile bitmap is the clip, so the overhang costs nothing. */
+        canvas.translate(x.origin, y.origin) {
+            scale(scaleX = x.scale, scaleY = y.scale, pivot = Offset.Zero) {
+                drawImage(
+                    image = bitmap,
+                    srcOffset = IntOffset(x.first, y.first),
+                    srcSize = IntSize(x.count, y.count),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(x.count, y.count),
+                    alpha = opacity,
+                    colorFilter = colorFilter,
+                    filterQuality = filterQuality,
+                )
+            }
+        }
     }
 }
