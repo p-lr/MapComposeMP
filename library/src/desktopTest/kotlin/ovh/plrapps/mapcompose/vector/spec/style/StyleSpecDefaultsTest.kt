@@ -180,15 +180,24 @@ class StyleSpecDefaultsTest {
             checkNumber("paint_raster", "raster-fade-duration", RASTER_FADE_DURATION)
 
             checkNumber("paint_hillshade", "hillshade-exaggeration", HILLSHADE_EXAGGERATION)
+            /* The four illumination properties are `numberArray` / `colorArray` upstream, but their
+             * spec defaults are still written as scalars -- a lone light, which is what
+             * `NumberArray.parse` and `ColorArray.parse` make of one. */
             checkNumber(
                 "paint_hillshade", "hillshade-illumination-direction", HILLSHADE_ILLUMINATION_DIRECTION
+            )
+            checkNumber(
+                "paint_hillshade", "hillshade-illumination-altitude", HILLSHADE_ILLUMINATION_ALTITUDE
             )
             checkString(
                 "paint_hillshade", "hillshade-illumination-anchor", HILLSHADE_ILLUMINATION_ANCHOR
             )
+            checkString("paint_hillshade", "hillshade-method", HILLSHADE_METHOD)
             checkColor("paint_hillshade", "hillshade-shadow-color", HILLSHADE_SHADOW_COLOR)
             checkColor("paint_hillshade", "hillshade-highlight-color", HILLSHADE_HIGHLIGHT_COLOR)
             checkColor("paint_hillshade", "hillshade-accent-color", HILLSHADE_ACCENT_COLOR)
+            // As on `color-relief`, this one property carries no layer-type prefix.
+            checkString("paint_hillshade", "resampling", HILLSHADE_RESAMPLING)
 
             checkNumber("paint_color-relief", "color-relief-opacity", COLOR_RELIEF_OPACITY)
             // Not `color-relief-resampling`: this one property carries no layer-type prefix.

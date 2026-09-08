@@ -6,9 +6,12 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression
  * Ported from `maplibre-style-spec/src/expression/types.ts`.
  *
  * Deliberately omitted, because MapCompose has no style properties of these kinds:
- * `projectionDefinition`, `padding`, `numberArray`, `colorArray` and
- * `variableAnchorOffsetCollection`. If such a property is ever added, the type must be added
- * here *and* to [valueMemberTypes], otherwise `checkSubtype(ValueType, ...)` will reject it.
+ * `projectionDefinition`, `padding` and `variableAnchorOffsetCollection`. If such a property is
+ * ever added, the type must be added here *and* to [valueMemberTypes], otherwise
+ * `checkSubtype(ValueType, ...)` will reject it.
+ *
+ * [NumberArrayType] and [ColorArrayType] used to be on that list; `hillshade`'s illumination
+ * properties are spelled `numberArray` / `colorArray` in the spec, so they are modelled.
  */
 sealed class ExprType {
     abstract val kind: String
@@ -58,6 +61,22 @@ data object ResolvedImageType : ExprType() {
     override val kind = "resolvedImage"
 }
 
+/**
+ * A list of numbers, distinct from `array<number>`.
+ *
+ * The spec types `hillshade-illumination-direction` and `-illumination-altitude` this way, and the
+ * distinction is load-bearing: a bare number coerces to a one-element [NumberArray], which is what
+ * keeps every style written before multidirectional hillshade existed working.
+ */
+data object NumberArrayType : ExprType() {
+    override val kind = "numberArray"
+}
+
+/** A list of colours, distinct from `array<color>`. See [NumberArrayType]. */
+data object ColorArrayType : ExprType() {
+    override val kind = "colorArray"
+}
+
 /** `N == null` means "any length". */
 data class ArrayType(val itemType: ExprType, val n: Int? = null) : ExprType() {
     override val kind = "array"
@@ -88,6 +107,8 @@ private val valueMemberTypes: List<ExprType> = listOf(
     ObjectType,
     array(ValueType),
     ResolvedImageType,
+    NumberArrayType,
+    ColorArrayType,
 )
 
 /**

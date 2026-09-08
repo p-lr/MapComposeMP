@@ -224,15 +224,35 @@ the common case draws with no colour filter at all. **Inert:** `raster-fade-dura
 
 ### hillshade — `renderer/HillshadeLayerPainter.kt`
 
-`hillshade-exaggeration`, `-illumination-direction`, `-shadow-color`, `-highlight-color`,
-`-accent-color`. Supported. **Inert:** `hillshade-illumination-anchor`.
+`hillshade-exaggeration`, `-method`, `-illumination-direction`, `-illumination-altitude`,
+`-shadow-color`, `-highlight-color`, `-accent-color`, and `resampling` — which, as on `color-relief`,
+really is spelled without the layer-type prefix. Supported.
+**Inert:** `hillshade-illumination-anchor`.
 
 A CPU port of upstream's two GPU passes: `hillshade_prepare.fragment.glsl`'s Sobel operator over the
 decoded DEM and then `hillshade.fragment.glsl`'s lighting, both in `renderer/utils/HillshadeShading.kt`.
 `data/DemData.kt` ports `data/dem_data.ts`, including the 1 px border ring — seeded by clamping, then
 backfilled from the 8 neighbouring tiles, which is what keeps the slope continuous across a tile
-boundary. Upstream's `19.2562` hardcodes a 512 px DEM tile; the ground resolution is derived from the
-tile's own size here, so a 256 px DEM is right too.
+boundary. The ground resolution is derived from the DEM tile's own size, so a 256 px DEM is right as
+well as a 512 px one — which is also what upstream's `28.2562` does, since maplibre-gl-js#5768
+replaced the `19.2562` that hardcoded 512.
+
+**All five `hillshade-method` algorithms are implemented**, each a branch of that same fragment
+shader: `standard` (MapLibre's legacy one, and the only one reading `hillshade-accent-color`),
+`basic`, `combined` and `igor` (ports of the matching `gdaldem` algorithms, the last of which ignores
+the light's altitude), and `multidirectional`, which averages one `basic` pass per light. Only
+`standard` reshapes the slope by `hillshade-exaggeration`; the other four scale the derivative by
+`exaggeration * 2` directly. Flat ground is short-circuited in the painter, but *not* to
+transparent — `basic` and `multidirectional` light a flat surface by the cosine of the light's
+altitude, so the painter computes the flat colour once per tile rather than assuming it away.
+
+**A style may declare several light sources.** `-illumination-direction` and
+`-illumination-altitude` are `numberArray` in the spec, `-shadow-color` and `-highlight-color` are
+`colorArray`, and the source count is the longest of the four — every shorter list is padded with
+its own last element, as `HillshadeStyleLayer.getIlluminationProperties` does. A bare number or
+colour is a one-element array, so nothing a pre-multidirectional style wrote changes meaning. These
+are the only two properties in the whole spec with those types, and they are the reason
+`expression/types/NumberArray.kt` and `ColorArray.kt` exist.
 
 ### color-relief — `renderer/ColorReliefLayerPainter.kt`
 
@@ -638,7 +658,8 @@ Every one of these is documented at the file that causes it; this is the index.
   are rasterized once and then rotated with the map, so the bearing is unknown at draw time; a
   `viewport` anchor applies the same unrotated offset as `map` and differs only on a rotated map.
 - `hillshade-illumination-anchor` is inert for the same reason, so the light is always map-anchored.
-  Note this is the spec *default*, so a style that says nothing gets map-anchored light.
+  Note this is the spec *default*, so a style that says nothing gets map-anchored light. It applies
+  to every source of a `multidirectional` layer alike.
 
 **Forced by drawing into a tile bitmap rather than sampling a texture:**
 

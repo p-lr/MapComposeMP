@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.toArgb
@@ -9,15 +8,20 @@ import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
+import ovh.plrapps.mapcompose.vector.renderer.utils.HillshadeMethod
+import ovh.plrapps.mapcompose.vector.renderer.utils.illuminationSources
 import ovh.plrapps.mapcompose.vector.renderer.utils.shadePixel
 import ovh.plrapps.mapcompose.vector.renderer.utils.slopeDivisor
 import ovh.plrapps.mapcompose.vector.renderer.utils.sobelDeriv
 import ovh.plrapps.mapcompose.vector.renderer.utils.tileLatRange
 import ovh.plrapps.mapcompose.vector.spec.style.HillshadeLayer
+import ovh.plrapps.mapcompose.vector.spec.style.RESAMPLING_NEAREST
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColorArray
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
-import kotlin.math.PI
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsNumberArray
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 
 /**
  * The elevation tile of a `raster-dem` source, and which part of it one map tile needs.
@@ -44,12 +48,17 @@ class DemTile(val dem: DemData, val ref: TileRef)
  * has none of them. The class is stateless, so [TileRenderer] keeps one instance rather than one
  * per layer.
  *
+ * All five of upstream's `hillshade-method` algorithms are implemented, and a style may declare
+ * several illumination sources -- the properties are `numberArray` / `colorArray` in the spec, and
+ * `multidirectional` averages one shading pass per source.
+ *
  * Known divergences:
  * - **`hillshade-illumination-anchor` is inert; the light is always anchored to the map.** Upstream
- *   subtracts the map bearing from the azimuth when the anchor is `viewport`, but a tile here is
+ *   *adds* the map bearing to every azimuth when the anchor is `viewport`, but a tile here is
  *   rasterized without knowing the bearing, and would not be re-rasterized when the map rotates --
  *   the same reason a `viewport`-anchored `*-translate` is not counter-rotated. Note this is the
- *   spec *default*, so a style that says nothing gets map-anchored light.
+ *   spec *default*, so a style that says nothing gets map-anchored light. It applies to every
+ *   source of a `multidirectional` layer alike.
  * - **Lighting is evaluated per DEM sample and the colours are interpolated**, where upstream
  *   interpolates the slope and lights each screen pixel. The difference shows only where a DEM
  *   sample covers several screen pixels.
@@ -76,14 +85,26 @@ class HillshadeLayerPainter {
          * the only value where the shading below would be uniformly transparent anyway. */
         if (exaggeration == 0.0) return
 
-        val illuminationDirection = paint.hillshadeIlluminationDirection.processAsDouble(zoom = actualZoom)
-            ?: StyleSpecDefaults.HILLSHADE_ILLUMINATION_DIRECTION
-        val shadow = paint.hillshadeShadowColor.processAsColor(zoom = actualZoom)
-            ?: StyleSpecDefaults.HILLSHADE_SHADOW_COLOR
-        val highlight = paint.hillshadeHighlightColor.processAsColor(zoom = actualZoom)
-            ?: StyleSpecDefaults.HILLSHADE_HIGHLIGHT_COLOR
+        val method = HillshadeMethod.ofOrDefault(
+            paint.hillshadeMethod.processAsString(zoom = actualZoom)
+        )
+        val sources = illuminationSources(
+            directionsDeg = paint.hillshadeIlluminationDirection
+                .processAsNumberArray(zoom = actualZoom).orEmpty(),
+            altitudesDeg = paint.hillshadeIlluminationAltitude
+                .processAsNumberArray(zoom = actualZoom).orEmpty(),
+            shadows = paint.hillshadeShadowColor.processAsColorArray(zoom = actualZoom).orEmpty(),
+            highlights = paint.hillshadeHighlightColor
+                .processAsColorArray(zoom = actualZoom).orEmpty(),
+            fallbackDirectionDeg = StyleSpecDefaults.HILLSHADE_ILLUMINATION_DIRECTION,
+            fallbackAltitudeDeg = StyleSpecDefaults.HILLSHADE_ILLUMINATION_ALTITUDE,
+            fallbackShadow = StyleSpecDefaults.HILLSHADE_SHADOW_COLOR,
+            fallbackHighlight = StyleSpecDefaults.HILLSHADE_HIGHLIGHT_COLOR,
+        )
         val accent = paint.hillshadeAccentColor.processAsColor(zoom = actualZoom)
             ?: StyleSpecDefaults.HILLSHADE_ACCENT_COLOR
+        val resampling = paint.resampling.processAsString(zoom = actualZoom)
+            ?: StyleSpecDefaults.HILLSHADE_RESAMPLING
 
         val dem = demTile.dem
         val ref = demTile.ref
@@ -97,8 +118,23 @@ class HillshadeLayerPainter {
         val originY = ref.subY * size
 
         val divisor = slopeDivisor(tileZoom = actualZoom, demZoom = ref.z, dim = dem.dim)
-        val azimuthRad = illuminationDirection * PI / 180.0
         val (latTop, latBottom) = tileLatRange(z = tileZ, y = tileY)
+
+        /* Flat ground short-circuited, because most of a DEM tile is flat. It is *not* always
+         * transparent: `standard`, `igor` and `combined` all reach zero there, but `basic` and
+         * `multidirectional` light a flat surface by the cosine of the light's altitude, which at
+         * the default 45 degrees is a uniform 41% highlight. So the colour is computed once rather
+         * than assumed -- a zero derivative survives any latitude correction, so one value covers
+         * the whole tile. */
+        val flatColor = shadePixel(
+            derivX = 0.0,
+            derivY = 0.0,
+            latitude = latTop,
+            exaggeration = exaggeration,
+            method = method,
+            sources = sources,
+            accent = accent,
+        ).toArgb()
 
         val pixels = IntArray(size * size)
         for (row in 0 until size) {
@@ -113,23 +149,19 @@ class HillshadeLayerPainter {
                     y = originY + row,
                     divisor = divisor,
                 )
-                val color = if (derivX == 0.0 && derivY == 0.0) {
-                    /* Flat ground: sin(0) and 1 - cos(0) are both zero, so the shader's output is
-                     * fully transparent. Short-circuited because most of a DEM tile is flat. */
-                    Color.Transparent
+                pixels[row * size + col] = if (derivX == 0.0 && derivY == 0.0) {
+                    flatColor
                 } else {
                     shadePixel(
                         derivX = derivX,
                         derivY = derivY,
                         latitude = latitude,
-                        intensity = exaggeration,
-                        azimuthRad = azimuthRad,
-                        shadow = shadow,
-                        highlight = highlight,
+                        exaggeration = exaggeration,
+                        method = method,
+                        sources = sources,
                         accent = accent,
-                    )
+                    ).toArgb()
                 }
-                pixels[row * size + col] = color.toArgb()
             }
         }
 
@@ -139,7 +171,11 @@ class HillshadeLayerPainter {
             srcSize = IntSize(size, size),
             dstOffset = IntOffset.Zero,
             dstSize = IntSize(canvasSize, canvasSize),
-            filterQuality = FilterQuality.Low,
+            filterQuality = if (resampling == RESAMPLING_NEAREST) {
+                FilterQuality.None
+            } else {
+                FilterQuality.Low
+            },
         )
     }
 }
