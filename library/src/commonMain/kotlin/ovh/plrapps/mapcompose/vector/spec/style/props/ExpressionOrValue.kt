@@ -13,7 +13,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.StylePropertyExpressi
 import ovh.plrapps.mapcompose.vector.spec.style.expression.definitions.Interpolate
 import ovh.plrapps.mapcompose.vector.spec.style.expression.isExpression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 import ovh.plrapps.mapcompose.vector.spec.style.serializers.ExpressionOrValueSerializer
 
@@ -151,6 +153,24 @@ fun ExpressionOrValue<List<Double>>?.processAsDoubleList(
     val result = this?.processUntyped(feature, zoom) as? List<*> ?: return null
     return result.mapNotNull { (it as? Number)?.toDouble() }
 }
+
+/**
+ * Evaluates a `numberArray` property, e.g. `hillshade-illumination-direction`.
+ *
+ * A bare scalar is a one-element array, which is upstream's backwards-compatibility rule; it is
+ * applied here too so that a value that reached the engine unwrapped -- through `["get", ...]`, say
+ * -- reads the same as one the parser coerced.
+ */
+fun ExpressionOrValue<NumberArray>?.processAsNumberArray(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+): List<Double>? = NumberArray.parse(this?.processUntyped(feature, zoom))?.values
+
+/** Evaluates a `colorArray` property, e.g. `hillshade-shadow-color`. See [processAsNumberArray]. */
+fun ExpressionOrValue<ColorArray>?.processAsColorArray(
+    feature: EvalFeature? = null,
+    zoom: Double? = null,
+): List<Color>? = ColorArray.parse(this?.processUntyped(feature, zoom))?.values
 
 /**
  * Evaluates a `line-gradient` at one position along a line.

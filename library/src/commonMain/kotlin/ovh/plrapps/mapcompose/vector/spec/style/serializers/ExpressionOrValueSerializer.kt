@@ -18,10 +18,12 @@ import kotlinx.serialization.json.JsonUnquotedLiteral
 import kotlinx.serialization.json.jsonPrimitive
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.BooleanType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExprType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExpressionResult
 import ovh.plrapps.mapcompose.vector.spec.style.expression.FormattedType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ResolvedImageType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StringType
@@ -55,7 +57,8 @@ class ExpressionOrValueSerializer<T : Any>(
     private val propertySpec: StylePropertySpec = expectedTypeOf(valueSerializer).let { expectedType ->
         StylePropertySpec(
             expectedType = expectedType,
-            // MapLibre marks only number-, color- and number-array-valued properties as
+            // MapLibre marks only number-, color-, numberArray-, colorArray- and
+            // number-array-valued properties as
             // interpolatable. The flag decides whether an untyped legacy `{stops}` function becomes
             // an `interpolate` or a `step`, so getting it wrong turns e.g. `text-field` stops into
             // an "is not interpolatable" parse error.
@@ -145,11 +148,13 @@ class ExpressionOrValueSerializer<T : Any>(
             is ColorSerializer -> ColorType
             is FormattedSerializer -> FormattedType
             is ResolvedImageSerializer -> ResolvedImageType
+            is NumberArraySerializer -> NumberArrayType
+            is ColorArraySerializer -> ColorArrayType
             else -> descriptorToType(serializer.descriptor)
         }
 
         fun isInterpolatable(type: ExprType?): Boolean = when (type) {
-            NumberType, ColorType -> true
+            NumberType, ColorType, NumberArrayType, ColorArrayType -> true
             is ArrayType -> type.itemType == NumberType
             else -> false
         }

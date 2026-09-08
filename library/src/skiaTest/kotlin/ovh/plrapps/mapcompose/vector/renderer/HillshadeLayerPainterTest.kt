@@ -1,11 +1,19 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.DemUnpack
 import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.spec.style.HILLSHADE_METHOD_BASIC
+import ovh.plrapps.mapcompose.vector.spec.style.HILLSHADE_METHOD_COMBINED
+import ovh.plrapps.mapcompose.vector.spec.style.HILLSHADE_METHOD_IGOR
+import ovh.plrapps.mapcompose.vector.spec.style.HILLSHADE_METHOD_MULTIDIRECTIONAL
 import ovh.plrapps.mapcompose.vector.spec.style.HillshadeLayer
+import ovh.plrapps.mapcompose.vector.spec.style.RESAMPLING_NEAREST
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.hillshade.HillshadePaint
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import kotlin.test.Test
@@ -38,9 +46,15 @@ class HillshadeLayerPainterTest {
     private fun wholeTile(dem: DemData, z: Int = 12) =
         DemTile(dem, TileRef(z = z, x = 0, y = 0, subX = 0, subY = 0, span = 1))
 
+    /** `Color` is a value class, so a vararg of them is prohibited -- hence the list. */
+    private fun colors(values: List<Color>) = ExpressionOrValue.Value(ColorArray(values))
+
+    private fun numbers(vararg values: Double) =
+        ExpressionOrValue.Value(NumberArray(values.toList()))
+
     private val tintedPaint = HillshadePaint(
-        hillshadeShadowColor = ExpressionOrValue.Value(Color.Red),
-        hillshadeHighlightColor = ExpressionOrValue.Value(Color.Green),
+        hillshadeShadowColor = colors(listOf(Color.Red)),
+        hillshadeHighlightColor = colors(listOf(Color.Green)),
         hillshadeAccentColor = ExpressionOrValue.Value(Color.Blue),
     )
 
@@ -101,7 +115,7 @@ class HillshadeLayerPainterTest {
         // and the bottom half faces south.
         val ridge = dem { _, y -> if (y < DEM / 2) y * 8 else (DEM - 1 - y) * 8 }
         // Light from due north.
-        val paint = tintedPaint.copy(hillshadeIlluminationDirection = ExpressionOrValue.Value(0.0))
+        val paint = tintedPaint.copy(hillshadeIlluminationDirection = numbers(0.0))
 
         val bitmap = render(paint, wholeTile(ridge))
 
@@ -115,9 +129,7 @@ class HillshadeLayerPainterTest {
     @Test
     fun `turning the light around swaps which flank is lit`() = runTest {
         val ridge = dem { _, y -> if (y < DEM / 2) y * 8 else (DEM - 1 - y) * 8 }
-        val fromSouth = tintedPaint.copy(
-            hillshadeIlluminationDirection = ExpressionOrValue.Value(180.0)
-        )
+        val fromSouth = tintedPaint.copy(hillshadeIlluminationDirection = numbers(180.0))
 
         val bitmap = render(fromSouth, wholeTile(ridge))
 
@@ -178,8 +190,94 @@ class HillshadeLayerPainterTest {
         )
     }
 
+    /**
+     * A tile at z16 rather than the z12 the tests above use.
+     *
+     * The slope divisor is proportional to the ground resolution, so at z12 a DEM step of a few
+     * metres per sample produces a derivative around 0.04 -- every method then shades so faintly
+     * that two of them round to the same 8-bit pixel. These comparisons need the algorithms to be
+     * telling themselves apart, not the quantizer.
+     */
+    private fun steepTile() = wholeTile(dem { x, y -> x * 6 + y * 3 }, z = STEEP_Z)
+
+    private suspend fun renderSteep(paint: HillshadePaint) =
+        render(paint, steepTile(), tileZ = STEEP_Z, tileY = 1 shl (STEEP_Z - 1))
+
+    private fun ImageBitmap.differsFrom(other: ImageBitmap): Boolean =
+        (0 until SIZE).any { y -> (0 until SIZE).any { x -> pixelAt(x, y) != other.pixelAt(x, y) } }
+
+    @Test
+    fun `a method other than standard shades differently`() = runTest {
+        val standard = renderSteep(tintedPaint)
+
+        for (method in listOf(
+            HILLSHADE_METHOD_BASIC,
+            HILLSHADE_METHOD_COMBINED,
+            HILLSHADE_METHOD_IGOR,
+            HILLSHADE_METHOD_MULTIDIRECTIONAL,
+        )) {
+            val other = renderSteep(
+                tintedPaint.copy(hillshadeMethod = ExpressionOrValue.Value(method))
+            )
+            assertTrue(
+                standard.differsFrom(other),
+                "$method rendered as standard -- hillshade-method was dropped",
+            )
+        }
+    }
+
+    @Test
+    fun `the light altitude drives the methods that read it`() = runTest {
+        val basic = tintedPaint.copy(
+            hillshadeMethod = ExpressionOrValue.Value(HILLSHADE_METHOD_BASIC)
+        )
+
+        val low = renderSteep(basic.copy(hillshadeIlluminationAltitude = numbers(10.0)))
+        val high = renderSteep(basic.copy(hillshadeIlluminationAltitude = numbers(80.0)))
+
+        assertTrue(
+            low.differsFrom(high),
+            "hillshade-illumination-altitude must reach basic_hillshade",
+        )
+    }
+
+    @Test
+    fun `a multidirectional layer averages every source it declares`() = runTest {
+        val multi = tintedPaint.copy(
+            hillshadeMethod = ExpressionOrValue.Value(HILLSHADE_METHOD_MULTIDIRECTIONAL),
+            hillshadeIlluminationAltitude = numbers(45.0),
+        )
+
+        val one = renderSteep(multi.copy(hillshadeIlluminationDirection = numbers(90.0)))
+        val four = renderSteep(
+            multi.copy(hillshadeIlluminationDirection = numbers(90.0, 180.0, 270.0, 0.0))
+        )
+
+        assertTrue(
+            one.differsFrom(four),
+            "each declared direction must contribute a shading pass",
+        )
+    }
+
+    @Test
+    fun `nearest resampling keeps the dem's hard edges`() = runTest {
+        // A one-sample step, magnified onto a tile twice the DEM's size: bilinear smears the seam.
+        val step = wholeTile(dem { x, _ -> if (x < DEM / 2) 0 else 120 }, z = STEEP_Z)
+
+        val linear = render(tintedPaint, step, tileZ = STEEP_Z, tileY = 1 shl (STEEP_Z - 1))
+        val nearest = render(
+            tintedPaint.copy(resampling = ExpressionOrValue.Value(RESAMPLING_NEAREST)),
+            step,
+            tileZ = STEEP_Z,
+            tileY = 1 shl (STEEP_Z - 1),
+        )
+
+        assertTrue(linear.differsFrom(nearest), "resampling must reach the tile blit")
+    }
+
     private companion object {
         const val SIZE = 64
         const val DEM = 32
+        const val STEEP_Z = 16
     }
 }

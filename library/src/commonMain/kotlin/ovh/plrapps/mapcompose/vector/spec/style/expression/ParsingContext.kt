@@ -97,6 +97,16 @@ class ParsingContext(
                     (actual == ValueType || actual == StringType)
                 ) {
                     parsed = annotate(parsed, expected, typeAnnotation ?: TypeAnnotation.COERCE)
+                } else if (expected == NumberArrayType &&
+                    (actual == ValueType || actual == NumberType || actual is ArrayType)
+                ) {
+                    // A `numberArray` accepts a bare number, so the coercion -- not an assertion --
+                    // is what lets `["get", "dir"]` and a literal `[335, 200]` both land.
+                    parsed = annotate(parsed, expected, typeAnnotation ?: TypeAnnotation.COERCE)
+                } else if (expected == ColorArrayType &&
+                    (actual == ValueType || actual == StringType || actual is ArrayType)
+                ) {
+                    parsed = annotate(parsed, expected, typeAnnotation ?: TypeAnnotation.COERCE)
                 } else if (checkSubtype(expected, actual) != null) {
                     return null
                 }

@@ -30,9 +30,22 @@ class HillshadeShadingTest {
         return assertNotNull(DemData.fromArgb(pixels, dim, dim, metresPerBlue))
     }
 
+    private fun sourceOf(
+        directionDeg: Double = 0.0,
+        altitudeDeg: Double = 45.0,
+        shadow: Color = Color.Black,
+        highlight: Color = Color.White,
+    ) = IlluminationSource(
+        azimuthRad = directionDeg * PI / 180.0,
+        altitudeRad = altitudeDeg * PI / 180.0,
+        shadow = shadow,
+        highlight = highlight,
+    )
+
     @Test
     fun `slopeDivisor matches upstream at a 512 pixel dem`() {
-        // Upstream's literal: pow(2, exaggeration + (19.2562 - z)), where 19.2562 hardcodes 512.
+        /* Upstream's divisor is `pow(2, exaggeration + (28.2562 - z)) / tileSize`, which at a 512 px
+         * tile is the `pow(2, exaggeration + (19.2562 - z))` its prepare shader used to hardcode. */
         for (z in listOf(0.0, 1.0, 3.0, 6.0, 12.0, 15.0, 18.0)) {
             val exaggerationFactor = when {
                 z < 2.0 -> 0.4
@@ -59,19 +72,27 @@ class HillshadeShadingTest {
     }
 
     @Test
-    fun `flat ground has no slope and is not shaded`() {
+    fun `the derivative is the true gradient and is not quartered`() {
+        /* maplibre-gl-js#5768 dropped the `/ 4.0` its prepare pass applied to every elevation, so
+         * the Sobel sum reaches the shader undivided -- which is the half of the rescaling this
+         * port had to follow, the other half being the z-factor halving from 1.25 to 0.625. */
+        val dem = demOf(8) { x, _ -> x * 10 }
+        val divisor = 1000.0
+
+        val (dx, _) = sobelDeriv(dem, x = 4, y = 4, divisor = divisor)
+
+        /* The neighbourhood is a 10 m per sample ramp, so the weighted difference is 4 * 2 * 10. */
+        assertEquals(80.0 / divisor, dx, 1e-12)
+    }
+
+    @Test
+    fun `flat ground has no slope`() {
         val dem = demOf(8) { _, _ -> 100 }
         val divisor = slopeDivisor(tileZoom = 12.0, demZoom = 12, dim = 8)
 
         val (dx, dy) = sobelDeriv(dem, x = 4, y = 4, divisor = divisor)
         assertEquals(0.0, dx, 1e-12)
         assertEquals(0.0, dy, 1e-12)
-
-        val color = shadePixel(
-            derivX = dx, derivY = dy, latitude = 0.0, intensity = 0.5, azimuthRad = 0.0,
-            shadow = Color.Black, highlight = Color.White, accent = Color.Black,
-        )
-        assertEquals(0f, color.alpha, "a flat sample must leave the tile untouched")
     }
 
     @Test
@@ -100,7 +121,7 @@ class HillshadeShadingTest {
         // A tiny divisor stands in for a very high zoom over very steep ground.
         val (dx, dy) = sobelDeriv(dem, x = 4, y = 4, divisor = 1e-3)
 
-        assertEquals(1.0, dx, 1e-12, "upstream packs the derivative into 8 bits as deriv/2 + 0.5")
+        assertEquals(4.0, dx, 1e-12, "upstream packs the derivative into 8 bits as deriv/8 + 0.5")
         assertEquals(0.0, dy, 1e-12)
     }
 
@@ -129,12 +150,11 @@ class HillshadeShadingTest {
     @Test
     fun `a slope facing the light is highlighted and one facing away is shadowed`() {
         // Light from due north (0 degrees), tinted so the two cases are unmistakable.
-        val highlight = Color.Green
-        val shadow = Color.Red
+        val source = sourceOf(directionDeg = 0.0, shadow = Color.Red, highlight = Color.Green)
 
         fun shade(derivY: Double) = shadePixel(
-            derivX = 0.0, derivY = derivY, latitude = 0.0, intensity = 0.5, azimuthRad = 0.0,
-            shadow = shadow, highlight = highlight, accent = Color.Black,
+            derivX = 0.0, derivY = derivY, latitude = 0.0, exaggeration = 0.5,
+            method = HillshadeMethod.STANDARD, sources = listOf(source), accent = Color.Black,
         )
 
         /* deriv.y is south minus north in DEM row order, so a positive value means the ground
@@ -154,13 +174,13 @@ class HillshadeShadingTest {
 
     @Test
     fun `turning the light around swaps which side is lit`() {
-        val highlight = Color.Green
-        val shadow = Color.Red
-
         fun shade(azimuthDeg: Double) = shadePixel(
-            derivX = 0.0, derivY = 0.5, latitude = 0.0, intensity = 0.5,
-            azimuthRad = azimuthDeg * PI / 180.0,
-            shadow = shadow, highlight = highlight, accent = Color.Black,
+            derivX = 0.0, derivY = 0.5, latitude = 0.0, exaggeration = 0.5,
+            method = HillshadeMethod.STANDARD,
+            sources = listOf(
+                sourceOf(directionDeg = azimuthDeg, shadow = Color.Red, highlight = Color.Green)
+            ),
+            accent = Color.Black,
         )
 
         assertTrue(shade(0.0).green > shade(0.0).red)
@@ -170,12 +190,167 @@ class HillshadeShadingTest {
     @Test
     fun `a lower intensity makes the whole layer more transparent`() {
         fun alphaAt(intensity: Double) = shadePixel(
-            derivX = 0.4, derivY = 0.4, latitude = 0.0, intensity = intensity, azimuthRad = 0.0,
-            shadow = Color.Black, highlight = Color.White, accent = Color.Black,
+            derivX = 0.4, derivY = 0.4, latitude = 0.0, exaggeration = intensity,
+            method = HillshadeMethod.STANDARD, sources = listOf(sourceOf()), accent = Color.Black,
         ).alpha
 
         assertTrue(alphaAt(0.1) < alphaAt(0.25), "below 0.5 the intensity scales the colours")
         assertTrue(alphaAt(0.25) < alphaAt(0.5))
+    }
+
+    @Test
+    fun `an unknown method falls back to standard as upstream's default arm does`() {
+        assertEquals(HillshadeMethod.STANDARD, HillshadeMethod.ofOrDefault(null))
+        assertEquals(HillshadeMethod.STANDARD, HillshadeMethod.ofOrDefault("standard"))
+        assertEquals(HillshadeMethod.STANDARD, HillshadeMethod.ofOrDefault("not-a-method"))
+        assertEquals(HillshadeMethod.IGOR, HillshadeMethod.ofOrDefault("igor"))
+        assertEquals(
+            HillshadeMethod.MULTIDIRECTIONAL,
+            HillshadeMethod.ofOrDefault("multidirectional"),
+        )
+    }
+
+    @Test
+    fun `only the methods that ignore the light altitude leave flat ground untouched`() {
+        fun flat(method: HillshadeMethod) = shadePixel(
+            derivX = 0.0, derivY = 0.0, latitude = 0.0, exaggeration = 0.5,
+            method = method, sources = listOf(sourceOf()), accent = Color.Black,
+        )
+
+        /* sin(0) and 1 - cos(0) are both zero, so these three vanish on flat ground. */
+        assertEquals(0f, flat(HillshadeMethod.STANDARD).alpha)
+        assertEquals(0f, flat(HillshadeMethod.IGOR).alpha)
+        assertEquals(0f, flat(HillshadeMethod.COMBINED).alpha)
+
+        /* `basic` and `multidirectional` light flat ground by cos of the altitude, which at the
+         * spec's 45 degrees clears the shader's 0.5 threshold -- so it is a uniform highlight, not
+         * nothing, and the painter cannot short-circuit it away. */
+        assertTrue(
+            flat(HillshadeMethod.BASIC).alpha > 0f,
+            "a flat surface under a 45 degree light is lit, not transparent",
+        )
+        assertTrue(flat(HillshadeMethod.MULTIDIRECTIONAL).alpha > 0f)
+    }
+
+    @Test
+    fun `a light directly overhead saturates the highlight on flat ground`() {
+        val overhead = shadePixel(
+            derivX = 0.0, derivY = 0.0, latitude = 0.0, exaggeration = 0.5,
+            method = HillshadeMethod.BASIC,
+            sources = listOf(sourceOf(altitudeDeg = 90.0, highlight = Color.Green)),
+            accent = Color.Black,
+        )
+
+        // cang is sin(90) = 1, so the highlight weight is 2 * 1 - 1.
+        assertEquals(1f, overhead.alpha, 1e-6f)
+        assertEquals(Color.Green.green, overhead.green, 1e-6f)
+    }
+
+    @Test
+    fun `multidirectional over one source is basic`() {
+        val source = sourceOf(directionDeg = 335.0, altitudeDeg = 30.0)
+
+        fun shade(method: HillshadeMethod) = shadePixel(
+            derivX = 0.3, derivY = -0.2, latitude = 46.0, exaggeration = 0.7,
+            method = method, sources = listOf(source), accent = Color.Black,
+        )
+
+        /* Upstream negates multidirectional's cos_az and sin_az and drops basic's `+ PI`, which is
+         * the same rotation -- so the two must agree exactly for a single light. */
+        assertEquals(shade(HillshadeMethod.BASIC), shade(HillshadeMethod.MULTIDIRECTIONAL))
+    }
+
+    @Test
+    fun `multidirectional averages its sources`() {
+        val east = sourceOf(directionDeg = 90.0)
+        val west = sourceOf(directionDeg = 270.0)
+
+        fun alpha(sources: List<IlluminationSource>) = shadePixel(
+            derivX = 0.6, derivY = 0.0, latitude = 0.0, exaggeration = 0.6,
+            method = HillshadeMethod.MULTIDIRECTIONAL, sources = sources, accent = Color.Black,
+        ).alpha
+
+        val fromEast = alpha(listOf(east))
+        val fromWest = alpha(listOf(west))
+        val fromBoth = alpha(listOf(east, west))
+
+        /* An east-facing slope is shadowed by one light and lit by the other, so their weights
+         * differ -- and the pair's result is the mean of the two, which is what upstream's
+         * `/ float(NUM_ILLUMINATION_SOURCES)` computes. */
+        assertTrue(fromEast != fromWest, "the two lights must disagree for the mean to mean anything")
+        // Compose quantizes alpha to 8 bits, so the mean of two rounded values and the rounded
+        // mean can sit half a step apart.
+        assertEquals((fromEast + fromWest) / 2f, fromBoth, 1f / 255f)
+    }
+
+    @Test
+    fun `igor shades by aspect and ignores the light altitude`() {
+        fun shade(altitudeDeg: Double) = shadePixel(
+            derivX = 0.0, derivY = 0.5, latitude = 0.0, exaggeration = 0.5,
+            method = HillshadeMethod.IGOR,
+            sources = listOf(sourceOf(altitudeDeg = altitudeDeg)),
+            accent = Color.Black,
+        )
+
+        assertEquals(shade(20.0), shade(70.0))
+    }
+
+    @Test
+    fun `only standard reads the accent colour`() {
+        fun shade(method: HillshadeMethod, accent: Color) = shadePixel(
+            derivX = 0.4, derivY = 0.4, latitude = 0.0, exaggeration = 0.5,
+            method = method, sources = listOf(sourceOf()), accent = accent,
+        )
+
+        assertTrue(
+            shade(HillshadeMethod.STANDARD, Color.Red) != shade(HillshadeMethod.STANDARD, Color.Blue)
+        )
+        for (method in listOf(
+            HillshadeMethod.BASIC,
+            HillshadeMethod.COMBINED,
+            HillshadeMethod.IGOR,
+            HillshadeMethod.MULTIDIRECTIONAL,
+        )) {
+            assertEquals(shade(method, Color.Red), shade(method, Color.Blue), "$method")
+        }
+    }
+
+    @Test
+    fun `illuminationSources pads every short list with its own last element`() {
+        val sources = illuminationSources(
+            directionsDeg = listOf(0.0, 90.0, 180.0),
+            altitudesDeg = listOf(30.0),
+            shadows = listOf(Color.Red, Color.Green),
+            highlights = emptyList(),
+            fallbackDirectionDeg = 335.0,
+            fallbackAltitudeDeg = 45.0,
+            fallbackShadow = Color.Black,
+            fallbackHighlight = Color.White,
+        )
+
+        assertEquals(3, sources.size, "the longest list decides the source count")
+        assertEquals(listOf(0.0, 90.0, 180.0), sources.map { it.azimuthRad * 180.0 / PI })
+        assertTrue(sources.all { abs(it.altitudeRad - 30.0 * PI / 180.0) < 1e-12 })
+        assertEquals(listOf(Color.Red, Color.Green, Color.Green), sources.map { it.shadow })
+        assertEquals(List(3) { Color.White }, sources.map { it.highlight })
+    }
+
+    @Test
+    fun `illuminationSources falls back to the spec defaults when a property is absent`() {
+        val sources = illuminationSources(
+            directionsDeg = emptyList(),
+            altitudesDeg = emptyList(),
+            shadows = emptyList(),
+            highlights = emptyList(),
+            fallbackDirectionDeg = 335.0,
+            fallbackAltitudeDeg = 45.0,
+            fallbackShadow = Color.Black,
+            fallbackHighlight = Color.White,
+        )
+
+        assertEquals(1, sources.size)
+        assertEquals(335.0, sources[0].azimuthRad * 180.0 / PI, 1e-9)
+        assertEquals(45.0, sources[0].altitudeRad * 180.0 / PI, 1e-9)
     }
 
     @Test

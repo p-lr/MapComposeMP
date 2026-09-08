@@ -2,10 +2,12 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression.definitions
 
 import androidx.compose.ui.graphics.Color
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ArrayType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvaluationContext
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExprType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Expression
+import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ParsingContext
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Stops
@@ -15,6 +17,8 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.colorspaces.Interpola
 import ovh.plrapps.mapcompose.vector.spec.style.expression.colorspaces.interpolateColor
 import ovh.plrapps.mapcompose.vector.spec.style.expression.colorspaces.interpolateNumber
 import ovh.plrapps.mapcompose.vector.spec.style.expression.findStopLessThanOrEqualTo
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.typeToString
 import kotlin.math.pow
 
@@ -69,6 +73,19 @@ class Interpolate(
             )
 
             type == ColorType -> interpolateColor(outputLower as Color, outputUpper as Color, t, space)
+
+            type == NumberArrayType -> NumberArray.interpolate(
+                outputLower as NumberArray,
+                outputUpper as NumberArray,
+                t,
+            )
+
+            type == ColorArrayType -> ColorArray.interpolate(
+                outputLower as ColorArray,
+                outputUpper as ColorArray,
+                t,
+                space,
+            )
 
             type is ArrayType -> {
                 val a = outputLower as List<*>
@@ -127,7 +144,8 @@ class Interpolate(
             }
         }
 
-        private val INTERPOLATABLE_TYPES = listOf(NumberType, ColorType)
+        private val INTERPOLATABLE_TYPES =
+            listOf(NumberType, ColorType, NumberArrayType, ColorArrayType)
 
         /** An `array<number>` whose length the property's expected type did not carry. */
         private fun isLengthlessNumberArray(type: ExprType): Boolean =
@@ -182,7 +200,11 @@ class Interpolate(
 
             var outputType: ExprType? = null
             val expected = context.expectedType
-            if (operator == "interpolate-hcl" || operator == "interpolate-lab") {
+            if ((operator == "interpolate-hcl" || operator == "interpolate-lab") &&
+                expected != ColorArrayType
+            ) {
+                // A `colorArray` property interpolates every one of its colours in that space, so
+                // the output type stays the array; only a plain colour property narrows to Color.
                 outputType = ColorType
             } else if (expected != null && expected != ValueType && !isLengthlessNumberArray(expected)) {
                 outputType = expected
