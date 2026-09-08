@@ -2,11 +2,13 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression.definitions
 
 import androidx.compose.ui.graphics.Color
 import ovh.plrapps.mapcompose.vector.spec.style.expression.BooleanType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ColorType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvaluationContext
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExprType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Expression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.FormattedType
+import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberArrayType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ParsingContext
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ResolvedImageType
@@ -15,7 +17,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.StringType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ValueType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsToNumber
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsTruthy
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 import ovh.plrapps.mapcompose.vector.spec.style.expression.validateRGBA
 import ovh.plrapps.mapcompose.vector.spec.style.expression.valueToJsonString
@@ -26,7 +30,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.valueToString
  *
  * Ported from `maplibre-style-spec/src/expression/definitions/coercion.ts`. Since these coercions
  * can fail at runtime they accept multiple arguments, evaluating one at a time until one succeeds.
- * The parser also inserts these implicitly for color- and formatted-typed properties.
+ * The parser also inserts these implicitly for color-, formatted-, `numberArray`- and
+ * `colorArray`-typed properties -- the last two have no `to-*` operator of their own upstream
+ * either, so the [types] map below is the complete set of spellings a style can write.
  */
 class Coercion(
     override val type: ExprType,
@@ -94,6 +100,38 @@ class Coercion(
                 break
             }
             result ?: throw RuntimeError("Could not convert ${valueToJsonString(value)} to number.", key)
+        }
+
+        NumberArrayType -> {
+            var input: Any? = null
+            var result: NumberArray? = null
+            for (arg in args) {
+                input = arg.evaluate(ctx)
+                result = NumberArray.parse(input)
+                if (result != null) break
+            }
+            result ?: throw RuntimeError(
+                "Could not parse numberArray from value '${
+                    if (input is String) input else valueToJsonString(input)
+                }'",
+                key,
+            )
+        }
+
+        ColorArrayType -> {
+            var input: Any? = null
+            var result: ColorArray? = null
+            for (arg in args) {
+                input = arg.evaluate(ctx)
+                result = ColorArray.parse(input)
+                if (result != null) break
+            }
+            result ?: throw RuntimeError(
+                "Could not parse colorArray from value '${
+                    if (input is String) input else valueToJsonString(input)
+                }'",
+                key,
+            )
         }
 
         FormattedType -> Formatted.fromString(valueToString(args[0].evaluate(ctx)))
