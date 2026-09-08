@@ -78,10 +78,15 @@ object StyleSpecDefaults {
     const val RASTER_RESAMPLING = RESAMPLING_LINEAR
     const val RASTER_FADE_DURATION = 300.0
 
-    // paint_hillshade
+    /* paint_hillshade. The illumination properties are `numberArray` / `colorArray` in the spec,
+     * whose defaults are nonetheless written as scalars -- a one-element array is what the spec
+     * means, and what `NumberArray.parse` produces from one. */
     const val HILLSHADE_EXAGGERATION = 0.5
     const val HILLSHADE_ILLUMINATION_DIRECTION = 335.0
+    const val HILLSHADE_ILLUMINATION_ALTITUDE = 45.0
     const val HILLSHADE_ILLUMINATION_ANCHOR = ANCHOR_VIEWPORT
+    const val HILLSHADE_METHOD = HILLSHADE_METHOD_STANDARD
+    const val HILLSHADE_RESAMPLING = RESAMPLING_LINEAR
     val HILLSHADE_SHADOW_COLOR = Color.Black
     val HILLSHADE_HIGHLIGHT_COLOR = Color.White
     val HILLSHADE_ACCENT_COLOR = Color.Black
@@ -230,3 +235,25 @@ const val RESAMPLING_LINEAR = "linear"
 
 /** `raster-resampling` enum value: nearest-neighbour, which keeps a magnified tile's hard edges. */
 const val RESAMPLING_NEAREST = "nearest"
+
+/*
+ * `hillshade-method` enum values, one per algorithm in `hillshade.fragment.glsl`. All but
+ * [HILLSHADE_METHOD_STANDARD] are ports of a GDAL `gdaldem` algorithm; only `standard` reads
+ * `hillshade-accent-color`, and only `basic`, `combined` and `multidirectional` read
+ * `hillshade-illumination-altitude`.
+ */
+
+/** MapLibre's legacy algorithm, and the spec default. */
+const val HILLSHADE_METHOD_STANDARD = "standard"
+
+/** `GDALHillshadeAlg`, one light source with an altitude. */
+const val HILLSHADE_METHOD_BASIC = "basic"
+
+/** `GDALHillshadeCombinedAlg`, which folds the slope magnitude into the shade. */
+const val HILLSHADE_METHOD_COMBINED = "combined"
+
+/** `GDALHillshadeIgorAlg`, whose shading depends on aspect rather than on the light's altitude. */
+const val HILLSHADE_METHOD_IGOR = "igor"
+
+/** [HILLSHADE_METHOD_BASIC] averaged over every illumination source the style declares. */
+const val HILLSHADE_METHOD_MULTIDIRECTIONAL = "multidirectional"

@@ -3,7 +3,9 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression
 import androidx.compose.ui.graphics.Color
 import kotlin.math.pow
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Collator
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 
 /**
@@ -15,7 +17,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
  *
  * The inhabited set is:
  * `null`, [String], [Double], [Boolean], [Color], [Collator], [Formatted], [ResolvedImage],
- * `List<Any?>`, `Map<String, Any?>`.
+ * [NumberArray], [ColorArray], `List<Any?>`, `Map<String, Any?>`.
  *
  * **Numbers are always [Double].** JavaScript has a single number type, and the whole engine's
  * equality and comparison semantics depend on that. MVT properties decode as `Int`/`Float`/`Long`/
@@ -42,7 +44,9 @@ fun validateRGBA(r: Any?, g: Any?, b: Any?, a: Any? = null): String? {
 }
 
 fun isValue(mixed: Any?): Boolean = when (mixed) {
-    null, is String, is Boolean, is Double, is Color, is Collator, is Formatted, is ResolvedImage -> true
+    null, is String, is Boolean, is Double, is Color, is Collator, is Formatted, is ResolvedImage,
+    is NumberArray, is ColorArray,
+        -> true
     is List<*> -> mixed.all { isValue(it) }
     is Map<*, *> -> mixed.all { (k, v) -> k is String && isValue(v) }
     else -> false
@@ -57,6 +61,8 @@ fun typeOf(value: Any?): ExprType = when (value) {
     is Collator -> CollatorType
     is Formatted -> FormattedType
     is ResolvedImage -> ResolvedImageType
+    is NumberArray -> NumberArrayType
+    is ColorArray -> ColorArrayType
     is List<*> -> {
         var itemType: ExprType? = null
         for (item in value) {
@@ -83,6 +89,7 @@ fun valueToString(value: Any?): String = when (value) {
     is Number -> formatNumber(value.toDouble())
     is Color -> colorToRgbaString(value)
     is Formatted, is ResolvedImage, is Collator -> value.toString()
+    is NumberArray, is ColorArray -> value.toString()
     else -> valueToJsonString(value)
 }
 
@@ -98,6 +105,8 @@ fun valueToJsonString(value: Any?): String = when (value) {
     }
 
     is Color -> "\"${colorToRgbaString(value)}\""
+    is NumberArray -> valueToJsonString(value.values)
+    is ColorArray -> valueToJsonString(value.values)
     else -> "\"${escapeJson(value.toString())}\""
 }
 
