@@ -142,6 +142,31 @@ class ColorReliefLayerPainterTest {
         )
     }
 
+    @Test
+    fun `a source overzoomed past its own sample count still colours`() = runTest {
+        // Two levels past a 4-sample DEM: each map tile is a quarter of one sample, so dividing the
+        // DEM's dimension by the span reaches zero -- which used to erase the layer.
+        val small = dem(dim = 4) { x, _ -> if (x < 2) 0 else 255 }
+
+        val low = render(
+            blackToWhite,
+            DemTile(small, TileRef(z = 12, x = 0, y = 0, subX = 1, subY = 1, span = 16)),
+        )
+        val high = render(
+            blackToWhite,
+            DemTile(small, TileRef(z = 12, x = 0, y = 0, subX = 14, subY = 1, span = 16)),
+        )
+
+        assertTrue(
+            low.pixelAt(SIZE / 2, SIZE / 2).red < 0.1f,
+            "a DEM magnified past one sample per tile must still colour its low half",
+        )
+        assertTrue(
+            high.pixelAt(SIZE / 2, SIZE / 2).red > 0.9f,
+            "and its high half",
+        )
+    }
+
     private companion object {
         const val SIZE = 64
         const val DEM = 32

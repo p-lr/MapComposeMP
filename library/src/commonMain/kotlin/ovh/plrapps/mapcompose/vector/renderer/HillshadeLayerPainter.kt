@@ -1,7 +1,10 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -10,6 +13,7 @@ import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
 import ovh.plrapps.mapcompose.vector.renderer.utils.HillshadeMethod
 import ovh.plrapps.mapcompose.vector.renderer.utils.illuminationSources
+import ovh.plrapps.mapcompose.vector.renderer.utils.sampleWindow
 import ovh.plrapps.mapcompose.vector.renderer.utils.shadePixel
 import ovh.plrapps.mapcompose.vector.renderer.utils.slopeDivisor
 import ovh.plrapps.mapcompose.vector.renderer.utils.sobelDeriv
@@ -28,8 +32,10 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
  *
  * The [DemData] always covers the whole fetched tile -- border ring included -- and [ref] says which
  * `span x span` sub-square of it the map tile is, exactly as [RasterTileImage] does for an image
- * source. Cropping at read time rather than at decode time is what lets several overzoomed map tiles
- * share one decoded DEM, and it keeps the border ring reachable from every sub-square.
+ * source. Resolving the sub-square at read time rather than at decode time is what lets several
+ * overzoomed map tiles share one decoded DEM, and it keeps the border ring reachable from every
+ * sub-square. It is a *fractional* window of the DEM's samples once the source is overzoomed past
+ * its own dimension; see [ovh.plrapps.mapcompose.vector.renderer.utils.SampleWindow].
  */
 class DemTile(val dem: DemData, val ref: TileRef)
 
@@ -108,14 +114,11 @@ class HillshadeLayerPainter {
 
         val dem = demTile.dem
         val ref = demTile.ref
-        val span = ref.span.coerceAtLeast(1)
-        /* The sub-square the map tile covers. It is a whole tile in the common case; when the source
-         * is overzoomed it is one square of the ancestor, which magnifies rather than resamples --
-         * there is no more elevation data to be had. */
-        val size = dem.dim / span
-        if (size <= 0) return
-        val originX = ref.subX * size
-        val originY = ref.subY * size
+        /* The samples the map tile covers. They are the whole tile in the common case; when the
+         * source is overzoomed they are one -- possibly fractional -- window of the ancestor's,
+         * which magnifies rather than resamples, there being no more elevation data to be had. */
+        val x = sampleWindow(dim = dem.dim, sub = ref.subX, span = ref.span, canvasSize = canvasSize)
+        val y = sampleWindow(dim = dem.dim, sub = ref.subY, span = ref.span, canvasSize = canvasSize)
 
         val divisor = slopeDivisor(tileZoom = actualZoom, demZoom = ref.z, dim = dem.dim)
         val (latTop, latBottom) = tileLatRange(z = tileZ, y = tileY)
@@ -136,20 +139,22 @@ class HillshadeLayerPainter {
             accent = accent,
         ).toArgb()
 
-        val pixels = IntArray(size * size)
-        for (row in 0 until size) {
-            /* Upstream's `u_latrange` interpolation, over the map tile rather than over the DEM. */
-            val t = (row + 0.5) / size
+        val pixels = IntArray(x.count * y.count)
+        for (row in 0 until y.count) {
+            /* Upstream's `u_latrange` interpolation, over the map tile rather than over the DEM.
+             * The window's outermost samples sit just outside the tile, so this is clamped rather
+             * than extrapolated -- a tile spans too little latitude for the difference to show. */
+            val t = y.tileFractionOf(row).coerceIn(0.0, 1.0)
             val latitude = latTop + (latBottom - latTop) * t
 
-            for (col in 0 until size) {
+            for (col in 0 until x.count) {
                 val (derivX, derivY) = sobelDeriv(
                     dem = dem,
-                    x = originX + col,
-                    y = originY + row,
+                    x = x.first + col,
+                    y = y.first + row,
                     divisor = divisor,
                 )
-                pixels[row * size + col] = if (derivX == 0.0 && derivY == 0.0) {
+                pixels[row * x.count + col] = if (derivX == 0.0 && derivY == 0.0) {
                     flatColor
                 } else {
                     shadePixel(
@@ -165,17 +170,24 @@ class HillshadeLayerPainter {
             }
         }
 
-        canvas.drawImage(
-            image = imageBitmapFromArgb(pixels, size, size),
-            srcOffset = IntOffset.Zero,
-            srcSize = IntSize(size, size),
-            dstOffset = IntOffset.Zero,
-            dstSize = IntSize(canvasSize, canvasSize),
-            filterQuality = if (resampling == RESAMPLING_NEAREST) {
-                FilterQuality.None
-            } else {
-                FilterQuality.Low
-            },
-        )
+        /* Placed by a transform for the reason [RasterLayerPainter] places its image by one: the
+         * window's origin and its magnification are both fractional once the source is overzoomed
+         * past its own sample count, and `dstOffset`/`dstSize` are integers. */
+        canvas.translate(x.origin, y.origin) {
+            scale(scaleX = x.scale, scaleY = y.scale, pivot = Offset.Zero) {
+                drawImage(
+                    image = imageBitmapFromArgb(pixels, x.count, y.count),
+                    srcOffset = IntOffset.Zero,
+                    srcSize = IntSize(x.count, y.count),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(x.count, y.count),
+                    filterQuality = if (resampling == RESAMPLING_NEAREST) {
+                        FilterQuality.None
+                    } else {
+                        FilterQuality.Low
+                    },
+                )
+            }
+        }
     }
 }

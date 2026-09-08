@@ -258,7 +258,7 @@ class VectorRasterizer(
 
         /* Raster sources are keyed by the tile actually fetched, not by the tile requested: when the
          * source is overzoomed several map tiles share one ancestor image and differ only in which
-         * part of it they crop. */
+         * part of it they magnify. */
         val rasterForSource: Map<String, RasterTileImage?> = rasterSourceNames.associateWith { sourceName ->
             val tile = fetched[sourceName] ?: return@associateWith null
             val key = getTileKey(sourceName, tile.ref.z, tile.ref.x, tile.ref.y)
@@ -266,7 +266,7 @@ class VectorRasterizer(
                 ?: decodeImageFromByteArray(tile.bytes)?.also { decoded ->
                     rasterImageCacheMutex.withLock { rasterImageCache.put(key, decoded) }
                 }
-            image?.let { RasterTileImage.of(it, tile.ref) }
+            image?.let { RasterTileImage(it, tile.ref) }
         }
 
         val demForSource: Map<String, DemTile?> = demSourceNames.associateWith { sourceName ->

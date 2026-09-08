@@ -4,8 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.spec.style.RasterLayer
@@ -13,7 +11,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import ovh.plrapps.mapcompose.vector.spec.style.raster.RasterPaint
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -40,7 +37,7 @@ class RasterLayerPainterTest {
     }
 
     private fun wholeTile(image: ImageBitmap) =
-        RasterTileImage(image, IntOffset.Zero, IntSize(image.width, image.height))
+        RasterTileImage(image, TileRef.whole(z = 10, x = 5, y = 4))
 
     private suspend fun render(
         paint: RasterPaint,
@@ -139,9 +136,8 @@ class RasterLayerPainterTest {
         )
         // One zoom level past the source's maxzoom, this map tile is the top-right quarter.
         val ref = TileRef(z = 10, x = 5, y = 4, subX = 1, subY = 0, span = 2)
-        val cropped = assertNotNull(RasterTileImage.of(image, ref))
 
-        val bitmap = render(RasterPaint(), cropped)
+        val bitmap = render(RasterPaint(), RasterTileImage(image, ref))
 
         assertColorEquals(Color.Green, bitmap.pixelAt(4, 4))
         assertColorEquals(Color.Green, bitmap.pixelAt(SIZE / 2, SIZE / 2))
@@ -149,26 +145,38 @@ class RasterLayerPainterTest {
     }
 
     @Test
-    fun `RasterTileImage of crops to the sub square the ref names`() {
-        val image = solidImage(Color.Red, size = 64)
+    fun `a source overzoomed past its own pixel count still draws`() = runTest {
+        // Three levels past a 4-pixel image, so the map tile is half of one source pixel. Dividing
+        // the image's width by the span reaches zero here, which used to erase the layer.
+        val image = quadrantImage(
+            topLeft = Color.Red, topRight = Color.Green,
+            bottomLeft = Color.Blue, bottomRight = Color.Yellow,
+            size = 4,
+        )
+        val nearest = RasterPaint(rasterResampling = ExpressionOrValue.Value("nearest"))
 
-        val whole = assertNotNull(RasterTileImage.of(image, TileRef(3, 1, 1, 0, 0, 1)))
-        assertEquals(IntOffset.Zero, whole.srcOffset)
-        assertEquals(IntSize(64, 64), whole.srcSize)
+        // Sub-square (1, 1) of 8 sits inside the image's top-left pixel, which is red.
+        val topLeft = render(nearest, RasterTileImage(image, TileRef(10, 5, 4, 1, 1, 8)))
+        assertColorEquals(Color.Red, topLeft.pixelAt(SIZE / 2, SIZE / 2))
 
-        val quarter = assertNotNull(RasterTileImage.of(image, TileRef(3, 1, 1, 1, 1, 2)))
-        assertEquals(IntOffset(32, 32), quarter.srcOffset)
-        assertEquals(IntSize(32, 32), quarter.srcSize)
+        // Sub-square (6, 1) sits inside the top-right quadrant, which is green.
+        val topRight = render(nearest, RasterTileImage(image, TileRef(10, 5, 4, 6, 1, 8)))
+        assertColorEquals(Color.Green, topRight.pixelAt(SIZE / 2, SIZE / 2))
 
-        val sixteenth = assertNotNull(RasterTileImage.of(image, TileRef(3, 1, 1, 3, 2, 4)))
-        assertEquals(IntOffset(48, 32), sixteenth.srcOffset)
-        assertEquals(IntSize(16, 16), sixteenth.srcSize)
+        // Sub-square (1, 6) sits inside the bottom-left quadrant, which is blue.
+        val bottomLeft = render(nearest, RasterTileImage(image, TileRef(10, 5, 4, 1, 6, 8)))
+        assertColorEquals(Color.Blue, bottomLeft.pixelAt(SIZE / 2, SIZE / 2))
     }
 
     @Test
-    fun `RasterTileImage of gives up when a sub square is narrower than a pixel`() {
-        val image = solidImage(Color.Red, size = 4)
-        assertEquals(null, RasterTileImage.of(image, TileRef(3, 1, 1, 5, 5, 8)))
+    fun `an overzoomed sub square covers the whole tile`() = runTest {
+        val image = solidImage(Color.Red, size = 8)
+
+        val bitmap = render(RasterPaint(), RasterTileImage(image, TileRef(10, 5, 4, 3, 2, 4)))
+
+        assertEquals(SIZE * SIZE, bitmap.opaquePixelCount(), "no gap at the tile's edges")
+        assertColorEquals(Color.Red, bitmap.pixelAt(0, 0))
+        assertColorEquals(Color.Red, bitmap.pixelAt(SIZE - 1, SIZE - 1))
     }
 
     @Test
