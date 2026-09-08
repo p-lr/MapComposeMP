@@ -1,12 +1,16 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
 import ovh.plrapps.mapcompose.vector.renderer.utils.colorReliefRamp
+import ovh.plrapps.mapcompose.vector.renderer.utils.sampleWindow
 import ovh.plrapps.mapcompose.vector.spec.style.ColorReliefLayer
 import ovh.plrapps.mapcompose.vector.spec.style.RESAMPLING_NEAREST
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
@@ -74,37 +78,42 @@ class ColorReliefLayerPainter {
 
         val dem = demTile.dem
         val ref = demTile.ref
-        val span = ref.span.coerceAtLeast(1)
-        /* The sub-square the map tile covers, as in [HillshadeLayerPainter]: the whole tile in the
-         * common case, one square of the ancestor when the source is overzoomed -- which magnifies
-         * rather than resamples, there being no more elevation data to be had. */
-        val size = dem.dim / span
-        if (size <= 0) return
-        val originX = ref.subX * size
-        val originY = ref.subY * size
+        /* The samples the map tile covers, as in [HillshadeLayerPainter]: the whole tile in the
+         * common case, one -- possibly fractional -- window of the ancestor's when the source is
+         * overzoomed, which magnifies rather than resamples, there being no more elevation data to
+         * be had. */
+        val x = sampleWindow(dim = dem.dim, sub = ref.subX, span = ref.span, canvasSize = canvasSize)
+        val y = sampleWindow(dim = dem.dim, sub = ref.subY, span = ref.span, canvasSize = canvasSize)
 
-        val pixels = IntArray(size * size)
-        for (row in 0 until size) {
-            for (col in 0 until size) {
-                val elevation = dem[originX + col, originY + row].toDouble()
-                pixels[row * size + col] = ramp.colorAt(elevation).toArgb()
+        val pixels = IntArray(x.count * y.count)
+        for (row in 0 until y.count) {
+            for (col in 0 until x.count) {
+                val elevation = dem[x.first + col, y.first + row].toDouble()
+                pixels[row * x.count + col] = ramp.colorAt(elevation).toArgb()
             }
         }
 
-        canvas.drawImage(
-            image = imageBitmapFromArgb(pixels, size, size),
-            srcOffset = IntOffset.Zero,
-            srcSize = IntSize(size, size),
-            dstOffset = IntOffset.Zero,
-            dstSize = IntSize(canvasSize, canvasSize),
-            /* Upstream's `fragColor = u_opacity * texture(...)` on a premultiplied output is exactly
-             * a scale of alpha, which is what `drawImage`'s alpha does. */
-            alpha = opacity,
-            filterQuality = if (resampling == RESAMPLING_NEAREST) {
-                FilterQuality.None
-            } else {
-                FilterQuality.Low
-            },
-        )
+        /* Placed by a transform for the reason [RasterLayerPainter] places its image by one: the
+         * window's origin and its magnification are both fractional once the source is overzoomed
+         * past its own sample count, and `dstOffset`/`dstSize` are integers. */
+        canvas.translate(x.origin, y.origin) {
+            scale(scaleX = x.scale, scaleY = y.scale, pivot = Offset.Zero) {
+                drawImage(
+                    image = imageBitmapFromArgb(pixels, x.count, y.count),
+                    srcOffset = IntOffset.Zero,
+                    srcSize = IntSize(x.count, y.count),
+                    dstOffset = IntOffset.Zero,
+                    dstSize = IntSize(x.count, y.count),
+                    /* Upstream's `fragColor = u_opacity * texture(...)` on a premultiplied output is
+                     * exactly a scale of alpha, which is what `drawImage`'s alpha does. */
+                    alpha = opacity,
+                    filterQuality = if (resampling == RESAMPLING_NEAREST) {
+                        FilterQuality.None
+                    } else {
+                        FilterQuality.Low
+                    },
+                )
+            }
+        }
     }
 }

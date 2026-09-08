@@ -327,8 +327,16 @@ sub-squares the requested tile is.
 What happens to the ancestor depends on the source, and here it follows upstream's
 `reparseOverscaled` flag:
 
-- an **image** source (`raster`, `raster-dem`) is *stretched*: the ancestor is cropped to the
-  sub-square and drawn over the whole tile (`RasterTileImage.of`, `HillshadeLayerPainter`);
+- an **image** source (`raster`, `raster-dem`) is *stretched*: the ancestor's sub-square is
+  magnified over the whole tile (`RasterLayerPainter`, `HillshadeLayerPainter`,
+  `ColorReliefLayerPainter`). The sub-square is a **fractional** window of the ancestor's samples,
+  resolved by `renderer/utils/OverzoomSampling.kt` — upstream draws the source tile's own quad and
+  samples the texture at fractional coordinates, so it never faces the question, and dividing the
+  ancestor's dimension by the span instead made a 256-sample source *disappear* nine levels above
+  its `maxzoom`, the quotient having reached zero. The window carries the half sample that bilinear
+  filtering needs on each side, so two sub-squares of one ancestor magnify continuously rather than
+  each clamping the filter at its own edge; it stops at the tile's own samples, because a DEM's
+  border ring is not shadeable (`sobelDeriv` would read one sample further still);
 - a **vector** or **geojson** source is *re-rendered at the display zoom*: `TileRenderer` decodes the
   ancestor's geometry at `canvasSize * span` and **translates** the destination by
   `-(subX, subY) * canvasSize`. Translating rather than scaling is the point — the geometry grows

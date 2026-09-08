@@ -155,7 +155,34 @@ class HillshadeLayerPainterTest {
         )
 
         assertTrue(left.opaquePixelCount() > 0, "the western sub-square holds the slope")
-        assertEquals(0, right.opaquePixelCount(), "the eastern one is flat ground")
+        /* Away from the boundary, where the eastern sub-square's window reaches back across it for
+         * the half sample bilinear filtering needs -- which is what keeps the two sub-squares
+         * continuous, and is what upstream's single texture does for free. */
+        for (x in SIZE / 4 until SIZE) {
+            assertEquals(
+                0f,
+                right.pixelAt(x, SIZE / 2).alpha,
+                "the eastern sub-square is flat ground at x=$x",
+            )
+        }
+    }
+
+    @Test
+    fun `a source overzoomed past its own sample count still shades`() = runTest {
+        // Two levels past a 4-sample DEM: each map tile is a quarter of one sample, so dividing the
+        // DEM's dimension by the span reaches zero -- which used to erase the layer.
+        val small = dem(dim = 4) { x, _ -> x * 85 }
+
+        val bitmap = render(
+            tintedPaint,
+            DemTile(small, TileRef(z = 20, x = 0, y = 0, subX = 7, subY = 7, span = 16)),
+            tileZ = 20,
+        )
+
+        assertTrue(
+            bitmap.opaquePixelCount() > 0,
+            "a DEM magnified past one sample per tile must still shade",
+        )
     }
 
     @Test
