@@ -8,11 +8,20 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Point2D
+import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.EXTENT
 import ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers
+import kotlin.math.round
 
 abstract class BaseRenderer(
     protected val configuration: MapLibreConfiguration,
 ) {
+
+    /** The MVT default when a layer declares no `extent`, per the vector tile spec. */
+    private val DEFAULT_MVT_EXTENT = 4096
+
+    /* `src/data/load_geometry.ts`: a scaled coordinate has to stay inside a signed 15-bit range. */
+    private val GEOMETRY_MAX = 16383.0
+    private val GEOMETRY_MIN = -16384.0
 
     /**
      * Evaluates the layer's filter against a feature.
@@ -38,11 +47,14 @@ abstract class BaseRenderer(
         canonical: CanonicalTileId? = null,
     ): Boolean {
         val filter = styleLayer.filter?.filter ?: return true
-        val target = evalFeature ?: buildEvalFeature(feature, tileLayer, filter.needGeometry)
+        val target = evalFeature ?: buildEvalFeature(feature, tileLayer, canonical)
+        /* The id the feature was built with wins, so a caller that hands over an [EvalFeature]
+         * cannot silently drop the tile it came from -- which is exactly how `within` came to
+         * reject every feature of a geographically filtered layer. */
         return filter.filter(
             globals = GlobalProperties(zoom = zoom.toInt().toDouble()),
             feature = target,
-            canonical = canonical,
+            canonical = target.canonical ?: canonical,
         )
     }
 
@@ -80,24 +92,33 @@ abstract class BaseRenderer(
     /**
      * Builds the expression-evaluation view of an MVT feature.
      *
-     * Geometry decoding is deferred behind a lambda and only requested when [needGeometry] is set,
-     * i.e. when some `within` or `distance` expression actually reads it — MapLibre gates it the
-     * same way with `FeatureFilter.needGeometry`.
+     * [canonical] is the tile the feature was decoded from -- for an overzoomed source that is the
+     * *ancestor* actually fetched, which is upstream's `OverscaledTileID.canonical`. It is what
+     * `within` and `distance` project tile-local geometry back to lng/lat with; without it both
+     * answer `false` / `NaN` and the property falls back to its spec default.
+     *
+     * The geometry provider is attached unconditionally. `EvalFeature.geometry` is `by lazy`, so
+     * the decode still happens only when an expression actually reads it -- upstream's
+     * `FeatureFilter.needGeometry` gate, moved from build time to read time. Gating the *provider*
+     * on the filter, as this used to, meant a `within` in a paint or layout property saw no
+     * geometry at all, and worse: `TileRenderer.localPropCache` is keyed across style layers, so
+     * the first layer to touch a feature decided whether every later layer's filter could see its
+     * geometry.
      */
     fun buildEvalFeature(
         feature: Tile.Feature,
         tileLayer: Tile.Layer,
-        needGeometry: Boolean = false,
-    ): EvalFeature = EvalFeature(
-        type = geometryTypeOf(feature),
-        id = feature.id?.toDouble(),
-        properties = extractFeatureProperties(feature, tileLayer),
-        geometryProvider = if (needGeometry) {
-            { decodeRawGeometry(feature.geometry) }
-        } else {
-            null
-        },
-    )
+        canonical: CanonicalTileId? = null,
+    ): EvalFeature {
+        val extent = tileLayer.extent ?: DEFAULT_MVT_EXTENT
+        return EvalFeature(
+            type = geometryTypeOf(feature),
+            id = feature.id?.toDouble(),
+            properties = extractFeatureProperties(feature, tileLayer),
+            canonical = canonical,
+            geometryProvider = { decodeRawGeometry(feature.geometry, extent) },
+        )
+    }
 
     fun geometryTypeOf(feature: Tile.Feature): String = when (feature.type) {
         Tile.GeomType.LINESTRING -> "LineString"
@@ -136,15 +157,32 @@ abstract class BaseRenderer(
     /**
      * Decodes MVT geometry commands into rings of tile-local coordinates.
      *
-     * Unlike [GeometryDecoders], which scales to canvas pixels, this keeps the raw 0..extent tile
-     * coordinate space that `within` and `distance` are defined in.
+     * Unlike [GeometryDecoders], which scales to canvas pixels, this keeps a tile-local coordinate
+     * space -- but the engine's, not the tile's. Ported from `src/data/load_geometry.ts`: the MVT
+     * layer's own [extent] (usually 4096) is rescaled to the style spec's [EXTENT] of 8192, which is
+     * the unit `within` and `distance` are written in (`getTileCoordinates` multiplies by it,
+     * `Within` shifts by `canonical.x * EXTENT`). Skipping the rescale, as this used to, halved
+     * every coordinate and put the comparison in the wrong quarter of the tile.
+     *
+     * Upstream's clamp to a signed 15-bit range is kept too: a coordinate outside it cannot be
+     * expressed by the vertex buffers it eventually feeds.
      */
-    private fun decodeRawGeometry(geometry: List<Int>): List<List<Point2D>> {
+    private fun decodeRawGeometry(geometry: List<Int>, extent: Int): List<List<Point2D>> {
+        val scale = EXTENT.toDouble() / extent
         val rings = mutableListOf<List<Point2D>>()
         var current = mutableListOf<Point2D>()
         var x = 0
         var y = 0
         var i = 0
+
+        fun add(px: Int, py: Int) {
+            current.add(
+                Point2D(
+                    round(px * scale).coerceIn(GEOMETRY_MIN, GEOMETRY_MAX),
+                    round(py * scale).coerceIn(GEOMETRY_MIN, GEOMETRY_MAX),
+                )
+            )
+        }
 
         while (i < geometry.size) {
             val commandInteger = geometry[i++]
@@ -161,7 +199,7 @@ abstract class BaseRenderer(
                         }
                         x += GeometryDecoders.decodeZigZag(geometry[i++])
                         y += GeometryDecoders.decodeZigZag(geometry[i++])
-                        current.add(Point2D(x.toDouble(), y.toDouble()))
+                        add(x, y)
                     }
                 }
 
@@ -170,7 +208,7 @@ abstract class BaseRenderer(
                         if (i + 1 >= geometry.size) return@repeat
                         x += GeometryDecoders.decodeZigZag(geometry[i++])
                         y += GeometryDecoders.decodeZigZag(geometry[i++])
-                        current.add(Point2D(x.toDouble(), y.toDouble()))
+                        add(x, y)
                     }
                 }
 

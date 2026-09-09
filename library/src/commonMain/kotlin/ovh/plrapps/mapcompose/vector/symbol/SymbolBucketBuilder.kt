@@ -13,6 +13,7 @@ import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_PLACEMENT_LINE
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
+import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 
@@ -98,8 +99,10 @@ internal class SymbolBucketBuilder(
          * long line than on many short segments." */
         val lineFeatures = mutableListOf<MergeableFeature<LineFeature>>()
 
-        // Feature geometry is only decoded when a `within`/`distance` expression reads it.
-        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
+        /* The tile these features came from -- the ancestor when the source is overzoomed, which is
+         * upstream's `OverscaledTileID.canonical` and the id `within` and `distance` project
+         * tile-local geometry back to lng/lat with. */
+        val canonical = CanonicalTileId(z = ref.z, x = ref.x, y = ref.y)
 
         for ((index, feature) in tileLayer.features.withIndex()) {
             /* The feature's position in the tile layer. See the note in `TileRenderer.render`: an
@@ -107,9 +110,9 @@ internal class SymbolBucketBuilder(
             val featureIdKey = "f$index"
             val propertyKey = if (ref.x != 0 || ref.y != 0) "T-${ref.x}-${ref.y}-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
+                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, canonical) }
             } else {
-                buildEvalFeature(feature, tileLayer, needGeometry)
+                buildEvalFeature(feature, tileLayer, canonical)
             }
 
             val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)

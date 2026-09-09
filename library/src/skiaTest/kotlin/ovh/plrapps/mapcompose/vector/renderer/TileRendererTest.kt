@@ -8,6 +8,7 @@ import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import kotlinx.serialization.json.Json
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJson
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonTiler
+import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
@@ -40,6 +41,10 @@ class TileRendererTest {
     )
 
     private fun layer(styleJson: String): Layer = json.decodeFromString(Layer.serializer(), styleJson)
+
+    /* The western neighbour of tile (0, 0) at the zoom [render] uses, wrapped around the world the
+     * way `VectorRasterizer.neighbourRefs` wraps it. Only `within` / `distance` read it. */
+    private val WEST_REF = TileRef.whole(z = 10, x = (1 shl 10) - 1, y = 0)
 
     private suspend fun render(
         styleLayer: Layer,
@@ -240,7 +245,7 @@ class TileRendererTest {
     fun `a heatmap layer accumulates the neighbouring tiles' points`() = runTest {
         // The point sits just inside the western neighbour's eastern edge, so its kernel reaches
         // into this tile even though this tile carries no points at all.
-        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0, ref = WEST_REF)
 
         val bitmap = render(heatmapLayer(), tile = null, neighbours = listOf(west))
 
@@ -252,7 +257,7 @@ class TileRendererTest {
     fun `a point outside its own tile is dropped rather than counted twice`() = runTest {
         // 4096 + 128 puts the point in the western neighbour's *buffer*: it belongs to this tile,
         // which carries it too, and upstream's CircleBucket drops it from the neighbour's bucket.
-        val west = NeighbourTile(tile = pointTile(4224 to 2048), dx = -1, dy = 0)
+        val west = NeighbourTile(tile = pointTile(4224 to 2048), dx = -1, dy = 0, ref = WEST_REF)
 
         val bitmap = render(heatmapLayer(), tile = null, neighbours = listOf(west))
 
@@ -306,7 +311,7 @@ class TileRendererTest {
         // 4032 of 4096 is one canvas pixel inside the western neighbour's eastern edge -- far
         // outside the range any MVT buffer would duplicate into this tile, and the disc still
         // reaches 7 pixels in.
-        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0, ref = WEST_REF)
 
         val bitmap = render(circleLayer(), tile = null, neighbours = listOf(west))
 
@@ -317,7 +322,7 @@ class TileRendererTest {
     @Test
     fun `a circle out of reach of this tile is not drawn`() = runTest {
         // Ten canvas pixels into the western neighbour, against a radius of eight.
-        val west = NeighbourTile(tile = pointTile(3456 to 2048), dx = -1, dy = 0)
+        val west = NeighbourTile(tile = pointTile(3456 to 2048), dx = -1, dy = 0, ref = WEST_REF)
 
         val bitmap = render(circleLayer(), tile = null, neighbours = listOf(west))
 
@@ -329,7 +334,7 @@ class TileRendererTest {
         /* The same vertex twice: owned by the western neighbour at 4032, and duplicated into this
          * tile's buffer at -64. Drawing both would double a translucent circle's alpha along the
          * seam, which is what the ownership rule prevents. */
-        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0)
+        val west = NeighbourTile(tile = pointTile(4032 to 2048), dx = -1, dy = 0, ref = WEST_REF)
         val translucent = layer(
             """{"id":"dots","type":"circle","source":"src","source-layer":"points",
                 "paint":{"circle-radius":8,"circle-color":"#ff0000","circle-opacity":0.5}}"""

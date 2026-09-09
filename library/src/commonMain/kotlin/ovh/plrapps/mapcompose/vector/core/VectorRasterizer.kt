@@ -363,11 +363,11 @@ class VectorRasterizer(
     ): List<NeighbourTile> {
         return supervisorScope {
             neighbourRefs(centre)
-                .map { (offset, ref) -> offset to async { decodeVectorTile(sourceName, ref) } }
-                .mapNotNull { (offset, deferred) ->
+                .map { (offset, ref) -> Triple(offset, ref, async { decodeVectorTile(sourceName, ref) }) }
+                .mapNotNull { (offset, ref, deferred) ->
                     val tile = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
                     val (dx, dy) = offset
-                    NeighbourTile(tile = tile, dx = dx, dy = dy)
+                    NeighbourTile(tile = tile, dx = dx, dy = dy, ref = ref)
                 }
         }
     }
@@ -386,7 +386,7 @@ class VectorRasterizer(
         return neighbourRefs(centre).mapNotNull { (offset, ref) ->
             val tile = geoJsonTile(sourceName, ref, source) ?: return@mapNotNull null
             val (dx, dy) = offset
-            NeighbourTile(tile = tile, dx = dx, dy = dy)
+            NeighbourTile(tile = tile, dx = dx, dy = dy, ref = ref)
         }
     }
 
