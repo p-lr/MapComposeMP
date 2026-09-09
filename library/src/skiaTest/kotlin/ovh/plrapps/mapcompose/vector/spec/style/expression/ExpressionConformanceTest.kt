@@ -404,12 +404,11 @@ class ExpressionConformanceTest {
          *
          * Three root causes, none of them in the expression engine itself:
          *
-         *  1. **No ICU on Kotlin Multiplatform.** `Intl.Collator` and `Intl.NumberFormat` have no
-         *     equivalent, so locale-tailored collation (German "ü" == "ue", Swedish "ä" after "z")
-         *     and locale-aware number formatting (grouping separators, currency symbols, CLDR unit
-         *     names) cannot be reproduced. `Collator` implements ICU-style three-level comparison
-         *     and `NumberFormat` honours the fraction-digit options, which is what the other 16
-         *     collator and number-format fixtures exercise.
+         *  1. **No `Intl.Collator` on Kotlin Multiplatform.** `NumberFormat` reaches each
+         *     target's own ICU through `formatNumberPlatform`, but `Collator` is still a
+         *     hand-rolled ICU-style three-level comparison with no locale tailoring, so German
+         *     "ü" == "ue" and Swedish "ä" after "z" are out of reach. The other 16 collator
+         *     fixtures do pass.
          *  2. **`androidx.compose.ui.graphics.Color` stores sRGB channels as 8 bits.** MapLibre
          *     keeps them as doubles. Round-tripping a channel therefore yields 128/255 where
          *     upstream yields exactly 0.5. Invisible at the 8-bit render target; the color
@@ -427,13 +426,7 @@ class ExpressionConformanceTest {
             "collator/variable-lteq" to
                     "Ordering of 'ä' against 'a' is locale-tailored (de/sv differ from dk/fr).",
             "number-format/default" to
-                    "No ICU: grouping separators are locale data we do not have.",
-            "number-format/precision" to
-                    "No ICU: grouping separators, plus Double runs out of precision past 15 digits.",
-            "number-format/currency" to
-                    "No ICU: currency symbols and their placement are locale data we do not have.",
-            "number-format/unit" to
-                    "No ICU: CLDR unit abbreviations are locale data we do not have.",
+                    "Passes no locale, so its expected grouping is only right on an en-US host.",
             "to-rgba/alpha" to
                     "Compose Color stores 8-bit channels, so alpha round-trips as 128/255, not 0.5.",
         )

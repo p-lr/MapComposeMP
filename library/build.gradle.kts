@@ -3,6 +3,7 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -20,6 +21,16 @@ kotlin {
                 withIos()
                 withJvm()
                 withWasmJs()
+            }
+            // Android and desktop share a JVM standard library, which is where an actual that is
+            // the same `java.*` code on both belongs -- see `formatNumberPlatform`. Neither is in
+            // the skia group's reach for it: that group is desktop + iOS + wasm.
+            group("jvmShared") {
+                withJvm()
+                // Not `withAndroidTarget()`: that tests for `KotlinAndroidTarget`, and this module
+                // declares its Android target through AGP's newer
+                // `com.android.kotlin.multiplatform.library` plugin, whose target is not one.
+                withCompilations { it.target.platformType == KotlinPlatformType.androidJvm }
             }
         }
     }

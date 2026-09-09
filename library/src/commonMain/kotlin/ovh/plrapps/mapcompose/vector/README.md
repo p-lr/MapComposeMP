@@ -705,6 +705,27 @@ Every one of these is documented at the file that causes it; this is the index.
   Note this is the spec *default*, so a style that says nothing gets map-anchored light. It applies
   to every source of a `multidirectional` layer alike.
 
+**Forced by locale data — `Intl` has no single Kotlin Multiplatform equivalent:**
+
+- **`["number-format", …]` is platform-backed**, not hand-rolled: `formatNumberPlatform`
+  (`spec/style/expression/definitions/PlatformNumberFormat.kt`) is `Intl.NumberFormat` on wasm,
+  `NSNumberFormatter` on iOS and `java.text.NumberFormat` on Android and desktop, so grouping,
+  decimal separators, currency symbols and a currency's own digit count are real CLDR data. Three
+  things still differ. **Unit names come from a shared English table**
+  (`definitions/NumberFormatUnits.kt`), CLDR's `short` forms — no JVM API exposes the localized
+  ones, and four targets agreeing on `m` beats three localizing it while desktop appends `meter`.
+  **With no `locale` the host's default is used**, which is what upstream does too, so output
+  differs between platforms exactly as it differs between browsers; it is why
+  `number-format/default` is the one fixture of its group still listed in
+  `ExpressionConformanceTest.KNOWN_DIVERGENCES`. And **an option `Intl` would reject is kept
+  rather than thrown** — an unknown unit or currency code, a minimum above the maximum — where
+  upstream's `RangeError` costs the property its whole value.
+- **`["collator", …]` has no locale tailoring at all** (`spec/style/expression/types/Collator.kt`).
+  It is a hand-rolled ICU-style three-level comparison — diacritics folded at the primary level,
+  accents at the secondary, case at the tertiary — which is enough for 16 of the 19 `collator`
+  fixtures; German "ü" == "ue" and Swedish "ä" sorting after "z" are the three it is not. Routing
+  it through each platform's ICU the way `number-format` now is would fix them.
+
 **Forced by drawing into a tile bitmap rather than sampling a texture:**
 
 - **Paint properties are evaluated at the tile's integer zoom**, where upstream evaluates them at
