@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.spec.style
 
 import ovh.plrapps.mapcompose.vector.data.json
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -21,7 +22,7 @@ class LayerDefaultsTest {
 
         assertEquals(json.decodeFromString(Layer.serializer(), EXPLICIT_EMPTY), layer)
         assertNull(layer.paint.circleRadius, "no property is set")
-        assertEquals("visible", layer.layout.visibility)
+        assertEquals("visible", layer.layout.visibility.processAsString())
     }
 
     @Test

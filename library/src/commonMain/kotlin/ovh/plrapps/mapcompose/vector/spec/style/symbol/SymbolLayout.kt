@@ -9,10 +9,13 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueFormattedSerializer
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueResolvedImageSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.props.VISIBILITY_DEFAULT
+import ovh.plrapps.mapcompose.vector.spec.style.props.VisibilitySerializer
 
 @Serializable
 data class SymbolLayout(
-    override val visibility: String? = "visible",
+    @Serializable(with = VisibilitySerializer::class)
+    override val visibility: ExpressionOrValue<String>? = VISIBILITY_DEFAULT,
 
     @SerialName("icon-allow-overlap")
     val iconAllowOverlap: ExpressionOrValue<Boolean>? = null,
