@@ -6,22 +6,25 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.Expression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.NumberType
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ParsingContext
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StringType
-import kotlin.math.abs
-import kotlin.math.floor
-import kotlin.math.pow
-import kotlin.math.roundToLong
 
 /**
  * Ported from `maplibre-style-spec/src/expression/definitions/number_format.ts`.
  *
- * **Divergence from MapLibre.** Upstream delegates to `Intl.NumberFormat`, which Kotlin
- * Multiplatform has no equivalent of. This implementation is locale-agnostic and reproduces only
- * the parts that are locale-independent:
- * - `min-fraction-digits` / `max-fraction-digits` (defaults 0 and 3, as in ECMA-402)
- * - grouping separators are **not** inserted
- * - `currency` and `unit` are appended as a suffix rather than formatted per CLDR
+ * Upstream delegates to `Intl.NumberFormat`; so does this, through [formatNumberPlatform] — every
+ * target reaches CLDR through its own API, so `locale` genuinely selects grouping and decimal
+ * separators, `currency` produces a real symbol at the locale's placement with that currency's own
+ * digit count, and the fraction-digit options behave as ECMA-402 specifies them.
  *
- * `locale` is parsed and type-checked so styles using it still load, but does not affect output.
+ * Two divergences remain, both documented where they are made: unit names come from a shared
+ * English table ([formatWithUnit]) because no JVM API exposes CLDR's, and an option combination
+ * `Intl.NumberFormat` would reject is clamped rather than thrown ([formatNumber]). A third is
+ * inherent: with no `locale` the output follows the *host's* default locale, so it differs between
+ * platforms exactly as upstream's differs between browsers.
+ *
+ * A platform formatter is built per evaluation and none is cached. That is not a missed
+ * optimization: one `StyleExpression` is shared by the whole tile-worker pool, so nothing under
+ * `spec/style/expression` may hold state across an `evaluate` call, and neither
+ * `java.text.NumberFormat` nor `NSNumberFormatter` is safe to share between threads.
  */
 class NumberFormat(
     val number: Expression,
@@ -34,21 +37,14 @@ class NumberFormat(
 
     override val type: ExprType = StringType
 
-    override fun evaluate(ctx: EvaluationContext): Any {
-        val value = (number.evaluate(ctx) as Number).toDouble()
-        val minDigits = (minFractionDigits?.evaluate(ctx) as? Number)?.toInt() ?: 0
-        val maxDigits = (maxFractionDigits?.evaluate(ctx) as? Number)?.toInt() ?: maxOf(minDigits, 3)
-
-        val formatted = formatDecimal(value, minDigits, maxDigits)
-
-        val currencyCode = currency?.evaluate(ctx) as? String
-        val unitName = unit?.evaluate(ctx) as? String
-        return when {
-            currencyCode != null -> "$currencyCode$formatted"
-            unitName != null -> "$formatted $unitName"
-            else -> formatted
-        }
-    }
+    override fun evaluate(ctx: EvaluationContext): Any = formatNumber(
+        value = (number.evaluate(ctx) as Number).toDouble(),
+        locale = locale?.evaluate(ctx) as? String,
+        currency = currency?.evaluate(ctx) as? String,
+        unit = unit?.evaluate(ctx) as? String,
+        minFractionDigits = (minFractionDigits?.evaluate(ctx) as? Number)?.toInt(),
+        maxFractionDigits = (maxFractionDigits?.evaluate(ctx) as? Number)?.toInt(),
+    )
 
     override fun eachChild(fn: (Expression) -> Unit) {
         fn(number)
@@ -62,45 +58,6 @@ class NumberFormat(
     override fun outputDefined(): Boolean = false
 
     companion object {
-        /** Beyond this, a Double carries no meaningful precision and a Long would overflow. */
-        private const val MAX_FRACTION_DIGITS = 15
-
-        private fun formatDecimal(value: Double, minDigits: Int, maxDigits: Int): String {
-            if (value.isNaN()) return "NaN"
-            if (value.isInfinite()) return if (value > 0) "∞" else "-∞"
-
-            val negative = value < 0
-            val magnitude = abs(value)
-
-            // Split rather than scaling the whole value: a maxDigits of 20 would overflow a Long.
-            val wholePart = floor(magnitude)
-            var intPart = wholePart.toLong().toString()
-
-            val effectiveMax = maxDigits.coerceAtMost(MAX_FRACTION_DIGITS)
-            var fracPart = if (effectiveMax > 0) {
-                val scale = 10.0.pow(effectiveMax)
-                var scaled = ((magnitude - wholePart) * scale).roundToLong()
-                if (scaled >= scale.toLong()) {
-                    // Rounding carried into the integer part.
-                    intPart = (wholePart.toLong() + 1).toString()
-                    scaled = 0
-                }
-                scaled.toString().padStart(effectiveMax, '0')
-            } else {
-                ""
-            }
-
-            // Pad out to minDigits; doubles carry no more precision than effectiveMax anyway.
-            if (fracPart.length < minDigits) fracPart = fracPart.padEnd(minDigits, '0')
-            while (fracPart.length > minDigits && fracPart.endsWith('0')) {
-                fracPart = fracPart.dropLast(1)
-            }
-
-            if (intPart.isEmpty()) intPart = "0"
-            val body = if (fracPart.isEmpty()) intPart else "$intPart.$fracPart"
-            return if (negative && body.any { it in '1'..'9' }) "-$body" else body
-        }
-
         fun parse(args: List<Any?>, context: ParsingContext): Expression? {
             if (args.size != 3) return context.error("Expected two arguments.")
 
