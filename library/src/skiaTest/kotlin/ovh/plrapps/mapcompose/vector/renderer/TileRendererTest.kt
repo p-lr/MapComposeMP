@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJson
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonTiler
 import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.data.decodeStyle
 import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
@@ -69,6 +70,19 @@ class TileRendererTest {
     private fun tileWith(vararg features: Tile.Feature, layerName: String = "test") =
         Mvt.tile(Mvt.layer(name = layerName, features = features.toList()))
 
+    /**
+     * A fill whose `visibility` is decided by the style's own `state` block.
+     *
+     * Decoded through [decodeStyle], not [layer], because that is what puts the `state` defaults in
+     * scope while the property is compiled -- see `StyleGlobalState`.
+     */
+    private fun stateDrivenFill(hide: Boolean): Layer = decodeStyle(
+        """{"version":8,"state":{"hide":{"default":$hide}},"sources":{},"layers":[
+            {"id":"fill","type":"fill","source":"src","source-layer":"test",
+             "layout":{"visibility":["case",["global-state","hide"],"none","visible"]},
+             "paint":{"fill-color":"#ff0000","fill-antialias":false}}]}"""
+    ).layers[0]
+
     private fun fullTileFill(color: String, extra: String = "") = layer(
         """{"id":"fill","type":"fill","source":"src","source-layer":"test",
             "paint":{"fill-color":"$color","fill-antialias":false}$extra}"""
@@ -93,6 +107,24 @@ class TileRendererTest {
     @Test
     fun `visibility visible is drawn`() = runTest {
         val styleLayer = fullTileFill("#ff0000", extra = ""","layout":{"visibility":"visible"}""")
+
+        val bitmap = render(styleLayer, tileWith(coveringPolygon()))
+
+        assertColorEquals(Color.Red, bitmap.pixelAt(32, 32))
+    }
+
+    @Test
+    fun `a global-state visibility suppresses the layer`() = runTest {
+        val styleLayer = stateDrivenFill(hide = true)
+
+        val bitmap = render(styleLayer, tileWith(coveringPolygon()))
+
+        assertEquals(0, bitmap.opaquePixelCount(), "a layer hidden by global state must draw nothing")
+    }
+
+    @Test
+    fun `a global-state visibility draws the layer`() = runTest {
+        val styleLayer = stateDrivenFill(hide = false)
 
         val bitmap = render(styleLayer, tileWith(coveringPolygon()))
 

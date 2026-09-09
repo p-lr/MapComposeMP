@@ -30,8 +30,16 @@ data class StylePropertySpec(
      */
     val tokens: Boolean = false,
 ) {
-    /** True for `string`-typed properties, which coerce rather than assert at the top level. */
-    val isStringProperty: Boolean get() = expectedType == StringType
+    /**
+     * True for `string`-typed properties, which coerce rather than assert at the top level.
+     *
+     * Upstream's test is `propertySpec.type === 'string'`, and an *enum* property is typed `enum`,
+     * not `string`, however string-like its values are -- so it asserts. [enumValues] is what says
+     * a property is one here, `layout.visibility` being the only one, and it is why a `visibility`
+     * that evaluates to null reports "Expected value to be of type string, but found null instead"
+     * rather than silently coercing to the empty string and then failing the enum check.
+     */
+    val isStringProperty: Boolean get() = expectedType == StringType && enumValues == null
 
     companion object {
         /** The spec a layer `filter` is compiled against. */

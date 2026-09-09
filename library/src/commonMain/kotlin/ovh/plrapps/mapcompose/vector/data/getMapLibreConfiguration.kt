@@ -7,7 +7,6 @@ import kotlinx.io.readString
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
-import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
 import ovh.plrapps.mapcompose.vector.spec.style.sprites
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
 import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
@@ -19,8 +18,9 @@ suspend fun getMapLibreConfiguration(
 ): Result<MapLibreConfiguration> {
     try {
         StyleDiagnostics.drain() // discard anything left over from an earlier parse
-        val style = json.decodeFromString(MapLibreStyle.serializer(), style)
+        val style = decodeStyle(style)
         val diagnostics = StyleDiagnostics.drain()
+        val globalState = style.globalStateDefaults()
         val tileSources = mutableMapOf<String, MapLibreTileSource>()
 
         val geoJsonSources = mutableMapOf<String, GeoJsonSource>()
@@ -82,6 +82,7 @@ suspend fun getMapLibreConfiguration(
             spriteManager = spriteManager,
             glyphManager = glyphManager,
             diagnostics = diagnostics,
+            globalState = globalState,
         ))
 
     } catch (e: Exception) {
