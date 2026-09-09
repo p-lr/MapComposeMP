@@ -8,7 +8,11 @@ import kotlin.test.assertTrue
  * [Collator] has no upstream test file: it is exercised through the `collator` conformance
  * fixtures, 16 of which pass and 3 of which are documented ICU divergences.
  *
- * These assert the three strength levels directly, and pin the divergences so they stay deliberate.
+ * Collation itself belongs to each platform's ICU now, so every assertion here is one the four
+ * targets agree on -- `Intl.Collator`, `java.text.Collator` on the JVM and the Android host, and
+ * Foundation's `NSString.compare` all give the values below. What they do *not* agree on is
+ * deliberately absent, and listed in [Collator]'s KDoc: German "ü" against "ue", Swedish "ä" against
+ * "a", and stroked letters such as "ł" against "l" at base sensitivity.
  */
 class CollatorTest {
 
@@ -21,103 +25,82 @@ class CollatorTest {
         else -> 0
     }
 
-    // region primary level: diacritics and case folded away
-
-    /**
-     * The primary key folds diacritics, which is what puts "ä" next to "a" instead of after "z".
-     * Raw code-point order would sort U+00E4 after 'b'.
-     */
-    @Test
-    fun `primary ordering places accented letters next to their base letter`() {
-        val base = collator(caseSensitive = false, diacriticSensitive = false)
-        assertEquals(-1, sign(base.compare("ä", "b")))
-        assertEquals(1, sign(base.compare("b", "ä")))
-        assertEquals(0, sign(base.compare("ä", "a")))
-        assertEquals(0, sign(base.compare("A", "a")))
-        assertEquals(-1, sign(base.compare("a", "b")))
-    }
+    // region the four sensitivities, against a locale with no tailoring of its own
 
     @Test
     fun `base sensitivity ignores both case and diacritics`() {
-        val base = collator(caseSensitive = false, diacriticSensitive = false)
-        assertEquals(0, base.compare("résumé", "RESUME"))
-        assertEquals(0, base.compare("tēnā", "tena"))
+        val base = collator(caseSensitive = false, diacriticSensitive = false, locale = "en")
+        assertEquals(0, sign(base.compare("a", "A")))
+        assertEquals(0, sign(base.compare("a", "ä")))
+        assertEquals(0, sign(base.compare("résumé", "RESUME")))
+        assertEquals(0, sign(base.compare("tēnā", "tena")))
+        assertEquals(-1, sign(base.compare("a", "b")))
+        // Folding is what puts "ä" before "b"; raw code-point order would put U+00E4 after it.
+        assertEquals(-1, sign(base.compare("ä", "b")))
     }
-
-    // endregion
-
-    // region secondary level: diacritics
 
     @Test
     fun `accent sensitivity distinguishes diacritics but not case`() {
-        val accent = collator(caseSensitive = false, diacriticSensitive = true)
-        assertEquals(0, accent.compare("A", "a"))
+        val accent = collator(caseSensitive = false, diacriticSensitive = true, locale = "en")
+        assertEquals(0, sign(accent.compare("A", "a")))
         assertEquals(1, sign(accent.compare("ä", "a")))
         assertEquals(-1, sign(accent.compare("ä", "b")))
         assertTrue(accent.compare("tēnā", "tena") != 0)
     }
 
-    // endregion
-
-    // region tertiary level: case
-
     /** ICU sorts lowercase before uppercase; raw code points do the reverse. */
     @Test
     fun `case sensitivity sorts lowercase before uppercase`() {
-        val case = collator(caseSensitive = true, diacriticSensitive = false)
+        val case = collator(caseSensitive = true, diacriticSensitive = false, locale = "en")
         assertEquals(-1, sign(case.compare("a", "A")))
         assertEquals(1, sign(case.compare("A", "a")))
         // …but diacritics are still folded away at this sensitivity.
-        assertEquals(0, case.compare("a", "ä"))
+        assertEquals(0, sign(case.compare("a", "ä")))
     }
 
     @Test
     fun `variant sensitivity distinguishes both`() {
-        val variant = collator(caseSensitive = true, diacriticSensitive = true)
+        val variant = collator(caseSensitive = true, diacriticSensitive = true, locale = "en")
         assertEquals(-1, sign(variant.compare("a", "A")))
         assertEquals(-1, sign(variant.compare("a", "ä")))
-        assertEquals(0, variant.compare("a", "a"))
+        assertEquals(1, sign(variant.compare("b", "ä")))
+        assertEquals(0, sign(variant.compare("a", "a")))
     }
 
     // endregion
 
-    @Test
-    fun `the folding table covers Latin Extended-A`() {
-        val base = collator(caseSensitive = false, diacriticSensitive = false)
-        // Latin-1 Supplement
-        assertEquals(0, base.compare("àáâãäå", "aaaaaa"))
-        assertEquals(0, base.compare("çñüý", "cnuy"))
-        // Latin Extended-A
-        assertEquals(0, base.compare("āēīōū", "aeiou"))
-        assertEquals(0, base.compare("ŚŻĆ", "szc"))
-        // Combining marks are dropped outright.
-        assertEquals(0, base.compare("á", "a"))
-    }
-
     /**
-     * The folding table is generated from Unicode canonical decomposition, so letters formed with a
-     * stroke or bar rather than a diacritic — Ł, Đ, Ø — have no decomposition and are left
-     * alone. ICU folds them at primary strength; this port does not.
+     * The finding this platform route exists for. Swedish treats "ä" as a letter in its own right,
+     * placed after "z"; the hand-rolled fold table this replaced sorted it next to "a" in every
+     * locale, so a Swedish-collated filter picked the wrong features.
      */
     @Test
-    fun `stroked letters are not folded`() {
-        val base = collator(caseSensitive = false, diacriticSensitive = false)
-        assertTrue(base.compare("ł", "l") != 0)
-        assertTrue(base.compare("ø", "o") != 0)
-        assertTrue(base.compare("đ", "d") != 0)
+    fun `Swedish sorts a-umlaut after z`() {
+        val swedish = collator(caseSensitive = false, diacriticSensitive = false, locale = "sv")
+        assertEquals(1, sign(swedish.compare("ä", "z")))
+        assertEquals(1, sign(swedish.compare("ö", "z")))
+        // English has no such tailoring, which is what makes the comparison locale-dependent.
+        val english = collator(caseSensitive = false, diacriticSensitive = false, locale = "en")
+        assertEquals(-1, sign(english.compare("ä", "z")))
     }
 
     @Test
-    fun `characters outside the table are left alone`() {
-        val base = collator(caseSensitive = false, diacriticSensitive = false)
-        assertEquals(0, base.compare("日本語", "日本語"))
+    fun `characters outside any Latin tailoring are left alone`() {
+        val base = collator(caseSensitive = false, diacriticSensitive = false, locale = "en")
+        assertEquals(0, sign(base.compare("日本語", "日本語")))
         assertTrue(base.compare("日本語", "中文") != 0)
     }
 
+    /**
+     * A tag the platform has collation data for resolves to itself. A tag it does not, and an absent
+     * locale, resolve to the host default, which is what `Intl.Collator` does and so is not a fixed
+     * string to assert against.
+     */
     @Test
-    fun `resolvedLocale echoes the requested locale`() {
+    fun `resolvedLocale resolves an available tag to itself`() {
         assertEquals("de", collator(false, false, "de").resolvedLocale())
-        assertEquals("en", collator(false, false, null).resolvedLocale())
+        assertEquals("en", collator(false, false, "en").resolvedLocale())
+        assertTrue(collator(false, false, null).resolvedLocale().isNotEmpty())
     }
 
     @Test
@@ -126,21 +109,5 @@ class CollatorTest {
         assertEquals(collator(true, false, "de").hashCode(), collator(true, false, "de").hashCode())
         assertTrue(collator(true, false, "de") != collator(false, false, "de"))
         assertTrue(collator(true, false, "de") != collator(true, false, "en"))
-    }
-
-    /**
-     * Documented divergences: locale-tailored collation needs ICU, which Kotlin Multiplatform has
-     * no equivalent of. These are the three `collator` conformance fixtures listed in
-     * `ExpressionConformanceTest.KNOWN_DIVERGENCES`; pinning them here keeps them deliberate.
-     */
-    @Test
-    fun `locale tailoring is not implemented`() {
-        // German collation expands "ü" to "ue"; this port compares them as different words.
-        assertTrue(collator(true, false, "de").compare("ü", "ue") != 0)
-        // Swedish sorts "ä" after "z"; this port sorts it next to "a" in every locale.
-        assertEquals(
-            sign(collator(false, false, "sv").compare("ä", "a")),
-            sign(collator(false, false, "fr").compare("ä", "a")),
-        )
     }
 }
