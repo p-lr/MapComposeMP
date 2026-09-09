@@ -16,13 +16,28 @@ data class CanonicalTileId(val z: Int, val x: Int, val y: Int)
  * Ported from the `Feature` type in `maplibre-style-spec/src/expression/index.ts`.
  *
  * [properties] values must already be normalized to engine values — see [normalizeNumbers].
- * [geometry] is in MVT tile-local coordinates and is a lambda so that decoding is skipped entirely
- * unless an expression actually asks for it (see `geometryNeeded` in the filter engine).
+ * [geometry] is in the engine's own tile space (`EXTENT = 8192`, not the MVT layer's extent) and is
+ * behind a lambda so that decoding is skipped entirely unless an expression actually asks for it.
+ * Upstream gates the same work with `FeatureFilter.needGeometry` at *build* time
+ * (`toEvaluationFeature`); here the laziness gates it at *read* time instead, which is strictly
+ * later and so also covers a `within` that a paint property reads rather than a filter.
+ *
+ * **Divergence: [canonical] rides on the feature.** Upstream passes the tile id beside the feature
+ * everywhere (`filter(globals, feature, canonical)`,
+ * `populatePaintArrays(…, {imagePositions, canonical})`) because its paint path hands over a
+ * `BucketFeature` that has no room for it. Here one [EvalFeature] is built per (feature, tile) and
+ * already reaches every painter, every `processAs*` helper and the symbol layout pass, so carrying
+ * the id on it is equivalent — both are per-tile — and means no property-evaluation call site has
+ * to thread it. `within` and `distance` are the only readers; a feature built without one (a
+ * synthetic feature, a test fixture) makes them return `false` / `NaN`, exactly as upstream does
+ * when `canonical` is `undefined`.
  */
 class EvalFeature(
     val type: String,
     val id: Any? = null,
     val properties: Map<String, Any?> = emptyMap(),
+    /** The tile this feature was decoded from. See the note above; needed by `within`/`distance`. */
+    val canonical: CanonicalTileId? = null,
     private val geometryProvider: (() -> List<List<Point2D>>)? = null,
 ) {
     val geometry: List<List<Point2D>> by lazy { geometryProvider?.invoke() ?: emptyList() }

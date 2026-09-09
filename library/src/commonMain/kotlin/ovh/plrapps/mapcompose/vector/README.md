@@ -67,6 +67,25 @@ evaluated at the tile's *integer* zoom, as upstream's buckets are. **Paint prope
 at that same integer zoom**, where upstream evaluates them at the fractional map zoom — see
 [Divergences](#divergences).
 
+**The geometry expressions are wired into filters *and* paint/layout properties.** `within` and
+`distance` need two things no other expression does: the feature's decoded geometry, and the
+canonical `(z, x, y)` of the tile it came from, which is what projects tile-local coordinates back
+to lng/lat. Upstream threads the tile id beside the feature everywhere — into
+`_featureFilter.filter(...)` and on into `populatePaintArrays(…, {canonical})`
+(`data/bucket/circle_bucket.ts`). Here it rides on the `EvalFeature` instead, which the renderer
+already builds once per (feature, tile) and hands to every painter, every `processAs*` helper and
+the symbol layout pass — equivalent, since both are per-tile, and it means no property-evaluation
+call site has to carry it. For an overzoomed source the id is the **ancestor** actually fetched,
+upstream's `OverscaledTileID.canonical`; for a gathered neighbouring tile it is that neighbour's own,
+with `x` wrapped into `0..2^z-1`.
+
+Geometry is decoded lazily rather than behind upstream's `FeatureFilter.needGeometry` flag:
+`BaseRenderer.buildEvalFeature` always attaches the provider and `EvalFeature.geometry` is
+`by lazy`, so the work still happens only when an expression reads it — one step later than
+upstream's gate, which is what lets a `within` in a *paint* property see anything. The decode
+rescales from the MVT layer's own `extent` to the style spec's `EXTENT` of 8192, as
+`src/data/load_geometry.ts` does, and keeps upstream's clamp to a signed 15-bit range.
+
 The property columns below are the style spec's own, from the table
 `library/tools/fetch-style-spec-defaults.sh` vendors into
 `commonTest/composeResources/files/style-spec-defaults.json`. **Inert** means the property is

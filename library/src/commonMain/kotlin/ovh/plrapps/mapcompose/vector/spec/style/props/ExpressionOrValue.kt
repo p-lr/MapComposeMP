@@ -69,7 +69,7 @@ sealed class ExpressionOrValue<T> {
         is Expression -> expression.styleExpression.evaluate(
             globals = GlobalProperties(zoom = zoom ?: 0.0),
             feature = feature,
-            canonical = canonical,
+            canonical = canonical ?: feature?.canonical,
             availableImages = availableImages,
         ) as T?
     }
@@ -303,6 +303,12 @@ fun ExpressionOrValue<ResolvedImage>?.processAsImageName(
  * Evaluates without the declared type parameter getting in the way. The generic `T` on
  * [ExpressionOrValue] is nominal — the engine works in `Any?` — so the coercing helpers above go
  * through this rather than [ExpressionOrValue.process].
+ *
+ * The canonical tile id comes off [feature] rather than from a parameter of its own. Upstream
+ * threads it beside the feature all the way into `populatePaintArrays`; here it rides on the
+ * [EvalFeature] the renderer already built per tile, which is what lets `within` and `distance`
+ * work in a *paint* or *layout* property without every one of these helpers -- and every painter
+ * calling them -- growing an argument. See the note on [EvalFeature].
  */
 private fun ExpressionOrValue<*>.processUntyped(
     feature: EvalFeature?,
@@ -315,6 +321,7 @@ private fun ExpressionOrValue<*>.processUntyped(
         is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
             globals = GlobalProperties(zoom = zoom ?: 0.0),
             feature = feature,
+            canonical = feature?.canonical,
             availableImages = availableImages,
         )
     }

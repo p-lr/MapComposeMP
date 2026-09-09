@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
 import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.renderer.utils.COLOR_RAMP_RESOLUTION
@@ -34,7 +35,17 @@ import kotlin.math.sqrt
  * [ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate] are what need these; see either
  * for why.
  */
-class NeighbourTile(val tile: Tile, val dx: Int, val dy: Int)
+class NeighbourTile(
+    val tile: Tile,
+    val dx: Int,
+    val dy: Int,
+    /**
+     * The neighbour's own address, which is what `within` and `distance` project its features back
+     * to lng/lat with. It is not derivable from `dx`/`dy` at the painter: `neighbourRefs` wraps `x`
+     * into `0..2^z-1`, which is upstream's `CanonicalTileID` invariant for a world that scrolls.
+     */
+    val ref: TileRef,
+)
 
 /**
  * A point feature contributing to the density field, already in the drawn tile's canvas space.
