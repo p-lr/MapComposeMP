@@ -404,11 +404,13 @@ class ExpressionConformanceTest {
          *
          * Three root causes, none of them in the expression engine itself:
          *
-         *  1. **No `Intl.Collator` on Kotlin Multiplatform.** `NumberFormat` reaches each
-         *     target's own ICU through `formatNumberPlatform`, but `Collator` is still a
-         *     hand-rolled ICU-style three-level comparison with no locale tailoring, so German
-         *     "ü" == "ue" and Swedish "ä" after "z" are out of reach. The other 16 collator
-         *     fixtures do pass.
+         *  1. **`usage: 'search'` is `Intl.Collator`'s alone.** `Collator` reaches each target's
+         *     own ICU through `compareLocalized`, so locale tailoring is real everywhere -- but
+         *     upstream builds its collator with the *search* collation, and neither
+         *     `java.text.Collator` nor Foundation can ask for it. All three fixtures below turn on
+         *     German search tailoring, where "ü" == "ue" and "ä" is primary-distinct from "a";
+         *     wasm satisfies `accent-equals-de`, desktop and iOS answer by the standard German
+         *     collation. The other 16 collator fixtures pass on every target.
          *  2. **`androidx.compose.ui.graphics.Color` stores sRGB channels as 8 bits.** MapLibre
          *     keeps them as doubles. Round-tripping a channel therefore yields 128/255 where
          *     upstream yields exactly 0.5. Invisible at the 8-bit render target; the color
@@ -420,11 +422,13 @@ class ExpressionConformanceTest {
          */
         val KNOWN_DIVERGENCES: Map<String, String> = mapOf(
             "collator/accent-equals-de" to
-                    "German collation expands 'ü' to 'ue'; that is ICU locale tailoring.",
+                    "German *search* collation expands 'ü' to 'ue'; only Intl.Collator exposes it.",
             "collator/variable-gt" to
-                    "Ordering of 'ä' against 'a' is locale-tailored (de/sv differ from dk/fr).",
+                    "German *search* collation makes 'ä' primary-distinct from 'a'; and its 'dk' " +
+                    "input is unresolvable, so it collates by the host default like number-format.",
             "collator/variable-lteq" to
-                    "Ordering of 'ä' against 'a' is locale-tailored (de/sv differ from dk/fr).",
+                    "German *search* collation makes 'ä' primary-distinct from 'a'; and its 'dk' " +
+                    "input is unresolvable, so it collates by the host default like number-format.",
             "number-format/default" to
                     "Passes no locale, so its expected grouping is only right on an en-US host.",
             "to-rgba/alpha" to
