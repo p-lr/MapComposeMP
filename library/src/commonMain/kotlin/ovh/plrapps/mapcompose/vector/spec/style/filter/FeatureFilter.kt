@@ -21,7 +21,15 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.valueToJsonString
  */
 class FeatureFilter(
     private val expression: StyleExpression,
-    /** Whether evaluating this filter needs decoded feature geometry (`within` / `distance`). */
+    /**
+     * Whether evaluating this filter needs decoded feature geometry (`within` / `distance`).
+     *
+     * Upstream uses it to decide whether `toEvaluationFeature` loads the geometry at all. Here
+     * `BaseRenderer.buildEvalFeature` always attaches the provider and `EvalFeature.geometry` is
+     * `by lazy`, so the same work is gated one step later -- which also covers a `within` that a
+     * *paint* or *layout* property reads, where a filter-derived flag cannot. Kept because it is
+     * part of the ported surface and `FeatureFilterUpstreamTest` asserts it.
+     */
     val needGeometry: Boolean,
     private val globalStateRefs: Set<String>,
 ) {

@@ -15,6 +15,7 @@ import ovh.plrapps.mapcompose.vector.renderer.utils.layerOpacityOf
 import ovh.plrapps.mapcompose.vector.renderer.utils.sortKeyOf
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.*
+import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 
@@ -106,6 +107,11 @@ class TileRenderer(
         val geometrySize = canvasSize * span
         val geometryTileX = if (span > 1) tileRef.x else tileX
         val geometryTileY = if (span > 1) tileRef.y else tileY
+
+        /* The tile the features actually came from -- the ancestor when the source is overzoomed,
+         * which is upstream's `OverscaledTileID.canonical`. `within` and `distance` project the
+         * feature's tile-local geometry back to lng/lat through it. */
+        val canonical = CanonicalTileId(z = tileRef.z, x = tileRef.x, y = tileRef.y)
 
         /* Patterns are anchored to the world and sized in screen pixels, so they need to know which
          * tile they are being drawn into and how much it will be magnified. See PatternBrushCache.
@@ -203,6 +209,7 @@ class TileRenderer(
                 actualZoom = actualZoom,
                 tileKey = tileKey,
                 tileRef = tileRef,
+                canonical = canonical,
                 neighbours = neighbours,
             )
 
@@ -212,7 +219,7 @@ class TileRenderer(
                 val tileLayer = tileLayerFor(tile, styleLayer) ?: return
                 val extent = tileLayer.extent ?: DEFAULT_EXTENT
                 val visible = visibleFeatures(
-                    tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize
+                    tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical
                 )
                 if (visible.isEmpty()) return
 
@@ -287,6 +294,7 @@ class TileRenderer(
         actualZoom: Double,
         tileKey: String?,
         tileRef: TileRef,
+        canonical: CanonicalTileId,
         neighbours: List<NeighbourTile>,
     ) {
         val span = tileRef.span.coerceAtLeast(1)
@@ -303,7 +311,7 @@ class TileRenderer(
         try {
             if (tile != null && tile.layers.isNotEmpty()) {
                 paintCircles(
-                    canvas, tile, styleLayer, zoom, geometrySize, actualZoom, tileKey,
+                    canvas, tile, styleLayer, zoom, geometrySize, actualZoom, tileKey, canonical,
                     CircleVertexGate(coveredDirections = covered)
                 )
             }
@@ -311,6 +319,10 @@ class TileRenderer(
                 paintCircles(
                     canvas, neighbour.tile, styleLayer, zoom, geometrySize, actualZoom,
                     tileKey = null,
+                    // A neighbour's features are addressed by the neighbour, not by this tile.
+                    canonical = CanonicalTileId(
+                        z = neighbour.ref.z, x = neighbour.ref.x, y = neighbour.ref.y
+                    ),
                     gate = CircleVertexGate.forNeighbour(neighbour.dx, neighbour.dy, geometrySize)
                 )
             }
@@ -328,11 +340,14 @@ class TileRenderer(
         geometrySize: Int,
         actualZoom: Double,
         tileKey: String?,
+        canonical: CanonicalTileId,
         gate: CircleVertexGate,
     ) {
         val tileLayer = tileLayerFor(tile, styleLayer) ?: return
         val extent = tileLayer.extent ?: DEFAULT_EXTENT
-        val visible = visibleFeatures(tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize)
+        val visible = visibleFeatures(
+            tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical
+        )
         for (entry in visible) {
             circlePainter.paint(
                 canvas, entry.feature, styleLayer, geometrySize, extent, zoom, entry.properties,
@@ -355,10 +370,8 @@ class TileRenderer(
         actualZoom: Double,
         tileKey: String?,
         geometrySize: Int,
+        canonical: CanonicalTileId,
     ): List<VisibleFeature> {
-        // Feature geometry is only decoded when a `within`/`distance` expression reads it.
-        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
-
         val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
         tileLayer.features.forEachIndexed { index, feature ->
             /* The feature's position in the tile layer, not its `id` or its `hashCode`.
@@ -371,9 +384,9 @@ class TileRenderer(
             val featureIdKey = "f$index"
             val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, needGeometry) }
+                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, canonical) }
             } else {
-                buildEvalFeature(feature, tileLayer, needGeometry)
+                buildEvalFeature(feature, tileLayer, canonical)
             }
 
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
@@ -414,10 +427,18 @@ class TileRenderer(
         tileRef: TileRef,
     ): List<HeatmapPoint> {
         val points = mutableListOf<HeatmapPoint>()
-        if (tile != null) addHeatmapPoints(points, tile, 0, 0, styleLayer, zoom, canvasSize, tileRef)
+        if (tile != null) {
+            addHeatmapPoints(
+                points, tile, 0, 0, styleLayer, zoom, canvasSize, tileRef,
+                CanonicalTileId(z = tileRef.z, x = tileRef.x, y = tileRef.y),
+            )
+        }
         for (neighbour in neighbours) {
             addHeatmapPoints(
-                points, neighbour.tile, neighbour.dx, neighbour.dy, styleLayer, zoom, canvasSize, tileRef
+                points, neighbour.tile, neighbour.dx, neighbour.dy, styleLayer, zoom, canvasSize,
+                tileRef,
+                // A neighbour's features are addressed by the neighbour, not by this tile.
+                CanonicalTileId(z = neighbour.ref.z, x = neighbour.ref.x, y = neighbour.ref.y),
             )
         }
         return points
@@ -438,10 +459,10 @@ class TileRenderer(
         zoom: Double,
         canvasSize: Int,
         tileRef: TileRef,
+        canonical: CanonicalTileId,
     ) {
         val tileLayer = tileLayerFor(tile, styleLayer) ?: return
         val extent = tileLayer.extent ?: DEFAULT_EXTENT
-        val needGeometry = styleLayer.filter?.filter?.needGeometry == true
         val span = tileRef.span.coerceAtLeast(1)
         val geometrySize = canvasSize * span
         val offsetX = dx.toDouble() * geometrySize - tileRef.subX.toDouble() * canvasSize
@@ -449,7 +470,7 @@ class TileRenderer(
 
         for (feature in tileLayer.features) {
             if (feature.type != Tile.GeomType.POINT) continue
-            val properties = buildEvalFeature(feature, tileLayer, needGeometry)
+            val properties = buildEvalFeature(feature, tileLayer, canonical)
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, properties)) continue
 
             val decoded = geometryDecoders.decodePoint(
