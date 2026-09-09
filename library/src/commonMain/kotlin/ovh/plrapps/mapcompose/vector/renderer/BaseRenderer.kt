@@ -10,6 +10,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Point2D
 import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.EXTENT
 import ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 import kotlin.math.round
 
 abstract class BaseRenderer(
@@ -67,9 +68,17 @@ abstract class BaseRenderer(
      * MapLibre treats `"none"` as "this layer does not exist for rendering purposes"
      * (`StyleLayer.isHidden`), so it is checked alongside the zoom range rather than left to each
      * painter.
+     *
+     * The property is an expression, and takes neither a zoom nor a feature: its spec's
+     * `expression.parameters` is `["global-state"]` alone and its `property-type` is
+     * `data-constant`, so upstream's `VisibilityExpressionClass.evaluate` likewise evaluates it
+     * against an empty `GlobalProperties`. A property that failed to compile evaluates to `null`
+     * and so reads as `"visible"`, which is upstream's fallback for a `visibility` it could not
+     * parse; the errors are in `MapLibreConfiguration.diagnostics`.
      */
     fun isLayerVisible(styleLayer: Layer): Boolean =
-        styleLayer.layout.visibility != StyleSpecDefaults.VISIBILITY_NONE
+        (styleLayer.layout.visibility.processAsString() ?: StyleSpecDefaults.VISIBILITY) !=
+                StyleSpecDefaults.VISIBILITY_NONE
 
     /**
      * The tile layer a style layer draws from.
