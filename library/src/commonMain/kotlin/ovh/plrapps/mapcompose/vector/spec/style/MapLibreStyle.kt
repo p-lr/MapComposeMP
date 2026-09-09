@@ -21,7 +21,28 @@ data class MapLibreStyle(
     @SerialName("sprite") var sprite: JsonElement? = null,
     @SerialName("glyphs") var glyphs: String? = null,
     @SerialName("layers") var layers: List<Layer> = emptyList(),
-    @SerialName("id") var id: String? = null
+    @SerialName("id") var id: String? = null,
+
+    /**
+     * The `global-state` declaration block: one entry per state property, each with its default.
+     *
+     * Modelled so it round-trips -- `json` has `ignoreUnknownKeys = true`, so an unmodelled root
+     * property is silently dropped and lost on re-serialization. The defaults themselves reach the
+     * expression engine through `StyleGlobalState`, not from here: they have to be known *before*
+     * the layers are decoded, and JSON promises nothing about key order.
+     */
+    @SerialName("state") var state: Map<String, StateSpec>? = null,
+)
+
+/**
+ * One entry of a style's `state` block.
+ *
+ * The spec types the value `{"default": {"type": "*"}}`, i.e. any JSON at all, so it is kept as a
+ * [JsonElement] and normalized to an engine value by `globalStateDefaults`.
+ */
+@Serializable
+data class StateSpec(
+    @SerialName("default") val default: JsonElement? = null,
 )
 
 @Serializable

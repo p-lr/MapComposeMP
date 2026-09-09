@@ -28,6 +28,11 @@ is read; the handful that are read and then ignored are listed under
 Sources: `vector`, `raster`, `raster-dem` and `geojson`. Sprites, including SDF and stretchable
 icons, and SDF glyphs from a `glyphs` server.
 
+A style's root `state` block is honoured: its defaults are flattened as upstream's
+`getGlobalStateDefaults` does and baked into every expression and filter the style compiles, so
+`["global-state", k]` reads what the style declared — including in `layout.visibility`, which is an
+expression here as it is upstream. There is no runtime setter; see [Divergences](#divergences).
+
 ```
 VectorTileStreamProvider (interface)
   → VectorLayer            wires the MapState viewport to the rasterizer, on two cadences
@@ -610,7 +615,19 @@ like. Properties whose spec default is `undefined` are handled per-painter and l
 
 Parsing never throws: errors accumulate in `ParsingContext.errors` and surface as
 `MapLibreConfiguration.diagnostics`, and a property that fails to compile becomes
-`ExpressionOrValue.Invalid`, evaluates to null, and lets the painter's `?: default` apply.
+`ExpressionOrValue.Invalid`, evaluates to null, and lets the painter's `?: default` apply. A
+*constant* of the wrong shape — `"line-cap": ["bla"]`, which reaches the constant path precisely
+because `bla` is not a known operator — is reported the same way rather than thrown, since a decode
+that throws leaves `getMapLibreConfiguration` returning `Result.failure` and blanks the whole map.
+
+**Global state.** `["global-state", k]` reads the map baked into its `StyleExpression` at compile
+time, which is upstream's `createExpression(value, key, spec, globalState)`. Compilation happens
+inside the style's `Json` decode here, and a kotlinx serializer is handed no per-decode context, so
+`data/DecodeStyle.kt` parses the style to a tree first, lifts `state` off the root — JSON promises
+nothing about key order, and `state` may follow `layers` — and leaves the flattened defaults in
+`StyleGlobalState` for the two serializers to pick up. That object is the same shape as
+`StyleDiagnostics`, which exists because the same seam gives a serializer no way to report a
+non-fatal parse error either.
 
 **Evaluation holds no state, which is a divergence.** Upstream's `StyleExpression` reuses one
 mutable `EvaluationContext` across evaluations (`_evaluator`) to avoid per-feature allocation; that
@@ -827,6 +844,16 @@ Every one of these is documented at the file that causes it; this is the index.
   an optional `rtl-text-plugin`) and no Arabic contextual shaping.
 - A codepoint the glyph server has no glyph for is dropped, where upstream falls back to a locally
   rendered `TinySDF` for CJK.
+
+**Global state is bound at load, and there is no runtime setter.** Upstream hands
+`createExpression` a live object and `setGlobalStateProperty` mutates it in place, re-evaluating what
+depends on it; here the flattened `state` defaults are baked into each expression when the style is
+decoded, so what a style declares is what it renders with for its lifetime. What a setter would need
+is already in place on the reading side — `StylePropertyExpression.globalStateRefs` and
+`FeatureFilter.getGlobalStateRefs()` say which properties to invalidate — but nothing on the writing
+side: no cache key in `core/VectorRasterizer.kt` carries style state, so its seven `LruCache`s and
+`VectorLayer.symbolBuckets` would all have to be dropped, and the map itself is read by the whole
+tile-worker pool, which makes it copy-on-write or nothing.
 
 **GeoJSON** — `data/geojson/GeoJsonTiler.kt`: `geojson-vt` builds a tile pyramid up front and splits
 each parent into four children, reusing the parent's already-clipped geometry, and precomputes each

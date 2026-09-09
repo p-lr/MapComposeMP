@@ -13,6 +13,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.filter.FeatureFilter
 import ovh.plrapps.mapcompose.vector.spec.style.filter.featureFilter
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
+import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleGlobalState
 
 /**
  * Compiles a layer `filter` at deserialization time.
@@ -35,7 +36,13 @@ object FeatureFilterSerializer : KSerializer<FilterHolder> {
         val element = jsonDecoder.decodeJsonElement()
         val source = element.toString()
 
-        return when (val result = featureFilter(jsonToValue(element), rootKey = source)) {
+        /* A filter is an ordinary boolean expression, so it reads `["global-state", k]` like any
+         * other -- and like any other it needs the style's defaults baked in at compile time. */
+        val globalState = StyleGlobalState.defaults
+
+        return when (
+            val result = featureFilter(jsonToValue(element), rootKey = source, globalState = globalState)
+        ) {
             is ExpressionResult.Success -> FilterHolder(result.value, source)
             is ExpressionResult.Error -> {
                 StyleDiagnostics.report(source, result.errors)
