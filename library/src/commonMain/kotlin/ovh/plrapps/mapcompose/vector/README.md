@@ -720,11 +720,24 @@ Every one of these is documented at the file that causes it; this is the index.
   `ExpressionConformanceTest.KNOWN_DIVERGENCES`. And **an option `Intl` would reject is kept
   rather than thrown** — an unknown unit or currency code, a minimum above the maximum — where
   upstream's `RangeError` costs the property its whole value.
-- **`["collator", …]` has no locale tailoring at all** (`spec/style/expression/types/Collator.kt`).
-  It is a hand-rolled ICU-style three-level comparison — diacritics folded at the primary level,
-  accents at the secondary, case at the tertiary — which is enough for 16 of the 19 `collator`
-  fixtures; German "ü" == "ue" and Swedish "ä" sorting after "z" are the three it is not. Routing
-  it through each platform's ICU the way `number-format` now is would fix them.
+- **`["collator", …]` is platform-backed too**, and for the same reason: `compareLocalized` /
+  `resolveLocalePlatform` (`spec/style/expression/types/PlatformCollator.kt`) are `Intl.Collator` on
+  wasm, `NSString.compare(_:options:range:locale:)` on iOS and `java.text.Collator` on Android and
+  desktop, so letter ordering is real CLDR data — Swedish "ä" sorts after "z" on every target, where
+  the hand-rolled fold table this replaced put it next to "a" in every locale, and
+  `["resolved-locale", …]` performs ECMA-402 lookup matching instead of echoing the tag back. Three
+  things still differ. **Upstream's `usage: 'search'` collation is wasm-only** — it is what makes
+  German "ü" == "ue" and German "ä" a primary-distinct letter, and neither `java.text` nor Foundation
+  can ask for it; those are the three `collator` fixtures still listed in
+  `ExpressionConformanceTest.KNOWN_DIVERGENCES`, of which wasm now satisfies the one that does not
+  also turn on an unresolvable `dk` locale — the other two collate that input by the host default,
+  exactly as `number-format/default` formats by it. **`java.text` has
+  no case level**, so `case` sensitivity is a `PRIMARY` comparison with a lowercase-before-uppercase
+  tie-break rather than ICU's `caseLevel`. And **Foundation has no strength setting**, so `base`
+  sensitivity folds diacritics away rather than demoting them to a secondary difference: on iOS a
+  locale where an accented letter is a *letter* reads it as its base there, so Swedish "ä" == "a"
+  while "ä" > "z" still holds. **With no `locale` the host's default is used**, as it is for
+  `number-format` and as upstream does.
 
 **Forced by drawing into a tile bitmap rather than sampling a texture:**
 
