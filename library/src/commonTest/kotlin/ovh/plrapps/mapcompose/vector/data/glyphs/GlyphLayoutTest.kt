@@ -9,6 +9,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_UPPERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_HORIZONTAL
 import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.VerticalAlign
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -282,6 +283,95 @@ class GlyphLayoutTest {
         // The scaled section advances twice as far.
         assertEquals(12f + 24f, label.width)
     }
+
+    // region inline images and vertical alignment -- `tagged_string.ts` + `shaping.ts`
+
+    /** An image section, sized in the same pixels [FONT_SIZE] is, so one unit is one pixel. */
+    private fun imageSection(
+        width: Float,
+        height: Float,
+        verticalAlign: VerticalAlign = VerticalAlign.BOTTOM,
+    ) = TextSection(text = "", image = SectionImage(width, height, payload = Any()), verticalAlign = verticalAlign)
+
+    @Test
+    fun `an inline image advances by its own width`() {
+        val label = shape(
+            text = "",
+            sections = listOf(TextSection("a"), imageSection(30f, 20f)),
+        )
+        val image = label.items.filterIsInstance<ShapedImage>().single()
+        assertEquals(ADVANCE.toFloat(), image.x)
+        assertEquals(30f, image.width)
+        assertEquals(ADVANCE + 30f, label.width)
+    }
+
+    @Test
+    fun `an image only label is not empty`() {
+        val label = shape(text = "", sections = listOf(imageSection(30f, 20f)))
+        assertTrue(!label.isEmpty)
+        assertEquals(30f, label.width)
+        assertEquals(1, label.items.size)
+    }
+
+    @Test
+    fun `a tall image grows its line and the block`() {
+        // Upstream: `currentLineHeight = lineHeight * lineMaxScale + imageOffset`, where the offset
+        // is how far the image reaches past one em.
+        val label = shape(
+            text = "",
+            sections = listOf(TextSection("a"), imageSection(30f, 48f)),
+        )
+        assertEquals(1.2f * ONE_EM + (48f - ONE_EM), label.height, 0.001f)
+    }
+
+    @Test
+    fun `a section shorter than its line is aligned by vertical-align`() {
+        // The line's content is 48 units tall; a plain glyph is one em, so it is offset by the
+        // difference times upstream's `getVerticalAlignFactor`.
+        for ((align, expected) in listOf(
+            VerticalAlign.BOTTOM to 48f - ONE_EM,
+            VerticalAlign.CENTER to (48f - ONE_EM) / 2f,
+            VerticalAlign.TOP to 0f,
+        )) {
+            val label = shape(
+                text = "",
+                sections = listOf(
+                    TextSection("a", verticalAlign = align),
+                    imageSection(30f, 48f),
+                ),
+            )
+            assertEquals(expected, label.glyphs.single().y, 0.001f, "vertical-align: ${align.value}")
+            // The image is as tall as its line, so it sits at the line's top whatever the glyph does.
+            assertEquals(0f, label.items.filterIsInstance<ShapedImage>().single().y, 0.001f)
+        }
+    }
+
+    @Test
+    fun `a scaled section grows its line height`() {
+        // The same code path as an image: upstream's `lineHeight * lineMaxScale`, which this port
+        // used to ignore entirely.
+        val label = shape(
+            text = "",
+            sections = listOf(TextSection("a"), TextSection("b", scale = 2f)),
+        )
+        assertEquals(2f * 1.2f * ONE_EM, label.height, 0.001f)
+        // The unscaled glyph is bottom-aligned against the two-em content box.
+        assertEquals(2f * ONE_EM - ONE_EM, label.glyphs[0].y, 0.001f)
+        assertEquals(0f, label.glyphs[1].y, 0.001f)
+    }
+
+    @Test
+    fun `an image is never a line break`() {
+        // It is one private-use codepoint, which is neither breakable nor ideographic.
+        val label = shape(
+            text = "",
+            sections = listOf(imageSection(30f, 20f), imageSection(30f, 20f)),
+            maxWidth = 1f,
+        )
+        assertEquals(1, label.lines.size)
+    }
+
+    // endregion
 
     @Test
     fun `an empty label shapes to nothing`() {

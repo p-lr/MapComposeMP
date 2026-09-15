@@ -14,9 +14,15 @@ import androidx.compose.ui.unit.Density
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import ovh.plrapps.mapcompose.vector.data.SDF
+import ovh.plrapps.mapcompose.vector.data.SpriteManager
+import ovh.plrapps.mapcompose.vector.data.glyphs.Glyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphLayout
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphRasterizer
+import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_BEGIN
+import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_END
+import ovh.plrapps.mapcompose.vector.data.glyphs.SectionImage
 import ovh.plrapps.mapcompose.vector.data.glyphs.TextSection
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_AUTO
@@ -26,6 +32,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_RIGHT
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_LOWERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_UPPERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.VerticalAlign
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.TextAnchor
 import ovh.plrapps.mapcompose.vector.utils.LruCache
 
@@ -56,13 +63,27 @@ internal class ResolvedTextStyle(
     /**
      * A key that changes whenever anything visible about the label does.
      *
+     * It is keyed on the [Formatted]'s **sections**, not on their concatenated text: a
+     * `["format", ...]` carries a per-section font, scale, colour, vertical alignment and inline
+     * image, and two labels that read the same but are drawn differently would otherwise share one
+     * rasterization.
+     *
      * [perGlyph] is part of it because it changes what is *built*, not where the label is drawn --
      * a line label carries per-glyph quads and a point label does not. It stays a boolean: nothing
      * geometric may enter this key, or one label per anchor would be rasterized instead of one per
      * (text, style).
      */
-    fun cacheKey(text: String, perGlyph: Boolean): String = buildString {
-        append(if (perGlyph) "G|" else "T|").append(text)
+    fun cacheKey(formatted: Formatted, perGlyph: Boolean): String = buildString {
+        append(if (perGlyph) "G|" else "T|")
+        for (section in formatted.sections) {
+            append(section.text)
+            append(SECTION_FIELD).append(section.image?.name ?: "")
+            append(SECTION_FIELD).append(section.scale ?: "")
+            append(SECTION_FIELD).append(section.fontStack ?: "")
+            append(SECTION_FIELD).append(section.textColor?.toArgb() ?: "")
+            append(SECTION_FIELD).append(section.verticalAlign?.value ?: "")
+            append(SECTION_END)
+        }
         append('|').append(fontStack.joinToString(","))
         append('|').append(fontSize)
         append('|').append(color.toArgb())
@@ -77,6 +98,12 @@ internal class ResolvedTextStyle(
         append('|').append(transform)
         append('|').append(writingMode?.joinToString(",") ?: "-")
     }
+
+    private companion object {
+        /** Control characters no `text-field` can contain, so a section's fields cannot run together. */
+        val SECTION_FIELD = Char(1)
+        val SECTION_END = Char(2)
+    }
 }
 
 /**
@@ -88,6 +115,7 @@ internal class ResolvedTextStyle(
  */
 internal class TextLabelBuilder(
     private val glyphManager: GlyphManager?,
+    private val spriteManager: SpriteManager?,
     private val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     private val cache: LruCache<String, Any>,
     private val mutex: Mutex,
@@ -103,53 +131,79 @@ internal class TextLabelBuilder(
         density: Density,
         perGlyph: Boolean = false,
     ): LabelArt? {
-        val plainText = formatted.toString()
-        if (plainText.isBlank() || plainText.length > MAX_LABEL_LENGTH) return null
+        val shapingText = shapingTextOf(formatted)
+        if (shapingText.isBlank() || shapingText.length > MAX_LABEL_LENGTH) return null
 
-        val key = style.cacheKey(plainText, perGlyph)
+        val key = style.cacheKey(formatted, perGlyph)
         mutex.withLock { cache.get(key) as? LabelArt }?.let { return it }
 
-        val art = renderWithGlyphs(formatted, style, plainText, perGlyph)
-            ?: measureWithCompose(plainText, style, density)
+        val plainText = formatted.toString()
+        val art = renderWithGlyphs(formatted, style, shapingText, density, perGlyph)
+        /* The fallback measures plain text, so it has nothing to say about a field that is only an
+         * image -- better no label at all than an empty box where the icon should be. */
+            ?: plainText.takeUnless { it.isBlank() }?.let { measureWithCompose(it, style, density) }
         if (art != null) mutex.withLock { cache.put(key, art) }
         return art
     }
 
     /**
+     * The label's text as the shaper sees it, upstream's `TaggedString.text`.
+     *
+     * An image section contributes one private-use character rather than nothing at all
+     * (`src/symbol/tagged_string.ts`), which is what distinguishes two labels differing only by an
+     * inline icon -- and what keeps a field made of an image alone from reading as blank.
+     */
+    private fun shapingTextOf(formatted: Formatted): String = buildString {
+        var imageCodePoint = PUA_BEGIN
+        for (section in formatted.sections) {
+            val image = section.image
+            if (image == null) {
+                append(section.text)
+                continue
+            }
+            // Upstream warns and skips both of these.
+            if (image.name.isEmpty() || imageCodePoint > PUA_END) continue
+            append(Char(imageCodePoint))
+            imageCodePoint++
+        }
+    }
+
+    /**
      * Shapes and rasterizes the label from the style's glyph ranges.
      *
-     * Returns `null` when there is no glyph server, or when it produced nothing for this text --
-     * a font the server does not have, or a script outside the ranges it publishes. Either way the
-     * caller falls back rather than dropping the label.
+     * Returns `null` when there is nothing this path can draw -- no glyph server and no resolvable
+     * inline image, or a server that produced nothing for this text: a font it does not have, or a
+     * script outside the ranges it publishes. Either way the caller falls back rather than dropping
+     * the label.
      */
     private suspend fun renderWithGlyphs(
         formatted: Formatted,
         style: ResolvedTextStyle,
-        plainText: String,
+        shapingText: String,
+        density: Density,
         perGlyph: Boolean,
     ): LabelArt? {
-        val manager = glyphManager?.takeIf { it.isConfigured } ?: return null
+        val sections = sectionsOf(formatted, style, density)
+        if (sections.isEmpty()) return null
+        val hasImages = sections.any { it.image != null }
+
+        val manager = glyphManager?.takeIf { it.isConfigured }
+        if (manager == null && !hasImages) return null
 
         /* One `["format", ...]` section may override the font stack, so every stack the label uses
          * has to be fetched, not just the layer's own. */
-        val sections = formatted.sections.map { section ->
-            TextSection(
-                text = transformed(section.text, style.transform),
-                scale = section.scale?.toFloat() ?: 1f,
-                fontStack = section.fontStack?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() },
-                color = section.textColor,
-            )
-        }
-
-        val glyphsByStack = mutableMapOf<String, Map<Int, ovh.plrapps.mapcompose.vector.data.glyphs.Glyph>>()
-        for (section in sections) {
-            val stack = section.fontStack ?: style.fontStack
-            val stackKey = stack.joinToString(",")
-            if (stackKey !in glyphsByStack) {
-                glyphsByStack[stackKey] = manager.glyphsFor(stack, section.text)
+        val glyphsByStack = mutableMapOf<String, Map<Int, Glyph>>()
+        if (manager != null) {
+            for (section in sections) {
+                if (section.image != null) continue
+                val stack = section.fontStack ?: style.fontStack
+                val stackKey = stack.joinToString(",")
+                if (stackKey !in glyphsByStack) {
+                    glyphsByStack[stackKey] = manager.glyphsFor(stack, section.text)
+                }
             }
         }
-        if (glyphsByStack.values.all { it.isEmpty() }) return null
+        if (!hasImages && glyphsByStack.values.all { it.isEmpty() }) return null
 
         val shaped = GlyphLayout.shape(
             sections = sections,
@@ -188,7 +242,69 @@ internal class TextLabelBuilder(
             )
         } else null
 
-        return LabelArt.Glyphs(rendered, plainText, quads)
+        return LabelArt.Glyphs(rendered, shapingText, quads)
+    }
+
+    /**
+     * The `["format", ...]` sections, with every inline image resolved against the sprite sheet.
+     *
+     * A section whose image is missing from the sheet is dropped entirely, which is upstream's
+     * `if (!imagePosition) continue` (`src/symbol/shaping.ts`) -- it contributes no advance either.
+     */
+    private fun sectionsOf(
+        formatted: Formatted,
+        style: ResolvedTextStyle,
+        density: Density,
+    ): List<TextSection> = formatted.sections.mapNotNull { section ->
+        val image = section.image
+        val verticalAlign = section.verticalAlign ?: VerticalAlign.BOTTOM
+        if (image != null) {
+            val resolved = imageOf(image.name, style, density) ?: return@mapNotNull null
+            /* `font-scale` sizes text and never an image: upstream's `addImageSection` hardcodes
+             * `scale: 1`, and the sprite's own size is the whole of it. */
+            TextSection(text = "", image = resolved, verticalAlign = verticalAlign)
+        } else {
+            TextSection(
+                text = transformed(section.text, style.transform),
+                scale = section.scale?.toFloat() ?: 1f,
+                fontStack = section.fontStack?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() },
+                color = section.textColor,
+                verticalAlign = verticalAlign,
+            )
+        }
+    }
+
+    /**
+     * One inline image, at the size it is drawn.
+     *
+     * An SDF entry is recoloured by the **text**'s paint properties, not the icon's: upstream draws
+     * a label carrying images with `symbol_text_and_icon`, whose `fill_color` / `halo_color` /
+     * `halo_width` / `halo_blur` are the text ones, and whose other branch blits a plain image
+     * untouched.
+     */
+    private fun imageOf(name: String, style: ResolvedTextStyle, density: Density): SectionImage? {
+        if (name.isEmpty()) return null
+        val manager = spriteManager ?: return null
+        val info = manager.getSpriteInfo(name) ?: return null
+        val sdf = if (info.sdf) {
+            SDF(
+                fillColor = style.color,
+                haloColor = style.haloColor,
+                haloWidth = style.haloWidth,
+                haloBlur = style.haloBlur,
+                /* Drawn size over sheet size, as the icon path computes it: the halo is given in
+                 * layout pixels and the distance field measured in sheet ones. */
+                fontScale = density.density / info.pixelRatio,
+            )
+        } else {
+            null
+        }
+        val (_, bitmap) = manager.getSprite(name, sdf = sdf) ?: return null
+        return SectionImage(
+            width = info.layoutWidth * density.density,
+            height = info.layoutHeight * density.density,
+            payload = bitmap,
+        )
     }
 
     /**
@@ -197,6 +313,9 @@ internal class TextLabelBuilder(
      * `text-size` is converted to `sp` against the same [Density] the measure uses, which cancels
      * the user's font-scale back out: `text-size` is a length in pixels, not a UI font size, and
      * scaling it with the accessibility setting would resize the map's labels.
+     *
+     * It measures one run in one style, so a `["format", ...]`'s per-section font, scale and colour
+     * are lost here, and so are its inline images. Upstream has no fallback at all.
      */
     private fun measureWithCompose(
         text: String,
