@@ -190,17 +190,27 @@ internal class TextLabelBuilder(
         val manager = glyphManager?.takeIf { it.isConfigured }
         if (manager == null && !hasImages) return null
 
-        /* One `["format", ...]` section may override the font stack, so every stack the label uses
-         * has to be fetched, not just the layer's own. */
+        /* Upstream's `SymbolBucket.populate` collects glyph dependencies per font stack across
+         * *every* section -- `stacks[sectionFont] = stacks[sectionFont] || {}`, then one
+         * `calculateGlyphDependencies` per section -- and both halves of that matter here. One
+         * `["format", ...]` section may override the font stack, so every stack the label uses has
+         * to be fetched and not just the layer's own; and two sections sharing a stack may still
+         * need different ranges, so the text they contribute has to be unioned before the fetch.
+         * Asking for the first section's text alone left a later section's script unrequested -- a
+         * glyph the server has, never asked for, which reads exactly like a font missing it:
+         * `GlyphLayout` drops an unresolved codepoint without even an advance. */
+        val textByStack = LinkedHashMap<String, Pair<List<String>, StringBuilder>>()
+        for (section in sections) {
+            if (section.image != null) continue
+            val stack = section.fontStack ?: style.fontStack
+            val stackKey = stack.joinToString(",")
+            textByStack.getOrPut(stackKey) { stack to StringBuilder() }.second.append(section.text)
+        }
         val glyphsByStack = mutableMapOf<String, Map<Int, Glyph>>()
         if (manager != null) {
-            for (section in sections) {
-                if (section.image != null) continue
-                val stack = section.fontStack ?: style.fontStack
-                val stackKey = stack.joinToString(",")
-                if (stackKey !in glyphsByStack) {
-                    glyphsByStack[stackKey] = manager.glyphsFor(stack, section.text)
-                }
+            for ((stackKey, dependency) in textByStack) {
+                val (stack, text) = dependency
+                glyphsByStack[stackKey] = manager.glyphsFor(stack, text.toString())
             }
         }
         if (!hasImages && glyphsByStack.values.all { it.isEmpty() }) return null

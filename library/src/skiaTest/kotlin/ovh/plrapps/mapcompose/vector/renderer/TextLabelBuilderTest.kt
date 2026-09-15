@@ -40,24 +40,62 @@ class TextLabelBuilderTest {
         const val FONT_SIZE = 24f
         const val SPRITE_SIZE = 16
         val STACK = listOf("Test Regular")
+
+        /** A second stack, so a `["format", ...]` section can override the layer's own. */
+        const val OTHER_STACK = "Other Regular"
+
+        /** U+4E2D, whose range is the 78th and so a different file from any ASCII label's. */
+        const val CJK = '中'
+        const val CJK_RANGE = "19968-20223"
+        const val CJK_ADVANCE = 24
     }
 
-    private fun glyphManager(): GlyphManager {
-        val bytes = GlyphPbfFixtures.glyphsFile(
-            GlyphPbfFixtures.fontStack(
-                name = STACK.single(),
-                range = "0-255",
-                glyphs = (33..126).map { code ->
-                    GlyphPbfFixtures.glyph(
-                        id = code, width = 10, height = 12, left = 1, top = 12 - ASCENT,
-                        advance = ADVANCE, bitmap = GlyphPbfFixtures.solidBitmap(10, 12),
-                    )
-                },
-            )
+    /** The `0-255` range file: solid ink for every printable ASCII codepoint. */
+    private fun asciiRangeBytes(): ByteArray = GlyphPbfFixtures.glyphsFile(
+        GlyphPbfFixtures.fontStack(
+            name = STACK.single(),
+            range = "0-255",
+            glyphs = (33..126).map { code ->
+                GlyphPbfFixtures.glyph(
+                    id = code, width = 10, height = 12, left = 1, top = 12 - ASCENT,
+                    advance = ADVANCE, bitmap = GlyphPbfFixtures.solidBitmap(10, 12),
+                )
+            },
         )
+    )
+
+    /** The `19968-20223` range file, i.e. the one a CJK section needs and an ASCII one does not. */
+    private fun cjkRangeBytes(): ByteArray = GlyphPbfFixtures.glyphsFile(
+        GlyphPbfFixtures.fontStack(
+            name = STACK.single(),
+            range = CJK_RANGE,
+            glyphs = listOf(
+                GlyphPbfFixtures.glyph(
+                    id = CJK.code, width = 20, height = 20, left = 1, top = 20 - ASCENT,
+                    advance = CJK_ADVANCE, bitmap = GlyphPbfFixtures.solidBitmap(20, 20),
+                )
+            ),
+        )
+    )
+
+    private fun glyphManager(): GlyphManager {
+        val bytes = asciiRangeBytes()
         return GlyphManager(
             urlTemplate = "test://{fontstack}/{range}.pbf",
             loadResource = { _: String -> Buffer().apply { write(bytes) } as RawSource },
+        )
+    }
+
+    /** One serving both ranges, and recording every URL it is asked for, in order. */
+    private fun recordingGlyphManager(requested: MutableList<String>): GlyphManager {
+        val ascii = asciiRangeBytes()
+        val cjk = cjkRangeBytes()
+        return GlyphManager(
+            urlTemplate = "test://{fontstack}/{range}.pbf",
+            loadResource = { url: String ->
+                requested += url
+                Buffer().apply { write(if (CJK_RANGE in url) cjk else ascii) } as RawSource
+            },
         )
     }
 
@@ -191,6 +229,49 @@ class TextLabelBuilderTest {
             )
         )
         assertTrue(red !== blue, "a section colour must reach the label cache key")
+    }
+
+    @Test
+    fun `a later section's own range is fetched too`() = runTest {
+        // Upstream's `SymbolBucket.populate` collects glyph dependencies per font stack across
+        // every section. Keying the fetch on the stack alone let the *first* section decide the
+        // ranges, so this label's CJK half was never requested -- and an unresolved codepoint
+        // neither inks nor advances, which reads exactly like a font the server does not have.
+        val requested = mutableListOf<String>()
+        val art = assertNotNull(
+            builder(glyphs = recordingGlyphManager(requested)).build(
+                Formatted(listOf(FormattedSection(text = "a"), FormattedSection(text = "$CJK"))),
+                style(),
+                Density(1f),
+            )
+        )
+        assertEquals(
+            listOf("test://Test%20Regular/0-255.pbf", "test://Test%20Regular/$CJK_RANGE.pbf"),
+            requested,
+        )
+        assertEquals((ADVANCE + CJK_ADVANCE).toFloat(), art.width)
+    }
+
+    @Test
+    fun `a section overriding the font stack still fetches its own`() = runTest {
+        // The behaviour the per-stack keying was written for, which the union must not lose.
+        val requested = mutableListOf<String>()
+        assertNotNull(
+            builder(glyphs = recordingGlyphManager(requested)).build(
+                Formatted(
+                    listOf(
+                        FormattedSection(text = "a"),
+                        FormattedSection(text = "b", fontStack = OTHER_STACK),
+                    )
+                ),
+                style(),
+                Density(1f),
+            )
+        )
+        assertEquals(
+            listOf("test://Test%20Regular/0-255.pbf", "test://Other%20Regular/0-255.pbf"),
+            requested,
+        )
     }
 
     @Test

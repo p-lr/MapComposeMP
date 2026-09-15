@@ -607,8 +607,13 @@ the halo rather than added to it.
 **Glyphs** (`data/glyphs/`). `GlyphManager` resolves the style's `glyphs` template, fetches one
 `{fontstack}/{range}.pbf` per 256-codepoint range a label touches, and caches the decoded ranges;
 a range that fails is cached empty, so a font the server lacks costs one request rather than one per
-tile. `GlyphLayout` is the port of `symbol/shaping.ts` — advances, `text-letter-spacing`,
-`text-line-height`, `text-transform`, `text-justify`, vertical `text-writing-mode`, and upstream's
+tile. Which ranges a label touches is collected the way upstream's `SymbolBucket.populate` collects
+its glyph dependencies: per font stack, over **every** `["format", ...]` section, unioning the text of
+all the sections that share a stack before the fetch. Asking for the first such section's text alone
+left a later section's script unrequested — a glyph the server does have, never asked for, which is
+indistinguishable on screen from one it lacks, since `GlyphLayout` drops an unresolved codepoint
+without even an advance. `GlyphLayout` is the port of `symbol/shaping.ts` — advances,
+`text-letter-spacing`, `text-line-height`, `text-transform`, `text-justify`, vertical `text-writing-mode`, and upstream's
 balanced line breaking for `text-max-width`. `GlyphRasterizer` composites the shaped glyphs' distance
 fields through the same `sdfPixel` the icons go through, which is what makes `text-halo-width` a real
 dilated outline. It also rasterizes each glyph on its own (`renderGlyphs`, upstream's quads) for a
