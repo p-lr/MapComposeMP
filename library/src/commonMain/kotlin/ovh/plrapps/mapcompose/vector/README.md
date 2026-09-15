@@ -26,7 +26,8 @@ is read; the handful that are read and then ignored are listed under
 [Divergences](#divergences), each with the reason and the file that documents it.
 
 Sources: `vector`, `raster`, `raster-dem` and `geojson`. Sprites, including SDF and stretchable
-icons, and SDF glyphs from a `glyphs` server.
+icons, and SDF glyphs from a `glyphs` server — or from the font files a style declares in its root
+`font-faces`, which are downloaded and rasterized locally, one grapheme cluster at a time.
 
 A style's root `state` block is honoured: its defaults are flattened as upstream's
 `getGlobalStateDefaults` does and baked into every expression and filter the style compiles, so
@@ -646,9 +647,40 @@ label that follows a line, because that one is drawn glyph by glyph; blitting su
 composite instead cannot work, since a glyph's distance field reaches `GLYPH_BORDER` samples past its
 ink and so overlaps its neighbours'.
 
-A style with no `glyphs` URL falls back to Compose's own text stack (`LabelArt.Measured`): labels
-still render, with the platform's default font, `text-font` ignored and the halo approximated by a
-blur. `library/tools/fetch-glyphs-proto.sh` re-fetches upstream's `glyphs.proto` for diffing against
+**Font faces** (`data/glyphs/FontFaceManager.kt`, `LocalGlyphRasterizer.kt`, `TinySdf.kt`,
+`UnicodeRange.kt`). A style's root `font-faces` names a font *file* per `text-font` name, optionally
+per `unicode-range`, and this port honours it as upstream's `font_face_manager.ts` +
+`glyph_manager.ts` do: the file is downloaded the first time a codepoint it covers is drawn (never
+before, and once only — a failed download is remembered as failed), built into a `FontFamily` of its
+own through the `fontFamilyFromBytes` `expect`, and the text is drawn with it. Resolution order is
+upstream's: a declared file wins over the `glyphs` server for every codepoint it covers, and a style
+with font files and no server renders real labels rather than falling back to Compose.
+
+What is drawn is a **grapheme cluster**, not a codepoint, which is the point of the property: a
+Devanagari or Khmer syllable is several codepoints that come apart when drawn one at a time, and
+handing the whole cluster to the platform's text engine is what keeps them together. Segmentation is
+`graphemeClusters`, an `expect` over `java.text.BreakIterator`, `NSString`'s composed character
+sequences and `Intl.Segmenter` — the same shape as `compareLocalized` — and it is skipped entirely
+for a style declaring no font file, so nothing about the common path changed. `GlyphLayout.shape`
+takes an optional cluster lookup and makes a drawn cluster **one** item, which is what keeps line
+breaking from splitting a syllable; the item keeps its first codepoint, since that is what the break
+and whitespace classes are read from.
+
+The rasterization is upstream's `_drawGlyph` with Compose's text stack in place of a canvas: the
+grapheme is laid out at `24 × 2` pixels against a `Density(1f)`, drawn white into an `ImageBitmap`,
+and its alpha run through `TinySdf` — a port of `mapbox/tiny-sdf`, Felzenszwalb's distance transform
+at upstream's `radius = 8`, `cutoff = 0.25`. Metrics are divided back by that scale and carry
+upstream's two calibration constants (`leftAdjustment = 0.5`, `topAdjustment = 27.5`), which is what
+lines a locally drawn glyph up with a server-generated one. Two things differ from upstream and are
+deliberate: the distance field is **halved** back to glyph units rather than kept at double
+resolution, because `Glyph` promises `bitmapWidth == width + 2 * GLYPH_BORDER` and every reader
+assumes it, where upstream carries an `isDoubleResolution` flag to the atlas; and an advance is
+measured **between two sentinel letters**, because Compose trims a line's trailing whitespace and a
+space would otherwise measure zero.
+
+A style with no `glyphs` URL and no font file falls back to Compose's own text stack
+(`LabelArt.Measured`): labels still render, with the platform's default font, `text-font` ignored and
+the halo approximated by a blur. `library/tools/fetch-glyphs-proto.sh` re-fetches upstream's `glyphs.proto` for diffing against
 the schema quoted in `GlyphPbf.kt`; the decoder is hand-rolled rather than generated because three
 messages of seven scalar fields do not justify adding a protobuf toolchain to the build.
 
@@ -924,9 +956,24 @@ Every one of these is documented at the file that causes it; this is the index.
 - **`text-rotate` does not reach a line label**, as it does not upstream: the glyph angles come from
   the line.
 - Text is shaped in logical order: there is no bidirectional reordering (upstream delegates that to
-  an optional `rtl-text-plugin`) and no Arabic contextual shaping.
-- A codepoint the glyph server has no glyph for is dropped, where upstream falls back to a locally
-  rendered `TinySDF` for CJK.
+  an optional `rtl-text-plugin`) and no shaping *across* cluster boundaries. Within a cluster a
+  `font-faces` file is shaped by the platform, so Devanagari and Khmer conjuncts are right; Arabic
+  contextual forms, which join across clusters, are not.
+- A codepoint no `font-faces` file covers and the glyph server has no glyph for is dropped, where
+  upstream falls back to a locally rendered `TinySDF` for CJK (`localIdeographFontFamily` is a map
+  option rather than a style property, and is not ported).
+- **A grapheme cluster no declared file covers is left to the server codepoint by codepoint**, where
+  upstream draws nothing for it — only a file can draw a cluster whole. Decomposing does take a
+  letter apart from its marks, but the alternative is that adding a `font-faces` block for one
+  script silently blanks every accented word of another, which the server was serving perfectly well
+  before.
+- A `font-faces` file's weight and style are not sniffed out of its family name, as upstream does not
+  either for such a file (`sniffFontStyles: false`): the file carries its own. Upstream's TinySDF
+  `lang` is not passed, and a relative `url` is not resolved against the style URL — the same as
+  `glyphs` and `sprite`.
+- On Android a declared font file goes through a temporary file in the app's cache directory:
+  `Typeface.Builder(ByteBuffer)` is API 29 against this library's `minSdk 24`, and Compose's Android
+  overloads take no bytes. A file the platform cannot read leaves its codepoints to the server.
 
 **Global state is bound at load, and there is no runtime setter.** Upstream hands
 `createExpression` a live object and `setGlobalStateProperty` mutates it in place, re-evaluating what
