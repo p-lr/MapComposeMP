@@ -2,6 +2,8 @@ package ovh.plrapps.mapcompose.vector.symbol
 
 import ovh.plrapps.mapcompose.vector.renderer.LabelArt
 import ovh.plrapps.mapcompose.vector.renderer.Mvt
+import ovh.plrapps.mapcompose.vector.renderer.assertColorEquals
+import ovh.plrapps.mapcompose.vector.renderer.pixelAt
 import ovh.plrapps.mapcompose.vector.renderer.renderToBitmap
 import ovh.plrapps.mapcompose.vector.ui.symbols.scaledAlign
 import ovh.plrapps.mapcompose.vector.ui.symbols.scaledSize
@@ -440,6 +442,19 @@ class SymbolLayerLayoutTest {
             assertEquals(16, sprite.drawSize.height)
             // ...while the box it reserves is padded on every side.
             assertEquals(16f + 16f, sprite.placement.spritePlacement.bounds.width)
+        }
+    }
+
+    @Test
+    fun `icon-color does not recolour a plain icon`() {
+        runTest {
+            // `icon-color` is SDF-only. Upstream's ordinary-icon program is
+            // `fragColor = texture(u_texture, v_tex) * alpha` (`symbol_icon.fragment.glsl`) -- no
+            // colour uniform -- so a multicolour PNG icon keeps its own texels. This used to tint
+            // the cut-out with a `SrcIn` fill, turning every such icon into a flat silhouette.
+            val symbols = produce(layer("""{"icon-image":"marker"}""", """{"icon-color":"#00ff00"}"""))
+            val sprite = assertNotNull(symbols.filterIsInstance<SymbolInstance.Sprite>().singleOrNull())
+            assertColorEquals(Color.Red, sprite.value.pixelAt(4, 4))
         }
     }
 
