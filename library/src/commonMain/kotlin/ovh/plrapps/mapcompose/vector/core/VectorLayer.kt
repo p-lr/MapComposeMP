@@ -29,6 +29,7 @@ import ovh.plrapps.mapcompose.utils.throttle
 import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.extension.toMVTViewport
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
+import ovh.plrapps.mapcompose.vector.data.glyphs.ComposeGlyphRasterizer
 import ovh.plrapps.mapcompose.vector.symbol.SymbolBucket
 import ovh.plrapps.mapcompose.vector.symbol.fractionalZoom
 import kotlin.math.log2
@@ -104,7 +105,10 @@ internal class VectorLayer(
 
         val configuration = getMapLibreConfiguration(
             style = style ?: "",
-            loadResource = vectorTileStreamProvider::loadResources
+            loadResource = vectorTileStreamProvider::loadResources,
+            /* What draws a grapheme with a font file the style declared in `font-faces`: the map's
+             * own `TextMeasurer`, awaited, since it only exists once `MapUI` has composed. */
+            localGlyphs = ComposeGlyphRasterizer(mapState.textMeasurerState),
         ).getOrThrow()
 
         val rasterizer = VectorRasterizer(
