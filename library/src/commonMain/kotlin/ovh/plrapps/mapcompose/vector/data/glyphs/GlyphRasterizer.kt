@@ -67,6 +67,38 @@ class RenderedGlyph(
 object GlyphRasterizer {
 
     /**
+     * The widest or tallest a composited label may be, in pixels.
+     *
+     * Upstream needs no such bound: it rasterizes every glyph once into a shared atlas and draws a
+     * label as quads sampling it, so its ceiling is the atlas texture and a long label costs quads.
+     * [render] instead allocates one bitmap covering the whole label, which is what has to be
+     * bounded -- and bounded here, on the allocation, rather than on the label's character count:
+     * a count says nothing about a short label at a huge `text-size`, and refuses a long one that
+     * would rasterize to very little.
+     *
+     * Both constants are far above any label a style means to draw. At density 3 and `text-size`
+     * 16 dp the spec's default `text-max-width` of 10 ems wraps at roughly 480 px, so
+     * [MAX_LABEL_BITMAP_PIXELS] is first reached somewhere past a thousand characters; the
+     * dimension is only reached by an unwrapped line label far longer than the line it would have
+     * to fit on.
+     */
+    const val MAX_LABEL_BITMAP_DIMENSION = 8192
+
+    /** The most pixels a composited label may cover -- 4 M, i.e. 16 MB as an `IntArray`. */
+    const val MAX_LABEL_BITMAP_PIXELS = 4_194_304
+
+    /**
+     * Whether a label of this size is worth allocating.
+     *
+     * A label past either bound is not dropped: [render] returns null, `TextLabelBuilder` falls
+     * through to its Compose measure, which caps itself at a handful of lines.
+     */
+    private fun isRasterizable(width: Int, height: Int): Boolean =
+        width <= MAX_LABEL_BITMAP_DIMENSION &&
+            height <= MAX_LABEL_BITMAP_DIMENSION &&
+            width.toLong() * height <= MAX_LABEL_BITMAP_PIXELS
+
+    /**
      * @param opacity `text-opacity`, multiplied into both the fill and the halo as
      * `Color.withOpacity` does elsewhere -- upstream's `u_opacity` applies to the whole symbol.
      * @return `null` when the label has no ink at all, e.g. every codepoint missed the font stack.
@@ -111,6 +143,7 @@ object GlyphRasterizer {
         val width = ceil(maxX - minX).toInt()
         val height = ceil(maxY - minY).toInt()
         if (width <= 0 || height <= 0) return null
+        if (!isRasterizable(width, height)) return null
 
         val pixels = IntArray(width * height)
 

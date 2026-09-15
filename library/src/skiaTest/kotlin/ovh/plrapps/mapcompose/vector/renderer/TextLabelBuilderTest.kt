@@ -335,4 +335,21 @@ class TextLabelBuilderTest {
     fun `a blank text-field is still rejected`() = runTest {
         assertNull(builder().build(Formatted(listOf(FormattedSection(text = "   "))), style(), Density(1f)))
     }
+
+    @Test
+    fun `a label past 256 code units is drawn rather than dropped`() = runTest {
+        /* There used to be a `shapingText.length > 256` gate here, ahead of both the glyph path and
+         * the Compose fallback, so such a `text-field` drew nothing at all. Upstream's `shapeText`
+         * rejects a label on one condition only, `isEmpty(positionedLines)`. What the gate stood in
+         * for -- this port's per-label bitmap, where upstream has a shared glyph atlas -- is bounded
+         * in `GlyphRasterizer.render` instead, and 600 glyphs stays well inside it. */
+        val length = 600
+        val art = assertNotNull(
+            builder().build(Formatted(listOf(FormattedSection(text = "a".repeat(length)))), style(), Density(1f))
+        )
+        // The Compose fallback is unreachable here -- the measurer is null -- so this is the glyph path.
+        assertTrue(art is LabelArt.Glyphs)
+        assertEquals(length, art.text.length)
+        assertEquals(length * ADVANCE.toFloat(), art.width)
+    }
 }
