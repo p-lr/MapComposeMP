@@ -77,12 +77,18 @@ class SymbolLayerLayoutTest {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** A range where every printable ASCII codepoint is a 10x12 block advancing half an em. */
-    private fun glyphRange(): ByteArray = GlyphPbfFixtures.glyphsFile(
+    /**
+     * A range where every printable ASCII codepoint is a 10x12 block advancing half an em.
+     *
+     * [extra] adds codepoints outside it -- a CJK ideograph, say. The fixture is served for every
+     * `{range}` the manager asks for and its glyphs are taken whatever range it declares, so one
+     * file covers them all.
+     */
+    private fun glyphRange(extra: Iterable<Int> = emptyList()): ByteArray = GlyphPbfFixtures.glyphsFile(
         GlyphPbfFixtures.fontStack(
             name = STACK.single(),
             range = "0-255",
-            glyphs = (33..126).map { code ->
+            glyphs = ((33..126) + extra).map { code ->
                 GlyphPbfFixtures.glyph(
                     id = code, width = 10, height = 12, left = 1, top = 12 - ASCENT, advance = ADVANCE,
                     bitmap = GlyphPbfFixtures.solidBitmap(10, 12),
@@ -91,8 +97,8 @@ class SymbolLayerLayoutTest {
         )
     )
 
-    private fun glyphManager(): GlyphManager {
-        val bytes = glyphRange()
+    private fun glyphManager(extra: Iterable<Int> = emptyList()): GlyphManager {
+        val bytes = glyphRange(extra)
         return GlyphManager(
             urlTemplate = "test://{fontstack}/{range}.pbf",
             loadResource = { _: String -> Buffer().apply { write(bytes) } as RawSource },
@@ -111,7 +117,10 @@ class SymbolLayerLayoutTest {
         )
     }
 
-    private fun painter(sprites: SpriteManager? = spriteManager()): SymbolLayerLayout =
+    private fun painter(
+        sprites: SpriteManager? = spriteManager(),
+        glyphs: GlyphManager = glyphManager(),
+    ): SymbolLayerLayout =
         SymbolLayerLayout(
             textMeasurerState = MutableStateFlow<TextMeasurer?>(null),
             spriteManager = sprites,
@@ -119,7 +128,7 @@ class SymbolLayerLayoutTest {
                 style = MapLibreStyle(),
                 tileSources = emptyMap(),
                 spriteManager = sprites,
-                glyphManager = glyphManager(),
+                glyphManager = glyphs,
             ),
             pathCache = LruCache(64),
             mutex = Mutex(),
@@ -142,7 +151,8 @@ class SymbolLayerLayoutTest {
         properties: Map<String, Any?> = emptyMap(),
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
         sprites: SpriteManager? = spriteManager(),
-    ): List<SymbolInstance> = painter(sprites).produceSymbol(
+        glyphs: GlyphManager = glyphManager(),
+    ): List<SymbolInstance> = painter(sprites, glyphs).produceSymbol(
         feature = feature,
         style = layer,
         canvasSize = CANVAS,
@@ -914,6 +924,81 @@ class SymbolLayerLayoutTest {
             val symbols = produce(layer("""{"text-field":"中文","text-font":["Test Regular"]}"""))
             assertTrue(symbols.isEmpty())
         }
+    }
+
+    // endregion
+
+    // region text-writing-mode
+
+    /** The one ideograph the fixture font serves, so a CJK label shapes at all. */
+    private val cjk = 0x4E2D
+
+    private fun cjkLayer(writingMode: String, extra: String = "") = layer(
+        """{"text-field":"${Char(cjk)}${Char(cjk)}","text-font":["Test Regular"],"text-size":16,""" +
+            """"text-writing-mode":$writingMode$extra}"""
+    )
+
+    @Test
+    fun `a cjk point label carries both settings for the placement pass to choose between`() = runTest {
+        /* `text-writing-mode` is a preference order, so both shapings have to exist before anything
+         * can prefer one -- upstream's `shapedTextOrientations`. The horizontal one stays the
+         * instance's own `value`, whichever end of the list the style put first. */
+        val symbols = produce(cjkLayer("""["horizontal","vertical"]"""), glyphs = glyphManager(listOf(cjk)))
+
+        val label = symbols.filterIsInstance<SymbolInstance.Text>().single()
+        val stacked = assertNotNull(label.verticalSetting, "the stacked setting is built")
+        assertContentEquals(listOf("horizontal", "vertical"), label.writingModes)
+        assertTrue(
+            stacked.value.width < label.value.width && stacked.value.height > label.value.height,
+            "the instance's own setting is the flat one and the second is the stacked one",
+        )
+    }
+
+    @Test
+    fun `the order the style wrote does not change what is built`() = runTest {
+        val symbols = produce(cjkLayer("""["vertical","horizontal"]"""), glyphs = glyphManager(listOf(cjk)))
+
+        val label = symbols.filterIsInstance<SymbolInstance.Text>().single()
+        val stacked = assertNotNull(label.verticalSetting)
+        assertContentEquals(listOf("vertical", "horizontal"), label.writingModes)
+        assertTrue(
+            stacked.value.width < label.value.width,
+            "the instance's own setting is still the flat one, for placement to prefer or not",
+        )
+    }
+
+    @Test
+    fun `a label a style never lists vertical for carries one setting`() = runTest {
+        val symbols = produce(cjkLayer("""["horizontal"]"""), glyphs = glyphManager(listOf(cjk)))
+
+        val label = symbols.filterIsInstance<SymbolInstance.Text>().single()
+        assertTrue(label.verticalSetting == null, "nothing to fall back to, and nothing rasterized")
+        assertTrue(label.writingModes.isEmpty())
+    }
+
+    @Test
+    fun `latin text gets no stacked setting however the style asks`() = runTest {
+        val symbols = produce(
+            layer("""{"text-field":"AB","text-font":["Test Regular"],"text-size":16,"text-writing-mode":["vertical","horizontal"]}""")
+        )
+
+        val label = symbols.filterIsInstance<SymbolInstance.Text>().single()
+        assertTrue(label.verticalSetting == null, "there is no glyph rotation to set it with")
+    }
+
+    @Test
+    fun `a line label is never stacked`() = runTest {
+        /* Upstream's other vertical branch -- a line label under `textAlongLine && keepUpright` --
+         * rotates each glyph along the path, which this port cannot do. */
+        val symbols = produce(
+            cjkLayer("""["vertical","horizontal"]""", ""","symbol-placement":"line""""),
+            feature = Mvt.lineFeature(listOf(0 to EXTENT / 2, EXTENT to EXTENT / 2)),
+            glyphs = glyphManager(listOf(cjk)),
+        )
+
+        val labels = symbols.filterIsInstance<SymbolInstance.Text>()
+        assertTrue(labels.isNotEmpty(), "the line is labelled")
+        assertTrue(labels.all { it.verticalSetting == null }, "and always flat")
     }
 
     // endregion

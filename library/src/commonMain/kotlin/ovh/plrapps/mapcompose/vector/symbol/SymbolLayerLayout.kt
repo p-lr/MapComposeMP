@@ -19,6 +19,7 @@ import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
+import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDouble
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
@@ -292,10 +293,30 @@ internal class SymbolLayerLayout(
     }
 
     /**
+     * A label's horizontal setting, its vertical one where there is one, and the style both were
+     * built with.
+     */
+    private class BuiltLabel(
+        val art: LabelArt,
+        val vertical: LabelArt?,
+        val style: ResolvedTextStyle,
+    )
+
+    /**
      * The label's art and the style it was built with, or null when the feature has no text.
      *
      * [lineLabel] says the label follows a line: it forbids wrapping (see [resolvedTextStyle]) and
      * asks the builder for the per-glyph quads the curved draw pass needs.
+     *
+     * A label a style lists `vertical` for is shaped a **second** time, stacked, and both settings
+     * are carried to the placement pass -- upstream's `shapedTextOrientations`, whose horizontal
+     * half is always built. `text-writing-mode` is a preference *order*, and which end of it a
+     * label ends up at is a collision question, not a shaping one.
+     *
+     * Only a point label gets the second setting, which is upstream's
+     * `addVerticalShapingForPointLabelIfNeeded`. Upstream's other vertical branch -- a line label
+     * under `textAlongLine && keepUpright` -- is not ported: it rotates each glyph ninety degrees
+     * along the path and verticalizes its punctuation, and there is no glyph rotation here.
      */
     private suspend fun buildLabel(
         layout: SymbolLayout,
@@ -305,15 +326,24 @@ internal class SymbolLayerLayout(
         density: Density,
         anchor: TextAnchor,
         lineLabel: Boolean,
-    ): Pair<LabelArt, ResolvedTextStyle>? {
+    ): BuiltLabel? {
         val formatted = textFieldOf(layout, featureProperties, actualZoom) ?: return null
         val style = resolvedTextStyle(
             layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = lineLabel
         )
         if (style.opacity <= 0f) return null
         val art = labelBuilder.build(formatted, style, density, perGlyph = lineLabel) ?: return null
-        return art to style
+        val vertical = if (!lineLabel && style.writingMode?.contains(WRITING_MODE_VERTICAL) == true) {
+            labelBuilder.build(formatted, style, density, perGlyph = false, vertical = true)
+        } else {
+            null
+        }
+        return BuiltLabel(art, vertical, style)
     }
+
+    /** The style's `text-writing-mode`, or the empty list that means "horizontal only". */
+    private fun writingModesOf(style: ResolvedTextStyle, vertical: LabelArt?): List<String> =
+        if (vertical == null) emptyList() else style.writingMode.orEmpty()
 
     private fun textAnchorOf(
         layout: SymbolLayout,
@@ -720,9 +750,11 @@ internal class SymbolLayerLayout(
         val (spriteMeta, sprite) = spritePair
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
-        val (textArt, textStyle) = buildLabel(
+        val built = buildLabel(
             layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = false
         ) ?: return null
+        val textArt = built.art
+        val textStyle = built.style
 
         val iconWidth = spriteMeta.layoutWidth * scale
         val iconHeight = spriteMeta.layoutHeight * scale
@@ -808,46 +840,61 @@ internal class SymbolLayerLayout(
                 ?: listOf(anchor)
         }
 
-        val textCandidates: List<TextPlacementCandidate> = anchors.map { candidateAnchor ->
-            /* The label is placed by its box: the anchor names the side of the box that lands on
-             * the point, and `text-offset` / `text-radial-offset` push it away from there. The icon
-             * shares that point and takes no room of its own -- upstream's `symbol_layout.ts` never
-             * adds the icon's size to the text offset, and a style's `text-offset` is authored to
-             * clear the icon it is drawn with. */
-            val anchorOffset = anchorCenterOffset(
-                candidateAnchor,
-                textSize.width.toFloat(),
-                textSize.height.toFloat(),
-            )
-            val userOffset = textOffsetPx(
-                layout, featureProperties, actualZoom, candidateAnchor, textStyle.fontSize
-            )
-            val dx = anchorOffset.x + userOffset.x + textTranslate.x
-            val dy = anchorOffset.y + userOffset.y + textTranslate.y
-            val cx = spritePosition.x + dx
-            val cy = spritePosition.y + dy
-            val norm = tileCoordToNormalized(tileX, tileY, cx.toDouble(), cy.toDouble(), tileZ, canvasSize)
-            TextPlacementCandidate(
-                labelPlacement = labelPlacementOf(
-                    text = plainText,
-                    center = ObbPoint(cx, cy),
-                    width = textSize.width.toFloat(),
-                    height = textSize.height.toFloat(),
-                    padding = textPadding,
-                    angle = textRotateDeg,
-                    layerIndex = layerIndex,
-                    layout = layout,
-            featureProperties = featureProperties,
-            actualZoom = actualZoom,
-                    overlapMode = textOverlap,
-                    ignorePlacement = textIgnorePlacement,
-                ),
-                mercatorX = norm.x,
-                mercatorY = norm.y,
-                dx = dx,
-                dy = dy,
-            )
-        }
+        /* One candidate per anchor, for one *setting* of the label: a stacked label is a different
+         * box, so it meets each anchor somewhere else and needs a list of its own. The two lists run
+         * over the same anchors in the same order, which is what lets one `variableOffsets` index
+         * name the same anchor in either. */
+        fun candidatesFor(labelText: String, size: IntSize): List<TextPlacementCandidate> =
+            anchors.map { candidateAnchor ->
+                /* The label is placed by its box: the anchor names the side of the box that lands on
+                 * the point, and `text-offset` / `text-radial-offset` push it away from there. The
+                 * icon shares that point and takes no room of its own -- upstream's
+                 * `symbol_layout.ts` never adds the icon's size to the text offset, and a style's
+                 * `text-offset` is authored to clear the icon it is drawn with. */
+                val anchorOffset = anchorCenterOffset(
+                    candidateAnchor,
+                    size.width.toFloat(),
+                    size.height.toFloat(),
+                )
+                val userOffset = textOffsetPx(
+                    layout, featureProperties, actualZoom, candidateAnchor, textStyle.fontSize
+                )
+                val dx = anchorOffset.x + userOffset.x + textTranslate.x
+                val dy = anchorOffset.y + userOffset.y + textTranslate.y
+                val cx = spritePosition.x + dx
+                val cy = spritePosition.y + dy
+                val norm = tileCoordToNormalized(tileX, tileY, cx.toDouble(), cy.toDouble(), tileZ, canvasSize)
+                TextPlacementCandidate(
+                    labelPlacement = labelPlacementOf(
+                        text = labelText,
+                        center = ObbPoint(cx, cy),
+                        width = size.width.toFloat(),
+                        height = size.height.toFloat(),
+                        padding = textPadding,
+                        angle = textRotateDeg,
+                        layerIndex = layerIndex,
+                        layout = layout,
+                        featureProperties = featureProperties,
+                        actualZoom = actualZoom,
+                        overlapMode = textOverlap,
+                        ignorePlacement = textIgnorePlacement,
+                    ),
+                    mercatorX = norm.x,
+                    mercatorY = norm.y,
+                    dx = dx,
+                    dy = dy,
+                )
+            }
+
+        val textCandidates: List<TextPlacementCandidate> = candidatesFor(plainText, textSize)
+
+        /* `icon-text-fit` stretched the icon around the *horizontal* box, so a stacked label would
+         * sit in an icon shaped for the other setting. Upstream builds a second, vertical icon quad
+         * for that case; this port offers no vertical setting there instead. */
+        val verticalArt = built.vertical?.takeUnless { textInsideIcon }
+        val verticalTextCandidates = verticalArt?.let {
+            candidatesFor(it.text, IntSize(it.width.toInt(), it.height.toInt()))
+        }.orEmpty()
 
         /* The label's own placement is the first candidate's -- the style's `text-anchor`, or the
          * first of its `text-variable-anchor` list. Deriving it here rather than recomputing the
@@ -903,6 +950,9 @@ internal class SymbolLayerLayout(
                 sizes.iconSizeData, layout.iconSize, featureProperties, sizes.tileZoom,
                 StyleSpecDefaults.ICON_SIZE,
             ),
+            verticalText = verticalArt,
+            verticalTextCandidates = verticalTextCandidates,
+            writingModes = writingModesOf(textStyle, verticalArt),
         )
     }
 
@@ -927,10 +977,12 @@ internal class SymbolLayerLayout(
         val paint = style.paint
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
-        val (art, textStyle) = buildLabel(
+        val built = buildLabel(
             layout, paint, featureProperties, actualZoom, density, anchor,
             lineLabel = !lineStrings.isNullOrEmpty(),
         ) ?: return emptyList()
+        val art = built.art
+        val textStyle = built.style
 
         val userOffset = textOffsetPx(layout, featureProperties, actualZoom, anchor, textStyle.fontSize)
         val offset = userOffset + textTranslatePx(paint, featureProperties, actualZoom, density)
@@ -975,6 +1027,8 @@ internal class SymbolLayerLayout(
                     layerIndex = layerIndex,
                     fontSize = textStyle.fontSize,
                     sizes = sizes,
+                    verticalArt = built.vertical,
+                    writingModes = writingModesOf(textStyle, built.vertical),
                 )
             )
         }
@@ -1176,6 +1230,8 @@ internal class SymbolLayerLayout(
         layerIndex: Int,
         fontSize: Float,
         sizes: SymbolSizes,
+        verticalArt: LabelArt? = null,
+        writingModes: List<String> = emptyList(),
     ): SymbolInstance? {
         val textWidth = art.width
         val textHeight = art.height
@@ -1219,6 +1275,45 @@ internal class SymbolLayerLayout(
             return null
         }
 
+        /* The stacked setting is a different box, so it takes a different centre: the anchor names
+         * the side of the box that lands on the point, and a tall narrow box meets it elsewhere. */
+        val verticalSetting = verticalArt?.let { stacked ->
+            val stackedAnchorOffset = anchorCenterOffset(anchor, stacked.width, stacked.height)
+            val stackedPosition = ObbPoint(
+                placement.position.x + dx + stackedAnchorOffset.x,
+                placement.position.y + dy + stackedAnchorOffset.y,
+            )
+            val stackedNormalized = tileCoordToNormalized(
+                tileX = tileX,
+                tileY = tileY,
+                pixelX = stackedPosition.x.toDouble(),
+                pixelY = stackedPosition.y.toDouble(),
+                tileZ = tileZ,
+                tileSize = canvasSize,
+            )
+            VerticalSetting(
+                value = stacked,
+                placement = labelPlacementOf(
+                    text = stacked.text,
+                    center = stackedPosition,
+                    width = stacked.width,
+                    height = stacked.height,
+                    padding = textPadding,
+                    angle = pointTextAngle,
+                    layerIndex = layerIndex,
+                    layout = layout,
+                    featureProperties = featureProperties,
+                    actualZoom = actualZoom,
+                    overlapMode = resolveTextOverlapMode(layout, featureProperties, actualZoom),
+                    ignorePlacement = layout.textIgnorePlacement
+                        ?.processAsBoolean(featureProperties, actualZoom)
+                        ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT,
+                ),
+                global = Point(stackedNormalized.x, stackedNormalized.y),
+                tileAnchor = Offset(stackedPosition.x, stackedPosition.y),
+            )
+        }
+
         // Add coordinates to ID for uniqueness
         val coordHash = "${textPosition.x.toInt()}_${textPosition.y.toInt()}"
         val textViewportAligned = resolveViewportAligned(
@@ -1241,6 +1336,8 @@ internal class SymbolLayerLayout(
                 sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
                 StyleSpecDefaults.TEXT_SIZE,
             ),
+            verticalSetting = verticalSetting,
+            writingModes = writingModes,
         )
     }
 

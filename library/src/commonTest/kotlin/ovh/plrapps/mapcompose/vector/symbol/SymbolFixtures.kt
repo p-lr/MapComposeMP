@@ -101,6 +101,13 @@ internal object SymbolFixtures {
         keepUpright: Boolean = true,
         layoutSize: Float = 16f,
         featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
+        /**
+         * The stacked setting's box, when the label has one. It shares [global] and [tileAnchor]
+         * with the horizontal setting, which is what a `text-anchor` of `center` gives.
+         */
+        verticalSize: Pair<Float, Float>? = null,
+        /** `text-writing-mode`, in the style's own order. */
+        writingModes: List<String> = emptyList(),
     ): SymbolInstance.Text {
         val placement = labelPlacement(
             text = key, center = Offset(tileAnchor.x, tileAnchor.y),
@@ -123,6 +130,20 @@ internal object SymbolFixtures {
             keepUpright = keepUpright,
             layoutSize = layoutSize,
             featureSizes = featureSizes,
+            verticalSetting = verticalSize?.let { (verticalWidth, verticalHeight) ->
+                VerticalSetting(
+                    value = FakeLabel(key, verticalWidth, verticalHeight),
+                    placement = labelPlacement(
+                        text = key, center = Offset(tileAnchor.x, tileAnchor.y),
+                        width = verticalWidth, height = verticalHeight, angle = angle,
+                        layerIndex = layerIndex, overlapMode = overlapMode,
+                        ignorePlacement = ignorePlacement, sortKey = sortKey,
+                    ),
+                    global = global,
+                    tileAnchor = tileAnchor,
+                )
+            },
+            writingModes = writingModes,
         )
     }
 

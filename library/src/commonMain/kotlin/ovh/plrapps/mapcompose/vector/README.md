@@ -255,6 +255,29 @@ at all. An inline image belongs to the label's own box and takes no part in `ico
 `mergeLines` and `anchorIsTooClose` still key on section *text*, so two labels differing only by an
 inline image are one key for merging and for repeat suppression.
 
+**`text-writing-mode` is a preference order, resolved at placement.** A label a style lists
+`vertical` for and whose text can be stacked is shaped **twice** — upstream's
+`shapedTextOrientations`, whose horizontal half is always built — and `Placement` walks the style's
+own list, keeping the first setting whose collision box fits (`placeTextForPlacementModes`,
+`src/symbol/placement.ts`). So `["horizontal", "vertical"]` reads horizontally wherever there is
+room and stacks only where there is not, `["vertical", "horizontal"]` asks for the reverse, and a
+list naming one mode alone offers no fallback. The chosen setting reaches the draw pass as the
+accepted instance rather than as a flag, which is the same instance-swap a `text-variable-anchor`
+label already goes through. Membership used to decide it at shaping time instead: either list
+stacked every eligible label, whether or not a horizontal one would have fitted, and there was no
+second shaping to fall back to when the first collided.
+
+**Vertical setting diverges in three ways, all for want of glyph rotation.** A label is eligible only
+when **every** codepoint is one this port can stack, where upstream's `allowsVerticalWritingMode`
+asks whether *any* has upright vertical orientation and rotates the rest ninety degrees; a mixed
+Latin/CJK label is therefore always horizontal here. Only a **point** label gets a second setting,
+upstream's `addVerticalShapingForPointLabelIfNeeded` — its other vertical branch, a line label under
+`textAlongLine && keepUpright`, would have to rotate each glyph along the path and verticalize its
+punctuation (`verticalizePunctuation`, and the rotated quad in `quads.ts`), so a line label always
+shapes horizontally. And `icon-text-fit` offers no vertical setting either: the icon was stretched
+around the horizontal box, and upstream builds a second, vertical icon quad for that case. The
+Compose fallback cannot stack a run at all, so a style with no `glyphs` URL is horizontal throughout.
+
 Where a symbol ends up on screen, and whether it is drawn at all, is not this file's business — see
 [Symbol layout and placement](#symbol-layout-and-placement).
 
@@ -613,8 +636,10 @@ all the sections that share a stack before the fetch. Asking for the first such 
 left a later section's script unrequested — a glyph the server does have, never asked for, which is
 indistinguishable on screen from one it lacks, since `GlyphLayout` drops an unresolved codepoint
 without even an advance. `GlyphLayout` is the port of `symbol/shaping.ts` — advances,
-`text-letter-spacing`, `text-line-height`, `text-transform`, `text-justify`, vertical `text-writing-mode`, and upstream's
-balanced line breaking for `text-max-width`. `GlyphRasterizer` composites the shaped glyphs' distance
+`text-letter-spacing`, `text-line-height`, `text-transform`, `text-justify`, the vertical setting
+`text-writing-mode` selects — which orientation a label is shaped in is the *caller's* choice, since
+the property is a preference order the placement pass resolves — and upstream's balanced line
+breaking for `text-max-width`. `GlyphRasterizer` composites the shaped glyphs' distance
 fields through the same `sdfPixel` the icons go through, which is what makes `text-halo-width` a real
 dilated outline. It also rasterizes each glyph on its own (`renderGlyphs`, upstream's quads) for a
 label that follows a line, because that one is drawn glyph by glyph; blitting sub-rectangles of the

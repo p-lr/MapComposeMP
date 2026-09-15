@@ -6,7 +6,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_LEFT
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_RIGHT
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_LOWERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_UPPERCASE
-import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.VerticalAlign
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -169,7 +168,10 @@ object GlyphLayout {
      * @param lineHeight `text-line-height` in ems.
      * @param maxWidth `text-max-width` in ems; zero or negative disables wrapping.
      * @param justify `text-justify`; `auto` is resolved by the caller and treated as `center` here.
-     * @param writingMode `text-writing-mode`, in the style's preference order.
+     * @param vertical set the label vertically, one item per line top to bottom. The caller
+     * decides: `text-writing-mode` is a *preference order* resolved at placement time, so a label
+     * eligible for it is shaped both ways and the placement pass keeps the one that fits. See
+     * [allowsVerticalWritingMode].
      * @param transform `text-transform`.
      */
     fun shape(
@@ -181,7 +183,7 @@ object GlyphLayout {
         lineHeight: Float,
         maxWidth: Float,
         justify: String,
-        writingMode: List<String>?,
+        vertical: Boolean,
         transform: String,
     ): ShapedLabel {
         val scale = fontSize / ONE_EM
@@ -196,8 +198,6 @@ object GlyphLayout {
         val items = flatten(sections, transform, glyphs, defaultFontStack, unitsPerPixel)
         if (items.isEmpty()) return ShapedLabel(emptyList(), 0f, 0f, vertical = false)
 
-        val vertical = writingMode?.contains(WRITING_MODE_VERTICAL) == true &&
-            items.all { it.image != null || allowsVertical(it.codePoint) }
         if (vertical) return shapeVertical(items, scale, lineHeightUnits)
 
         val breaks = determineLineBreaks(items, spacingUnits, maxWidthUnits)
@@ -633,6 +633,33 @@ object GlyphLayout {
     /** Whether a character may be set vertically, i.e. is one of the blocks above. */
     private fun allowsVertical(codePoint: Int): Boolean =
         allowsIdeographicBreak(codePoint) || isWhitespace(codePoint)
+
+    /**
+     * Whether [text] may be set vertically at all -- upstream's `allowsVerticalWritingMode`
+     * (`src/util/script_detection.ts`).
+     *
+     * **Divergence:** *every* codepoint has to be one this port can stack, where upstream asks
+     * whether *any* has upright vertical orientation. Upstream can afford the loose test because its
+     * vertical shaping rotates the rest ninety degrees -- `charHasUprightVerticalOrientation`
+     * against the rotated set, then a rotated quad in `quads.ts` -- and there is no glyph rotation
+     * here at all, so a mixed label would stack Latin letters one per line. Being stricter costs
+     * only the vertical *candidate*: the horizontal shaping is always built, and placement falls
+     * back to it.
+     *
+     * An image section's private-use codepoint stacks like an ideograph, as it did when this test
+     * lived inside [shape] as `it.image != null || allowsVertical(...)`.
+     */
+    fun allowsVerticalWritingMode(text: String): Boolean {
+        if (text.isEmpty()) return false
+        var index = 0
+        while (index < text.length) {
+            val code = text.codePointAt(index)
+            index += if (code > 0xFFFF) 2 else 1
+            if (code in PUA_BEGIN..PUA_END) continue
+            if (!allowsVertical(code)) return false
+        }
+        return true
+    }
 
     // endregion
 }

@@ -58,6 +58,13 @@ internal class ResolvedTextStyle(
     val maxWidth: Float,
     val justify: String,
     val transform: String,
+    /**
+     * `text-writing-mode`, in the style's own preference order -- upstream's `bucket.writingModes`.
+     *
+     * It is deliberately *not* passed to the shaper: which orientation a label ends up in is decided
+     * by the placement pass, which walks this list and keeps the first that fits. It is therefore
+     * not part of [cacheKey] either; the resolved orientation is.
+     */
     val writingMode: List<String>?,
 ) {
     /**
@@ -71,10 +78,12 @@ internal class ResolvedTextStyle(
      * [perGlyph] is part of it because it changes what is *built*, not where the label is drawn --
      * a line label carries per-glyph quads and a point label does not. It stays a boolean: nothing
      * geometric may enter this key, or one label per anchor would be rasterized instead of one per
-     * (text, style).
+     * (text, style). [vertical] is there for the same reason: a label eligible for vertical setting
+     * is shaped **both** ways, and the two must not share one rasterization.
      */
-    fun cacheKey(formatted: Formatted, perGlyph: Boolean): String = buildString {
+    fun cacheKey(formatted: Formatted, perGlyph: Boolean, vertical: Boolean): String = buildString {
         append(if (perGlyph) "G|" else "T|")
+        append(if (vertical) "V|" else "H|")
         for (section in formatted.sections) {
             append(section.text)
             append(SECTION_FIELD).append(section.image?.name ?: "")
@@ -96,7 +105,6 @@ internal class ResolvedTextStyle(
         append('|').append(maxWidth)
         append('|').append(justify)
         append('|').append(transform)
-        append('|').append(writingMode?.joinToString(",") ?: "-")
     }
 
     private companion object {
@@ -124,24 +132,34 @@ internal class TextLabelBuilder(
     /**
      * @param perGlyph also rasterize each glyph on its own, which is what a label following a line
      * needs. Only the glyph path can honour it; the Compose fallback ignores it and stays straight.
+     * @param vertical build the label's *vertical* setting, one item per line top to bottom.
+     * Returns null when this text cannot be set vertically at all, so a caller asking for the second
+     * orientation of a label simply gets none -- upstream's
+     * `allowsVerticalWritingMode(unformattedText)` guard on `addVerticalShapingForPointLabelIfNeeded`.
      */
     suspend fun build(
         formatted: Formatted,
         style: ResolvedTextStyle,
         density: Density,
         perGlyph: Boolean = false,
+        vertical: Boolean = false,
     ): LabelArt? {
         val shapingText = shapingTextOf(formatted)
         if (shapingText.isBlank() || shapingText.length > MAX_LABEL_LENGTH) return null
+        if (vertical && !GlyphLayout.allowsVerticalWritingMode(shapingText)) return null
 
-        val key = style.cacheKey(formatted, perGlyph)
+        val key = style.cacheKey(formatted, perGlyph, vertical)
         mutex.withLock { cache.get(key) as? LabelArt }?.let { return it }
 
         val plainText = formatted.toString()
-        val art = renderWithGlyphs(formatted, style, shapingText, density, perGlyph)
+        val art = renderWithGlyphs(formatted, style, shapingText, density, perGlyph, vertical)
         /* The fallback measures plain text, so it has nothing to say about a field that is only an
          * image -- better no label at all than an empty box where the icon should be. */
-            ?: plainText.takeUnless { it.isBlank() }?.let { measureWithCompose(it, style, density) }
+            /* The fallback has no vertical setting -- it measures one run through Compose, which
+             * cannot stack -- so a vertical variant it produced would be the horizontal box under
+             * another name and would win placements it has no business winning. */
+            ?: plainText.takeUnless { it.isBlank() || vertical }
+                ?.let { measureWithCompose(it, style, density) }
         if (art != null) mutex.withLock { cache.put(key, art) }
         return art
     }
@@ -182,6 +200,7 @@ internal class TextLabelBuilder(
         shapingText: String,
         density: Density,
         perGlyph: Boolean,
+        vertical: Boolean,
     ): LabelArt? {
         val sections = sectionsOf(formatted, style, density)
         if (sections.isEmpty()) return null
@@ -224,7 +243,7 @@ internal class TextLabelBuilder(
             lineHeight = style.lineHeight,
             maxWidth = style.maxWidth,
             justify = style.justify,
-            writingMode = style.writingMode,
+            vertical = vertical,
             // Already applied per section above, so the shaper must not apply it twice.
             transform = StyleSpecDefaults.TEXT_TRANSFORM,
         )
@@ -240,7 +259,8 @@ internal class TextLabelBuilder(
         ) ?: return null
 
         /* A vertical or wrapped label has no per-glyph placement along a line: the walk is
-         * one-dimensional, so only a single horizontal run can follow the path. */
+         * one-dimensional, so only a single horizontal run can follow the path. A vertical variant
+         * is only ever asked for by a point label, so in practice this is the wrapped case. */
         val quads = if (perGlyph && !shaped.vertical && shaped.lines.size == 1) {
             GlyphRasterizer.renderGlyphs(
                 label = shaped,

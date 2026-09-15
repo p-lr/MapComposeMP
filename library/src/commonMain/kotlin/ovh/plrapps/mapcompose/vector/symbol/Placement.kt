@@ -3,7 +3,9 @@ package ovh.plrapps.mapcompose.vector.symbol
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import ovh.plrapps.mapcompose.vector.core.ViewportInfo
+import ovh.plrapps.mapcompose.vector.renderer.LabelArt
 import ovh.plrapps.mapcompose.vector.renderer.Point
+import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
 import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
@@ -14,6 +16,9 @@ import kotlin.math.sin
 
 /** Upstream's default `fadeDuration` (`src/ui/map.ts`), the length of a symbol's fade in or out. */
 internal const val SYMBOL_FADE_DURATION_MS: Long = 300L
+
+/** What `Placement.orientationsOf` answers with when a label has only its horizontal setting. */
+private val HORIZONTAL_ONLY = listOf(false)
 
 /**
  * One symbol that survived placement, together with everything the draw pass needs.
@@ -301,39 +306,62 @@ internal class Placement(
             return
         }
 
+        /* Upstream's ordering: `placeTextForPlacementModes` wraps the *whole* anchor loop per
+         * writing mode, so every anchor of the first-choice setting is tried before the second
+         * setting is considered at all. */
+        val orientations = orientationsOf(symbol.writingModes, symbol.verticalText != null)
+        fun candidatesOf(vertical: Boolean): List<TextPlacementCandidate> =
+            if (vertical) symbol.verticalTextCandidates else symbol.textCandidates
+
+        fun artOf(vertical: Boolean): LabelArt =
+            if (vertical) symbol.verticalText ?: symbol.text else symbol.text
+
         if (!collisionDetector.wouldCollide(spriteViewportPlacement)) {
             val lastIndex = previous?.variableOffsets?.get(crossTileID)
-            val ordered: List<IndexedValue<TextPlacementCandidate>> =
-                if (lastIndex != null && lastIndex < symbol.textCandidates.size) {
-                    listOf(IndexedValue(lastIndex, symbol.textCandidates[lastIndex])) +
-                        symbol.textCandidates.withIndex().filter { it.index != lastIndex }
-                } else {
-                    symbol.textCandidates.withIndex().toList()
+
+            /* One setting's anchors, in the order [previous] settled on last cycle. The two
+             * candidate lists run over the same anchors in the same order, so one index names the
+             * same anchor in either. */
+            fun tryCandidates(vertical: Boolean): Boolean {
+                val candidates = candidatesOf(vertical)
+                val ordered: List<IndexedValue<TextPlacementCandidate>> =
+                    if (lastIndex != null && lastIndex < candidates.size) {
+                        listOf(IndexedValue(lastIndex, candidates[lastIndex])) +
+                            candidates.withIndex().filter { it.index != lastIndex }
+                    } else {
+                        candidates.withIndex().toList()
+                    }
+
+                for ((index, candidate) in ordered) {
+                    val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
+                    val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
+                    if (collisionDetector.wouldCollide(textVPPlacement)) continue
+
+                    collisionDetector.insert(spriteViewportPlacement)
+                    collisionDetector.insert(textVPPlacement)
+                    if (crossTileID != 0L) variableOffsets[crossTileID] = index
+                    accept(
+                        symbol.textOnly(
+                            id = "${symbol.id}_t",
+                            global = Point(candidate.mercatorX, candidate.mercatorY),
+                            placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
+                            spriteAnchorGlobal = symbol.global,
+                            /* Unscaled, as everything a held placement hands the draw pass is: the
+                             * label's offset from its icon grows and shrinks with `text-size`, which
+                             * is a per-frame quantity. */
+                            textOffset = Offset(candidate.dx, candidate.dy),
+                            art = artOf(vertical),
+                        ),
+                        crossTileID, bucket, text = true, icon = true, viewportPos,
+                        extra = symbol.iconOnly("${symbol.id}_s", CompoundLabelPlacement(spritePlacement, null)),
+                    )
+                    return true
                 }
+                return false
+            }
 
-            for ((index, candidate) in ordered) {
-                val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
-                val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
-                if (collisionDetector.wouldCollide(textVPPlacement)) continue
-
-                collisionDetector.insert(spriteViewportPlacement)
-                collisionDetector.insert(textVPPlacement)
-                if (crossTileID != 0L) variableOffsets[crossTileID] = index
-                accept(
-                    symbol.textOnly(
-                        id = "${symbol.id}_t",
-                        global = Point(candidate.mercatorX, candidate.mercatorY),
-                        placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                        spriteAnchorGlobal = symbol.global,
-                        /* Unscaled, as everything a held placement hands the draw pass is: the
-                         * label's offset from its icon grows and shrinks with `text-size`, which is
-                         * a per-frame quantity. */
-                        textOffset = Offset(candidate.dx, candidate.dy),
-                    ),
-                    crossTileID, bucket, text = true, icon = true, viewportPos,
-                    extra = symbol.iconOnly("${symbol.id}_s", CompoundLabelPlacement(spritePlacement, null)),
-                )
-                return
+            for (vertical in orientations) {
+                if (tryCandidates(vertical)) return
             }
 
             if (symbol.textOptional) {
@@ -349,20 +377,23 @@ internal class Placement(
         }
 
         if (symbol.iconOptional) {
-            for (candidate in symbol.textCandidates) {
-                val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
-                val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
-                if (collisionDetector.wouldCollide(textVPPlacement)) continue
-                collisionDetector.insert(textVPPlacement)
-                accept(
-                    symbol.textOnly(
-                        id = "${symbol.id}_t",
-                        global = Point(candidate.mercatorX, candidate.mercatorY),
-                        placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
-                    ),
-                    crossTileID, bucket, text = true, icon = false, viewportPos,
-                )
-                return
+            for (vertical in orientations) {
+                for (candidate in candidatesOf(vertical)) {
+                    val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
+                    val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
+                    if (collisionDetector.wouldCollide(textVPPlacement)) continue
+                    collisionDetector.insert(textVPPlacement)
+                    accept(
+                        symbol.textOnly(
+                            id = "${symbol.id}_t",
+                            global = Point(candidate.mercatorX, candidate.mercatorY),
+                            placement = CompoundLabelPlacement(candidate.labelPlacement, candidate.labelPlacement),
+                            art = artOf(vertical),
+                        ),
+                        crossTileID, bucket, text = true, icon = false, viewportPos,
+                    )
+                    return
+                }
             }
         }
         reject(crossTileID)
@@ -400,23 +431,51 @@ internal class Placement(
         textScale: Float,
         viewportPos: Offset,
     ) {
-        // textPlacement is always non-null for a Text instance (set in producePointText/produceLineText)
-        val resolved = symbol.placement.textPlacement ?: return reject(crossTileID)
-        val base = viewportPlacement(viewportPos, resolved, textScale)
+        for (vertical in orientationsOf(symbol.writingModes, symbol.verticalSetting != null)) {
+            val oriented = symbol.withOrientation(vertical)
+            /* A stacked label is a different box on a different centre, so the anchor has to be
+             * re-projected rather than reused -- see `VerticalSetting`. */
+            val pos = if (oriented === symbol) {
+                viewportPos
+            } else {
+                mercatorToViewport(oriented.global.x, oriented.global.y, viewportInfo)
+            }
+            // textPlacement is always non-null for a Text instance (set in producePointText/produceLineText)
+            val resolved = oriented.placement.textPlacement ?: continue
+            val base = viewportPlacement(pos, resolved, textScale)
 
-        /* A label following a line is a chain of circles, not one rectangle: the straight envelope
-         * of a curve claims far more ground than the label covers. */
-        val circles = symbol.line?.let { line ->
-            circleChain(bucket, symbol, line, viewportPos, textScale)
-        }
-        val textViewportPlacement = if (circles.isNullOrEmpty()) base else base.copy(circles = circles)
+            /* A label following a line is a chain of circles, not one rectangle: the straight
+             * envelope of a curve claims far more ground than the label covers. */
+            val circles = oriented.line?.let { line ->
+                circleChain(bucket, oriented, line, pos, textScale)
+            }
+            val textViewportPlacement = if (circles.isNullOrEmpty()) base else base.copy(circles = circles)
 
-        if (!collisionDetector.wouldCollide(textViewportPlacement)) {
+            if (collisionDetector.wouldCollide(textViewportPlacement)) continue
             collisionDetector.insert(textViewportPlacement)
-            accept(symbol, crossTileID, bucket, text = true, icon = false, viewportPos)
-        } else {
-            reject(crossTileID)
+            accept(oriented, crossTileID, bucket, text = true, icon = false, pos)
+            return
         }
+        reject(crossTileID)
+    }
+
+    /**
+     * The settings to try, in the style's own order -- upstream's `placeTextForPlacementModes`
+     * (`src/symbol/placement.ts`) walking `bucket.writingModes` and breaking on the first placeable
+     * one. `true` means the stacked setting.
+     *
+     * `text-writing-mode` is a *preference list*, not a set: `["horizontal", "vertical"]` asks for
+     * a horizontal label wherever one fits and only stacks where it does not, and
+     * `["vertical", "horizontal"]` asks for the reverse. A list naming one mode alone offers no
+     * fallback, which is upstream's behaviour too.
+     *
+     * With no second setting built -- Latin text, a style that never lists `vertical`, a line label,
+     * the Compose fallback -- this is upstream's `else { placed = placeHorizontalFn(); }`.
+     */
+    private fun orientationsOf(writingModes: List<String>, hasVertical: Boolean): List<Boolean> {
+        if (!hasVertical) return HORIZONTAL_ONLY
+        val orientations = writingModes.map { it == WRITING_MODE_VERTICAL }.distinct()
+        return orientations.ifEmpty { HORIZONTAL_ONLY }
     }
 
     /**
