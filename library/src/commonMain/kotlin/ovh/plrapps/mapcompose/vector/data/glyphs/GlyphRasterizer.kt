@@ -2,7 +2,9 @@ package ovh.plrapps.mapcompose.vector.data.glyphs
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toPixelMap
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
 import ovh.plrapps.mapcompose.vector.renderer.utils.sdfPixel
 import kotlin.math.ceil
@@ -50,7 +52,7 @@ class RenderedGlyph(
 )
 
 /**
- * Draws a [ShapedLabel]'s SDF glyphs into a bitmap.
+ * Draws a [ShapedLabel]'s SDF glyphs, and any inline image among them, into a bitmap.
  *
  * This is the CPU stand-in for maplibre-gl-js's `symbol_sdf` draw pass: every glyph's distance field
  * is sampled and run through [sdfPixel], the same function the SDF *icons* go through, so
@@ -77,21 +79,33 @@ object GlyphRasterizer {
         haloBlur: Float,
         opacity: Float = 1f,
     ): RenderedLabel? {
-        val glyphs = label.glyphs.filter { it.glyph.hasBitmap }
-        if (glyphs.isEmpty()) return null
+        val items = label.items.filter { it !is ShapedGlyph || it.glyph.hasBitmap }
+        if (items.isEmpty()) return null
 
         // The bitmap covers every glyph's distance field, which reaches GLYPH_BORDER samples
-        // outside the ink -- that margin is exactly the room the halo has to grow into.
+        // outside the ink -- that margin is exactly the room the halo has to grow into. An inline
+        // image is a plain picture, so it gets no such margin.
         var minX = 0f
         var minY = 0f
         var maxX = label.width
         var maxY = label.height
-        for (shaped in glyphs) {
-            val border = GLYPH_BORDER * shaped.scale
-            minX = min(minX, shaped.inkLeft - border)
-            minY = min(minY, shaped.inkTop - border)
-            maxX = max(maxX, shaped.inkLeft + shaped.inkWidth + border)
-            maxY = max(maxY, shaped.inkTop + shaped.inkHeight + border)
+        for (item in items) {
+            when (item) {
+                is ShapedGlyph -> {
+                    val border = GLYPH_BORDER * item.scale
+                    minX = min(minX, item.inkLeft - border)
+                    minY = min(minY, item.inkTop - border)
+                    maxX = max(maxX, item.inkLeft + item.inkWidth + border)
+                    maxY = max(maxY, item.inkTop + item.inkHeight + border)
+                }
+
+                is ShapedImage -> {
+                    minX = min(minX, item.x)
+                    minY = min(minY, item.y)
+                    maxX = max(maxX, item.x + item.width)
+                    maxY = max(maxY, item.y + item.height)
+                }
+            }
         }
 
         val width = ceil(maxX - minX).toInt()
@@ -100,7 +114,27 @@ object GlyphRasterizer {
 
         val pixels = IntArray(width * height)
 
-        for (shaped in glyphs) {
+        /* In shaping order, so an inline image and the halo of the glyph beside it composite the
+         * way they were laid out. */
+        for (item in items) {
+            if (item is ShapedImage) {
+                val image = item.payload as? ImageBitmap
+                if (image != null) {
+                    compositeImage(
+                        destination = pixels,
+                        destinationWidth = width,
+                        destinationHeight = height,
+                        image = image,
+                        originX = item.x - minX,
+                        originY = item.y - minY,
+                        drawWidth = item.width,
+                        drawHeight = item.height,
+                        opacity = opacity,
+                    )
+                }
+                continue
+            }
+            val shaped = item as ShapedGlyph
             val border = GLYPH_BORDER * shaped.scale
             val originX = shaped.inkLeft - border - minX
             val originY = shaped.inkTop - border - minY
@@ -165,14 +199,44 @@ object GlyphRasterizer {
         haloBlur: Float,
         opacity: Float = 1f,
     ): List<RenderedGlyph>? {
-        val glyphs = label.glyphs.filter { it.glyph.hasBitmap }
-        if (glyphs.isEmpty()) return null
+        val items = label.items.filter { it !is ShapedGlyph || it.glyph.hasBitmap }
+        if (items.isEmpty()) return null
 
         val centreX = label.width / 2f
         val centreY = label.height / 2f
-        val out = ArrayList<RenderedGlyph>(glyphs.size)
+        val out = ArrayList<RenderedGlyph>(items.size)
 
-        for (shaped in glyphs) {
+        for (item in items) {
+            if (item is ShapedImage) {
+                val image = item.payload as? ImageBitmap ?: continue
+                val imageWidth = ceil(item.width).toInt()
+                val imageHeight = ceil(item.height).toInt()
+                if (imageWidth <= 0 || imageHeight <= 0) continue
+                val imagePixels = IntArray(imageWidth * imageHeight)
+                val inked = compositeImage(
+                    destination = imagePixels,
+                    destinationWidth = imageWidth,
+                    destinationHeight = imageHeight,
+                    image = image,
+                    originX = 0f,
+                    originY = 0f,
+                    drawWidth = item.width,
+                    drawHeight = item.height,
+                    opacity = opacity,
+                )
+                if (!inked) continue
+                val imageCentreX = item.x + item.advance / 2f
+                out += RenderedGlyph(
+                    bitmap = imageBitmapFromArgb(imagePixels, imageWidth, imageHeight),
+                    alongOffset = imageCentreX - centreX,
+                    left = item.x - imageCentreX,
+                    top = item.y - centreY,
+                    width = imageWidth.toFloat(),
+                    height = imageHeight.toFloat(),
+                )
+                continue
+            }
+            val shaped = item as ShapedGlyph
             val glyph = shaped.glyph
             val border = GLYPH_BORDER * shaped.scale
             /* Upstream's `quads.ts`: a glyph's quad is positioned by its pen plus half its advance,
@@ -227,6 +291,94 @@ object GlyphRasterizer {
         }
 
         return out.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * Blits an inline image into a label's pixels.
+     *
+     * Upstream's `symbol_text_and_icon.fragment.glsl` short-circuits an image quad --
+     * `if (v_is_sdf == ICON) { fragColor = texture(u_texture_icon, tex_icon) * total_opacity; }` --
+     * so a plain image keeps its own colours and only `text-opacity` scales it. An SDF entry is
+     * recoloured by the *text* paint before it gets here, which is that shader's other branch, so
+     * either way this stays a resample.
+     *
+     * @return whether anything was drawn.
+     */
+    private fun compositeImage(
+        destination: IntArray,
+        destinationWidth: Int,
+        destinationHeight: Int,
+        image: ImageBitmap,
+        originX: Float,
+        originY: Float,
+        drawWidth: Float,
+        drawHeight: Float,
+        opacity: Float,
+    ): Boolean {
+        if (drawWidth <= 0f || drawHeight <= 0f) return false
+        if (image.width <= 0 || image.height <= 0) return false
+
+        val source = image.toPixelMap()
+        val fromX = max(0, floor(originX).toInt())
+        val fromY = max(0, floor(originY).toInt())
+        val toX = min(destinationWidth, ceil(originX + drawWidth).toInt())
+        val toY = min(destinationHeight, ceil(originY + drawHeight).toInt())
+        val scaleX = image.width / drawWidth
+        val scaleY = image.height / drawHeight
+        var hasInk = false
+
+        for (y in fromY until toY) {
+            val v = (y + 0.5f - originY) * scaleY - 0.5f
+            for (x in fromX until toX) {
+                val u = (x + 0.5f - originX) * scaleX - 0.5f
+                val color = sampleBilinear(source, image.width, image.height, u, v)
+                if (color.alpha <= 0f) continue
+                val index = y * destinationWidth + x
+                destination[index] = over(color.withAlphaScaled(opacity), destination[index])
+                hasInk = true
+            }
+        }
+        return hasInk
+    }
+
+    /**
+     * Bilinear read of a sprite, edge-clamped as a `CLAMP_TO_EDGE` texture is.
+     *
+     * The samples are mixed **premultiplied** and unpremultiplied back. A [PixelMap] is straight
+     * alpha, and interpolating that drags a fully transparent pixel's colour -- usually black --
+     * into the edge of everything beside it, which is the same trap `circleGradientStops` documents.
+     */
+    private fun sampleBilinear(source: PixelMap, width: Int, height: Int, x: Float, y: Float): Color {
+        val x0 = floor(x).toInt()
+        val y0 = floor(y).toInt()
+        val fx = x - x0
+        val fy = y - y0
+        var red = 0f
+        var green = 0f
+        var blue = 0f
+        var alpha = 0f
+        for (dy in 0..1) {
+            for (dx in 0..1) {
+                val weight = (if (dx == 0) 1f - fx else fx) * (if (dy == 0) 1f - fy else fy)
+                if (weight <= 0f) continue
+                val sample = source[
+                    (x0 + dx).coerceIn(0, width - 1),
+                    (y0 + dy).coerceIn(0, height - 1),
+                ]
+                val premultiplied = sample.alpha * weight
+                red += sample.red * premultiplied
+                green += sample.green * premultiplied
+                blue += sample.blue * premultiplied
+                alpha += premultiplied
+            }
+        }
+        if (alpha <= 0f) return Color.Transparent
+        return Color(
+            red = (red / alpha).coerceIn(0f, 1f),
+            green = (green / alpha).coerceIn(0f, 1f),
+            blue = (blue / alpha).coerceIn(0f, 1f),
+            alpha = alpha.coerceIn(0f, 1f),
+        )
     }
 
     /**
