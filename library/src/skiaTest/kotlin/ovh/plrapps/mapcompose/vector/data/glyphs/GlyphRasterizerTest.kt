@@ -260,6 +260,24 @@ class GlyphRasterizerTest {
     }
 
     @Test
+    fun `a label too wide to rasterize is refused`() {
+        /* The bound the 256-character cap in `TextLabelBuilder` used to stand in for, moved onto
+         * the allocation it was really about. One glyph is ONE_EM wide here, so this is past
+         * MAX_LABEL_BITMAP_DIMENSION while its area stays trivial -- the dimension is what trips. */
+        val glyphs = GlyphRasterizer.MAX_LABEL_BITMAP_DIMENSION / ADVANCE + 100
+        assertNull(render(text = "a".repeat(glyphs)))
+    }
+
+    @Test
+    fun `a long label under the bound is still rasterized`() {
+        // Upstream rejects a label only when nothing was positioned; length alone never drops one.
+        // Past the 256 code units `TextLabelBuilder` used to refuse, and well inside both bounds.
+        val glyphs = 300
+        val rendered = assertNotNull(render(text = "a".repeat(glyphs)))
+        assertEquals(glyphs * ADVANCE.toFloat(), rendered.boxWidth)
+    }
+
+    @Test
     fun `a glyph is drawn in the fill colour`() {
         val rendered = assertNotNull(render(fill = Color.Red))
         val pixels = rendered.bitmap.toPixelMap()

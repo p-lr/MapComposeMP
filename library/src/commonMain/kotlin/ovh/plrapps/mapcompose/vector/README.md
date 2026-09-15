@@ -647,6 +647,15 @@ label that follows a line, because that one is drawn glyph by glyph; blitting su
 composite instead cannot work, since a glyph's distance field reaches `GLYPH_BORDER` samples past its
 ink and so overlaps its neighbours'.
 
+There is **no maximum label length** — upstream's `shapeText` rejects a label only when nothing was
+positioned, and so does this. What is bounded is the composite itself: upstream rasterizes into a
+shared glyph atlas and a long label costs it quads, while `GlyphRasterizer.render` allocates one
+bitmap covering the whole label, so it refuses one past `MAX_LABEL_BITMAP_DIMENSION` (8192 px) or
+`MAX_LABEL_BITMAP_PIXELS` (4 M). Both are far above anything a style draws, and a label past either
+is not dropped — `TextLabelBuilder` falls through to the Compose measure, which caps its own lines.
+A character count used to stand in for this, and rejected any `text-field` past 256 code units
+before either path could draw it.
+
 **Font faces** (`data/glyphs/FontFaceManager.kt`, `LocalGlyphRasterizer.kt`, `TinySdf.kt`,
 `UnicodeRange.kt`). A style's root `font-faces` names a font *file* per `text-font` name, optionally
 per `unicode-range`, and this port honours it as upstream's `font_face_manager.ts` +
