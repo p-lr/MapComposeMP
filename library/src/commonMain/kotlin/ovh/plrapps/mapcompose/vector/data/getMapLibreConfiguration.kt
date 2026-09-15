@@ -6,7 +6,10 @@ import kotlinx.io.buffered
 import kotlinx.io.readString
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
+import ovh.plrapps.mapcompose.vector.data.glyphs.FontFaceManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
+import ovh.plrapps.mapcompose.vector.data.glyphs.LocalGlyphSource
+import ovh.plrapps.mapcompose.vector.spec.style.fontFaces
 import ovh.plrapps.mapcompose.vector.spec.style.sprites
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
 import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
@@ -14,11 +17,26 @@ import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
 suspend fun getMapLibreConfiguration(
     style: String,
     pixelRatio: Int = 1,
-    loadResource: suspend (String) -> RawSource?
+    /**
+     * Draws a grapheme with a font file the style declared in its root `font-faces`.
+     *
+     * Null leaves such a style to its `glyphs` server, which is what a caller with no text stack to
+     * draw with -- a test, or a decode outside a composition -- has to do. `VectorLayer` passes a
+     * rasterizer over the map's own `TextMeasurer`. It comes before [loadResource] so that the
+     * loader stays the trailing lambda every caller writes it as.
+     */
+    localGlyphs: LocalGlyphSource? = null,
+    loadResource: suspend (String) -> RawSource?,
 ): Result<MapLibreConfiguration> {
     try {
         StyleDiagnostics.drain() // discard anything left over from an earlier parse
         val style = decodeStyle(style)
+        /* Read before the drain, so that a malformed font face declaration is reported with
+         * everything else the parse found rather than being dropped on the floor. */
+        val fontFaceManager = style.fontFaces
+            .takeIf { it.isNotEmpty() }
+            ?.let { FontFaceManager(declarations = it, loadResource = loadResource) }
+            ?.takeIf { it.hasFontFaces }
         val diagnostics = StyleDiagnostics.drain()
         val globalState = style.globalStateDefaults()
         val tileSources = mutableMapOf<String, MapLibreTileSource>()
@@ -69,11 +87,21 @@ suspend fun getMapLibreConfiguration(
         }
         val spriteManager = spriteSheets.takeIf { it.isNotEmpty() }?.let { SpriteManager(it) }
 
-        /* The glyph server is lazy: nothing is fetched until a label needs a codepoint range, so a
-         * style declaring `glyphs` costs nothing until a symbol layer actually draws. */
-        val glyphManager = style.glyphs
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { GlyphManager(urlTemplate = it, loadResource = loadResource) }
+        /* Both halves are lazy: nothing is fetched until a label needs a codepoint range or a
+         * declared font file, so a style declaring `glyphs` or `font-faces` costs nothing until a
+         * symbol layer actually draws. A style with font files and no server still gets a manager --
+         * it has fonts of its own to draw with. */
+        val glyphUrl = style.glyphs?.takeIf { it.isNotEmpty() }
+        val glyphManager = if (glyphUrl == null && fontFaceManager == null) {
+            null
+        } else {
+            GlyphManager(
+                urlTemplate = glyphUrl,
+                loadResource = loadResource,
+                fontFaces = fontFaceManager,
+                localGlyphs = localGlyphs,
+            )
+        }
 
         return Result.success(MapLibreConfiguration(
             style = style,
