@@ -163,6 +163,11 @@ object GlyphLayout {
      *
      * @param glyphs looks a codepoint up in a font stack. The section's own `text-font` wins over
      * [defaultFontStack], as `["format", ..., {"text-font": [...]}]` is defined to.
+     * @param clusters looks a whole *grapheme cluster* up in a font stack, which only a font file
+     * the style declared in its root `font-faces` can draw. Non-null only for such a style, and the
+     * text is then segmented before it is shaped, so a letter keeps its marks -- upstream's
+     * `toGraphemes` (`src/util/graphemes.ts`). Left null, nothing is segmented and every item is one
+     * codepoint, which is what every style without the property does.
      * @param fontSize `text-size` in layout pixels.
      * @param letterSpacing `text-letter-spacing` in ems.
      * @param lineHeight `text-line-height` in ems.
@@ -178,6 +183,7 @@ object GlyphLayout {
         sections: List<TextSection>,
         glyphs: (List<String>, Int) -> Glyph?,
         defaultFontStack: List<String>,
+        clusters: ((List<String>, String) -> Glyph?)? = null,
         fontSize: Float,
         letterSpacing: Float,
         lineHeight: Float,
@@ -195,7 +201,7 @@ object GlyphLayout {
          * else is in glyph units, and one glyph unit is `fontSize / ONE_EM` layout pixels. */
         val unitsPerPixel = if (scale > 0f) 1f / scale else 0f
 
-        val items = flatten(sections, transform, glyphs, defaultFontStack, unitsPerPixel)
+        val items = flatten(sections, transform, glyphs, clusters, defaultFontStack, unitsPerPixel)
         if (items.isEmpty()) return ShapedLabel(emptyList(), 0f, 0f, vertical = false)
 
         if (vertical) return shapeVertical(items, scale, lineHeightUnits)
@@ -243,6 +249,7 @@ object GlyphLayout {
         sections: List<TextSection>,
         transform: String,
         glyphs: (List<String>, Int) -> Glyph?,
+        clusters: ((List<String>, String) -> Glyph?)?,
         defaultFontStack: List<String>,
         unitsPerPixel: Float,
     ): List<Item> {
@@ -272,22 +279,57 @@ object GlyphLayout {
                 else -> section.text
             }
             val stack = section.fontStack ?: defaultFontStack
-            var index = 0
-            while (index < text.length) {
-                val code = text.codePointAt(index)
-                index += if (code > 0xFFFF) 2 else 1
-                out += Item(
-                    codePoint = code,
-                    glyph = glyphs(stack, code),
-                    image = null,
-                    scale = section.scale,
-                    color = section.color,
-                    verticalAlign = section.verticalAlign,
-                )
+            for (run in runsOf(text, clusters)) {
+                /* A cluster is **one** item, which is what keeps line breaking from splitting a
+                 * syllable -- the same single-item treatment an image section gets. It keeps its
+                 * first codepoint, since that is what the break and whitespace classes are read
+                 * from. */
+                val clusterGlyph = run.takeIf { it.length > 1 }?.let { cluster ->
+                    clusters?.invoke(stack, cluster)
+                }
+                if (clusterGlyph != null) {
+                    out += Item(
+                        codePoint = run.codePointAtCompat(0),
+                        glyph = clusterGlyph,
+                        image = null,
+                        scale = section.scale,
+                        color = section.color,
+                        verticalAlign = section.verticalAlign,
+                    )
+                    continue
+                }
+                var index = 0
+                while (index < run.length) {
+                    val code = run.codePointAt(index)
+                    index += if (code > 0xFFFF) 2 else 1
+                    /* A file the style declared draws a single codepoint too, and wins over the
+                     * server for it -- upstream's `_getAndCacheGlyphsPromise` asks the font faces
+                     * before the range. */
+                    val single = if (code > 0xFFFF) run else Char(code).toString()
+                    val glyph = clusters?.invoke(stack, single) ?: glyphs(stack, code)
+                    out += Item(
+                        codePoint = code,
+                        glyph = glyph,
+                        image = null,
+                        scale = section.scale,
+                        color = section.color,
+                        verticalAlign = section.verticalAlign,
+                    )
+                }
             }
         }
         return out
     }
+
+    /**
+     * The units [flatten] walks: grapheme clusters where a `font-faces` style can draw them,
+     * codepoints everywhere else.
+     *
+     * Segmentation is skipped entirely without a cluster lookup, which is every style that has no
+     * font file of its own -- upstream skips it too where nothing in the text could form a cluster.
+     */
+    private fun runsOf(text: String, clusters: ((List<String>, String) -> Glyph?)?): List<String> =
+        if (clusters == null) listOf(text) else graphemeClusters(text)
 
     /** One line, measured but not yet given a pen: upstream's per-line pass in `shapeLines`. */
     private class LineMetrics(

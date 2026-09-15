@@ -23,6 +23,7 @@ import ovh.plrapps.mapcompose.demo.ui.screens.MarkersLazyLoadingDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.OsmDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.PathsDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.RotationDemo
+import ovh.plrapps.mapcompose.demo.ui.screens.FontFacesDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.HillshadeDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.SwissMapVectorDemo
 import ovh.plrapps.mapcompose.demo.ui.screens.VectorDemo
@@ -48,6 +49,7 @@ import ovh.plrapps.mapcompose.demo.ui.screens.VisibleAreaPaddingDemo
 @Serializable object VectorRoute
 @Serializable object SwissMapVectorRoute
 @Serializable object HillshadeRoute
+@Serializable object FontFacesRoute
 
 enum class MainDestinations(val title: String, val route: Any) {
     MAP_ALONE("Simple map", MapAlone),
@@ -67,7 +69,8 @@ enum class MainDestinations(val title: String, val route: Any) {
     MARKERS_LAZY_LOADING("Markers lazy loading", MarkersLazyLoadingRoute),
     VECTOR_TILE("Vector tile ", VectorRoute),
     SWISS_VECTOR_TILE("Swiss map vector tile", SwissMapVectorRoute),
-    HILLSHADE("Hillshade (raster-dem)", HillshadeRoute);
+    HILLSHADE("Hillshade (raster-dem)", HillshadeRoute),
+    FONT_FACES("Font faces (declared fonts)", FontFacesRoute);
 }
 
 /**
@@ -94,6 +97,7 @@ fun NavGraphBuilder.demoDestinations() {
     composable<VectorRoute> { VectorDemo.Content() }
     composable<SwissMapVectorRoute> { SwissMapVectorDemo.Content() }
     composable<HillshadeRoute> { HillshadeDemo.Content() }
+    composable<FontFacesRoute> { FontFacesDemo.Content() }
 }
 
 /**

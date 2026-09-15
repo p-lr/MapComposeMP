@@ -19,6 +19,7 @@ import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.Glyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphLayout
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
+import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphSet
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphRasterizer
 import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_BEGIN
 import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_END
@@ -225,19 +226,30 @@ internal class TextLabelBuilder(
             val stackKey = stack.joinToString(",")
             textByStack.getOrPut(stackKey) { stack to StringBuilder() }.second.append(section.text)
         }
-        val glyphsByStack = mutableMapOf<String, Map<Int, Glyph>>()
+        val glyphsByStack = mutableMapOf<String, GlyphSet>()
         if (manager != null) {
             for ((stackKey, dependency) in textByStack) {
                 val (stack, text) = dependency
                 glyphsByStack[stackKey] = manager.glyphsFor(stack, text.toString())
             }
         }
-        if (!hasImages && glyphsByStack.values.all { it.isEmpty() }) return null
+        if (!hasImages && glyphsByStack.values.all { it.isEmpty }) return null
+
+        /* Only a style whose `font-faces` actually drew something here asks the shaper to segment:
+         * with nothing to find, a grapheme walk produces the very items a codepoint walk does, at
+         * the cost of one segmentation per label. */
+        val clusters: ((List<String>, String) -> Glyph?)? =
+            if (glyphsByStack.values.any { it.byGrapheme.isNotEmpty() }) {
+                { stack, cluster -> glyphsByStack[stack.joinToString(",")]?.byGrapheme?.get(cluster) }
+            } else {
+                null
+            }
 
         val shaped = GlyphLayout.shape(
             sections = sections,
-            glyphs = { stack, code -> glyphsByStack[stack.joinToString(",")]?.get(code) },
+            glyphs = { stack, code -> glyphsByStack[stack.joinToString(",")]?.byCodePoint?.get(code) },
             defaultFontStack = style.fontStack,
+            clusters = clusters,
             fontSize = style.fontSize,
             letterSpacing = style.letterSpacing,
             lineHeight = style.lineHeight,

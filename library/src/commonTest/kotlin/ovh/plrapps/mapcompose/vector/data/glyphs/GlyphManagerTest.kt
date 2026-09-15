@@ -88,8 +88,8 @@ class GlyphManagerTest {
     fun `a failed range is cached as empty rather than retried forever`() = runTest {
         val recorder = Recorder { null }
         val manager = GlyphManager("https://example.com/{fontstack}/{range}.pbf", recorder::load)
-        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty())
-        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty())
+        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty)
+        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty)
         assertEquals(1, recorder.requested.size)
     }
 
@@ -98,7 +98,7 @@ class GlyphManagerTest {
         val recorder = Recorder { rangeBytes(65) }
         val manager = GlyphManager(urlTemplate = null, loadResource = recorder::load)
         assertEquals(false, manager.isConfigured)
-        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty())
+        assertTrue(manager.glyphsFor(listOf("f"), "A").isEmpty)
         assertTrue(recorder.requested.isEmpty())
     }
 
@@ -106,7 +106,7 @@ class GlyphManagerTest {
     fun `the decoded glyphs come back keyed by codepoint`() = runTest {
         val recorder = Recorder { rangeBytes(65, 66) }
         val manager = GlyphManager("https://example.com/{fontstack}/{range}.pbf", recorder::load)
-        val glyphs = manager.glyphsFor(listOf("f"), "AB")
+        val glyphs = manager.glyphsFor(listOf("f"), "AB").byCodePoint
         assertEquals(setOf(65, 66), glyphs.keys)
         assertEquals(6, glyphs.getValue(65).advance)
     }

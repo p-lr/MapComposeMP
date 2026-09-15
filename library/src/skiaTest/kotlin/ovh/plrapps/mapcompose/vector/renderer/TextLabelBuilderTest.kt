@@ -10,8 +10,13 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
+import androidx.compose.ui.text.font.FontFamily
+import ovh.plrapps.mapcompose.vector.data.glyphs.FontFaceManager
+import ovh.plrapps.mapcompose.vector.data.glyphs.Glyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphPbfFixtures
+import ovh.plrapps.mapcompose.vector.data.glyphs.LocalGlyphSource
+import ovh.plrapps.mapcompose.vector.spec.style.FontFaceDeclaration
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_CENTER
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
@@ -140,6 +145,58 @@ class TextLabelBuilderTest {
 
     private fun image(name: String) =
         FormattedSection(text = "", image = ResolvedImage(name, available = true))
+
+    /**
+     * A manager whose only fonts are the style's own `font-faces`: no server at all, and one glyph
+     * per grapheme cluster, drawn by a stand-in for the platform's text stack.
+     */
+    private fun fontFaceGlyphManager(clusterAdvance: Int): GlyphManager {
+        val local = object : LocalGlyphSource {
+            override suspend fun rasterize(family: FontFamily, grapheme: String): Glyph? = Glyph(
+                id = grapheme[0].code,
+                width = 10,
+                height = 12,
+                left = 1,
+                top = 12 - ASCENT,
+                advance = clusterAdvance,
+                bitmap = GlyphPbfFixtures.solidBitmap(10, 12),
+            )
+        }
+        return GlyphManager(
+            urlTemplate = null,
+            loadResource = { _: String -> Buffer().apply { write(ByteArray(8)) } as RawSource },
+            fontFaces = FontFaceManager(
+                declarations = STACK.map { FontFaceDeclaration(it, "test://font.ttf", emptyList()) },
+                loadResource = { _: String -> Buffer().apply { write(ByteArray(8)) } as RawSource },
+                buildFamily = { _, _ -> FontFamily.Default },
+            ),
+            localGlyphs = local,
+        )
+    }
+
+    @Test
+    fun `a label is drawn from a declared font file with no glyph server`() = runTest {
+        val art = assertNotNull(
+            builder(glyphs = fontFaceGlyphManager(clusterAdvance = ADVANCE))
+                .build(Formatted(listOf(FormattedSection(text = "ab"))), style(), Density(1f))
+        )
+        // The Compose fallback would have produced `LabelArt.Measured`, and with a null measurer
+        // nothing at all -- so reaching the glyph path is the assertion.
+        assertTrue(art is LabelArt.Glyphs)
+        assertEquals(2 * ADVANCE.toFloat(), art.width)
+    }
+
+    @Test
+    fun `a cluster drawn from a font file is one glyph in the label`() = runTest {
+        val clusterAdvance = ADVANCE + 5
+        val accented = "e" + Char(0x0301)
+        val art = assertNotNull(
+            builder(glyphs = fontFaceGlyphManager(clusterAdvance))
+                .build(Formatted(listOf(FormattedSection(text = accented))), style(), Density(1f))
+        )
+        // Two codepoints, one unit of writing, and so one advance rather than two.
+        assertEquals(clusterAdvance.toFloat(), art.width)
+    }
 
     @Test
     fun `a text-field made only of an image still renders`() = runTest {

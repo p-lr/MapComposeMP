@@ -32,6 +32,16 @@ data class MapLibreStyle(
      * the layers are decoded, and JSON promises nothing about key order.
      */
     @SerialName("state") var state: Map<String, StateSpec>? = null,
+
+    /**
+     * The `font-faces` declaration block: one entry per `text-font` name, each naming the font
+     * file(s) to draw it with and, optionally, the codepoints each file covers.
+     *
+     * Kept as raw JSON because an entry may be a URL string, one object or a list of either -- the
+     * same reason `sprite` is. See the [fontFaces] extension, which normalizes it, and
+     * `data/glyphs/FontFaceManager.kt`, which draws with it.
+     */
+    @SerialName("font-faces") var fontFacesJson: Map<String, JsonElement>? = null,
 )
 
 /**
