@@ -94,9 +94,13 @@ internal class SymbolLayerLayout(
      * How an SDF entry is recoloured, or `null` when the sprite is a plain image.
      *
      * `icon-color` and the `icon-halo-*` properties only mean anything for an SDF entry -- upstream
-     * ignores them on a plain image, which is tinted by `icon-color` alone. An absent `icon-color`
-     * falls back to the spec default rather than skipping the shading: the sprite has no colour of
-     * its own, so leaving it unshaded would draw a raw distance field.
+     * ignores them on a plain image entirely, whose program (`symbol_icon.fragment.glsl`) carries no
+     * colour uniform: `fragColor = texture(u_texture, v_tex) * alpha`. This used to hand
+     * `icon-color` to [ovh.plrapps.mapcompose.vector.data.SpriteManager.getSprite] as a tint for
+     * exactly that case, which turned every multicolour PNG icon in such a layer into a monochrome
+     * silhouette. An absent `icon-color` on a genuine SDF entry falls back to the spec default
+     * rather than skipping the shading: the sprite has no colour of its own, so leaving it unshaded
+     * would draw a raw distance field.
      */
     private fun sdfFor(
         spriteInfo: SpriteInfo,
@@ -597,7 +601,6 @@ internal class SymbolLayerLayout(
             ?: return null
 
         val iconScale: Float = layout.iconSize.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_SIZE.toFloat()
-        val iconColor = paint.iconColor?.processAsColor(featureProperties, actualZoom)
         val iconOpacity = paint.iconOpacity.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_OPACITY.toFloat()
         if (iconOpacity <= 0f) {
             return null
@@ -606,7 +609,7 @@ internal class SymbolLayerLayout(
 
         val sdf = sdfFor(spriteInfo, paint, featureProperties, actualZoom, iconScale, density)
 
-        val spritePair = spriteManager.getSprite(spriteId, iconColor, sdf)
+        val spritePair = spriteManager.getSprite(spriteId, sdf)
         if (spritePair == null) {
             return null
         }
@@ -739,14 +742,13 @@ internal class SymbolLayerLayout(
         val spriteInfo = spriteManager.getSpriteInfo(spriteId) ?: return null
 
         val iconScale: Float = layout.iconSize.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_SIZE.toFloat()
-        val iconColor = paint.iconColor?.processAsColor(featureProperties, actualZoom)
         val iconOpacity = paint.iconOpacity.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_OPACITY.toFloat()
         if (iconOpacity <= 0f) return null
 
         val scale = iconScale * density.density
 
         val sdf = sdfFor(spriteInfo, paint, featureProperties, actualZoom, iconScale, density)
-        val spritePair = spriteManager.getSprite(spriteId, iconColor, sdf) ?: return null
+        val spritePair = spriteManager.getSprite(spriteId, sdf) ?: return null
         val (spriteMeta, sprite) = spritePair
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)

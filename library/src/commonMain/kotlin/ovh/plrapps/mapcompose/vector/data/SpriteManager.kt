@@ -1,6 +1,5 @@
 package ovh.plrapps.mapcompose.vector.data
 
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
@@ -100,18 +99,26 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
     private var spriteCache: Map<String, ImageBitmap> = emptyMap()
 
     /**
-     * Cuts one sprite out of its sheet, tinted or SDF-shaded as the layer asks.
+     * Cuts one sprite out of its sheet, SDF-shaded as the layer asks.
      *
-     * [tintColor] applies to a plain image; an SDF entry ignores it and is recoloured by [sdf]
-     * instead. An SDF entry with no [sdf] is shaded with the spec defaults rather than refused --
-     * it used to throw, so an SDF icon in a layer that set no `icon-color` crashed the painter.
+     * A **plain** image is cut out and otherwise left alone: `icon-color` and the `icon-halo-*`
+     * properties are SDF-only upstream, whose ordinary-icon program is
+     * `fragColor = texture(u_texture, v_tex) * alpha` (`symbol_icon.fragment.glsl`) -- no colour
+     * uniform at all, and the same in the icon branch of `symbol_text_and_icon.fragment.glsl`. This
+     * used to tint such an entry with `icon-color` through a `SrcIn` fill, which flattened every
+     * texel of a multicolour PNG icon to one colour: exactly the case upstream leaves untouched
+     * rendered as a monochrome silhouette.
+     *
+     * Only an entry the sheet index flags `sdf` is recoloured, by [sdf]. One with no [sdf] is shaded
+     * with the spec defaults rather than refused -- it used to throw, so an SDF icon in a layer that
+     * set no `icon-color` crashed the painter.
      *
      * @return the entry's metadata and its cut-out image, or `null` if no sheet holds the id.
      */
-    fun getSprite(spriteId: String, tintColor: Color? = null, sdf: SDF? = null): Pair<Sprite, ImageBitmap>? {
+    fun getSprite(spriteId: String, sdf: SDF? = null): Pair<Sprite, ImageBitmap>? {
         val (spriteInfo, sheetImage) = entries[spriteId] ?: return null
 
-        val cacheKey = "$spriteId-${tintColor?.toArgb() ?: "none"}-${sdf?.hashCode() ?: "none"}"
+        val cacheKey = "$spriteId-${sdf?.cacheKey() ?: "none"}"
         spriteCache[cacheKey]?.let {
             return spriteInfo to it
         }
@@ -122,7 +129,6 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
             y = spriteInfo.y,
             width = spriteInfo.width,
             height = spriteInfo.height,
-            tintColor = if (!spriteInfo.sdf && tintColor != null) tintColor else null
         )
 
         if (spriteInfo.sdf) {
@@ -222,7 +228,6 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
             y: Int,
             width: Int,
             height: Int,
-            tintColor: Color? = null,
         ): ImageBitmap {
             val result = ImageBitmap(width, height)
             val canvas = Canvas(result)
@@ -236,16 +241,6 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
                     isAntiAlias = false
                 }
             )
-
-            if (tintColor != null) {
-                canvas.drawRect(
-                    Rect(0f, 0f, width.toFloat(), height.toFloat()),
-                    Paint().apply {
-                        color = tintColor
-                        blendMode = BlendMode.SrcIn
-                    }
-                )
-            }
             return result
         }
 
@@ -316,4 +311,13 @@ data class SDF(
     val haloWidth: Float = StyleSpecDefaults.ICON_HALO_WIDTH.toFloat(),
     val haloBlur: Float = StyleSpecDefaults.ICON_HALO_BLUR.toFloat(),
     val fontScale: Float = 1f,
-)
+) {
+    /**
+     * This recipe, spelled out for [SpriteManager]'s cache key.
+     *
+     * Spelled out rather than hashed: a `hashCode` collision between two recipes would hand one
+     * layer's shaded bitmap to another, and the key is a `String` already, so the exact form is free.
+     */
+    internal fun cacheKey(): String =
+        "${fillColor.toArgb()}|${haloColor.toArgb()}|$haloWidth|$haloBlur|$fontScale"
+}

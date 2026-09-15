@@ -86,10 +86,13 @@ class SpriteManagerTest {
     }
 
     @Test
-    fun `a plain sprite is tinted by icon-color`() {
+    fun `a plain sprite is never recoloured`() {
+        // `icon-color` is SDF-only: upstream's ordinary-icon program has no colour uniform at all
+        // (`symbol_icon.fragment.glsl`). A plain entry used to be tinted by it through a `SrcIn`
+        // fill, which flattened every multicolour PNG icon to one colour.
         val manager = SpriteManager(mapOf("dot" to entry(8, 8)), solidSheet(Color.White))
-        val tinted = assertNotNull(manager.getSprite("dot", tintColor = Color.Green)).second
-        assertColorEquals(Color.Green, tinted.pixelAt(4, 4))
+        val plain = assertNotNull(manager.getSprite("dot", sdf = SDF(fillColor = Color.Green))).second
+        assertColorEquals(Color.White, plain.pixelAt(4, 4))
     }
 
     @Test
