@@ -229,6 +229,13 @@ Layout: `icon-image`, `-size`, `-anchor`, `-offset`, `-rotate`, `-padding`, `-ke
 Paint: `icon-color`, `-opacity`, `-halo-color`, `-halo-width`, `-halo-blur`, `-translate`;
 `text-color`, `-opacity`, `-halo-color`, `-halo-width`, `-halo-blur`, `-translate`. All supported.
 
+`icon-color` and `icon-halo-color` / `-width` / `-blur` apply to **SDF entries only**, as they do
+upstream: the ordinary-icon program is `fragColor = texture(u_texture, v_tex) * alpha`
+(`symbol_icon.fragment.glsl`) and carries no colour uniform, so a plain image keeps its own texels
+whatever the layer sets. Only `symbol_sdf.fragment.glsl` reads `fill_color`. Not a divergence --
+this port used to tint a plain entry with `icon-color` through a `SrcIn` fill, which rendered every
+multicolour PNG icon in such a layer as a monochrome silhouette.
+
 **Inert:** `icon-pitch-alignment`, `text-pitch-alignment`, and the `viewport` value of
 `icon-translate-anchor` / `text-translate-anchor`.
 
@@ -626,7 +633,8 @@ is needed — icon size, pattern tile — so an `@2x` sheet draws at the same si
 `renderer/utils/StretchableIcon.kt`, which is what `icon-text-fit` stretches an icon with. SDF
 entries are recoloured by `renderer/utils/SdfShading.kt`, a port of `symbol_sdf.fragment.glsl`:
 `icon-color` fills, `icon-halo-color` / `-width` / `-blur` surround, and the fill is composited over
-the halo rather than added to it.
+the halo rather than added to it. An entry the sheet index does *not* flag `sdf` is cut out and
+drawn as it is -- never tinted, since those four properties reach no ordinary-icon shader upstream.
 
 **Glyphs** (`data/glyphs/`). `GlyphManager` resolves the style's `glyphs` template, fetches one
 `{fontstack}/{range}.pbf` per 256-codepoint range a label touches, and caches the decoded ranges;
