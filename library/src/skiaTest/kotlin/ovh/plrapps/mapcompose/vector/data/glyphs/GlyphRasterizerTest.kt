@@ -70,7 +70,7 @@ class GlyphRasterizerTest {
             lineHeight = 1.2f,
             maxWidth = 0f,
             justify = TEXT_JUSTIFY_CENTER,
-            writingMode = null,
+            vertical = false,
             transform = TEXT_TRANSFORM_NONE,
         )
 
@@ -184,7 +184,7 @@ class GlyphRasterizerTest {
             defaultFontStack = listOf("Test"),
             fontSize = fontSize,
             letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
-            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+            justify = TEXT_JUSTIFY_CENTER, vertical = false, transform = TEXT_TRANSFORM_NONE,
         )
         val rendered = assertNotNull(
             GlyphRasterizer.render(label, Color.Red, Color.Blue, haloWidth, 0f)
@@ -222,7 +222,7 @@ class GlyphRasterizerTest {
             defaultFontStack = listOf("Test"),
             fontSize = fontSize,
             letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
-            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+            justify = TEXT_JUSTIFY_CENTER, vertical = false, transform = TEXT_TRANSFORM_NONE,
         )
         val wide = assertNotNull(GlyphRasterizer.render(label, Color.Red, Color.Blue, 12f, 0f))
         val wider = assertNotNull(GlyphRasterizer.render(label, Color.Red, Color.Blue, 24f, 0f))
@@ -252,7 +252,7 @@ class GlyphRasterizerTest {
             glyphs = { _, code -> Glyph(code, null, 0, 0, 0, 0, ADVANCE) },
             defaultFontStack = listOf("Test"),
             fontSize = FONT_SIZE, letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
-            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+            justify = TEXT_JUSTIFY_CENTER, vertical = false, transform = TEXT_TRANSFORM_NONE,
         )
         assertNull(
             GlyphRasterizer.render(label, Color.Black, Color.Transparent, 0f, 0f)
@@ -347,7 +347,7 @@ class GlyphRasterizerTest {
         glyphs = { _, _ -> blockGlyph() },
         defaultFontStack = listOf("Test"),
         fontSize = FONT_SIZE, letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
-        justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+        justify = TEXT_JUSTIFY_CENTER, vertical = false, transform = TEXT_TRANSFORM_NONE,
     )
 
     @Test
@@ -406,7 +406,7 @@ class GlyphRasterizerTest {
             glyphs = { _, _ -> blockGlyph() },
             defaultFontStack = listOf("Test"),
             fontSize = FONT_SIZE, letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
-            justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+            justify = TEXT_JUSTIFY_CENTER, vertical = false, transform = TEXT_TRANSFORM_NONE,
         )
         val rendered = assertNotNull(
             GlyphRasterizer.render(label, Color.Red, Color.Transparent, 0f, 0f)

@@ -31,6 +31,27 @@ internal data class TextPlacementCandidate(
     val dy: Float,
 )
 
+/**
+ * The same label set **vertically**, ready to be swapped in -- upstream's
+ * `shapedTextOrientations.vertical` together with its `verticalTextBox`.
+ *
+ * All four fields change together: a stacked label is a different box, and for any `text-anchor`
+ * but `center` a different box is centred on a different point, since the anchor names the side of
+ * the box that lands on the feature. `Placement.viewportPlacement` takes only the box's *size* from
+ * [placement] and its centre from the instance's own [global], so carrying the box alone would
+ * place a tall narrow box where the wide flat one's centre was.
+ *
+ * No rotation is applied to [placement]: the shaping is already stacked, so the box comes out tall
+ * and narrow -- which is what upstream's `textRotation + 90.0` produces for a shaping whose glyphs
+ * it rotates instead.
+ */
+internal class VerticalSetting(
+    val value: LabelArt,
+    val placement: LabelPlacement,
+    val global: Point,
+    val tileAnchor: Offset,
+)
+
 /** Where one symbol of a feature is anchored within its tile, and at what angle. */
 internal data class SymbolAnchorPlacement(
     val position: ObbPoint,
@@ -146,10 +167,52 @@ internal sealed class SymbolInstance(
         val keepUpright: Boolean = true,
         layoutSize: Float = 1f,
         featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
+        /** The same label set vertically, or null -- see [VerticalSetting]. */
+        val verticalSetting: VerticalSetting? = null,
+        /**
+         * `text-writing-mode`, in the style's own order -- upstream's `bucket.writingModes`.
+         *
+         * The placement pass walks it and keeps the first orientation that fits. Upstream holds it
+         * on the bucket, which is layer-level; per instance is equivalent here because the property
+         * takes zoom alone and a bucket has one zoom, and it keeps a new field out of
+         * `SymbolBucket`'s construction. Empty means "horizontal only".
+         */
+        val writingModes: List<String> = emptyList(),
     ) : SymbolInstance(
         id, key, global, tileAnchor, placement,
         viewportAligned = viewportAligned, layoutSize = layoutSize, featureSizes = featureSizes,
-    )
+    ) {
+
+        /**
+         * This label in one of its two settings, for the placement pass to hand on once it has
+         * chosen -- the same instance-swap [SpriteWithText.iconOnly] and [SpriteWithText.textOnly]
+         * use, which is what carries the decision to the draw pass without a flag of its own.
+         */
+        fun withOrientation(vertical: Boolean): Text {
+            val setting = verticalSetting
+            if (!vertical || setting == null) return this
+            return Text(
+                id = id,
+                key = key,
+                global = setting.global,
+                tileAnchor = setting.tileAnchor,
+                placement = placement.copy(textPlacement = setting.placement),
+                value = setting.value,
+                viewportAligned = viewportAligned,
+                spriteAnchorGlobal = spriteAnchorGlobal,
+                textOffset = textOffset,
+                line = line,
+                globalLine = globalLine,
+                globalAnchorIndex = globalAnchorIndex,
+                lineOffsetX = lineOffsetX,
+                lineOffsetY = lineOffsetY,
+                keepUpright = keepUpright,
+                layoutSize = layoutSize,
+                featureSizes = featureSizes,
+                writingModes = writingModes,
+            ).also { it.crossTileID = crossTileID }
+        }
+    }
 
     class SpriteWithText(
         id: String,
@@ -183,6 +246,15 @@ internal sealed class SymbolInstance(
         featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
         val iconLayoutSize: Float = 1f,
         val iconFeatureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
+        /** The label set vertically -- see [VerticalSetting]. */
+        val verticalText: LabelArt? = null,
+        /**
+         * [verticalText]'s candidates, built over the same anchors and in the same order as
+         * [textCandidates], so an index into one means the same anchor in the other.
+         */
+        val verticalTextCandidates: List<TextPlacementCandidate> = emptyList(),
+        /** `text-writing-mode`, in the style's own order -- see [Text.writingModes]. */
+        val writingModes: List<String> = emptyList(),
     ) : SymbolInstance(
         id, key, global, tileAnchor, placement, align,
         viewportAligned = viewportAligned, layoutSize = layoutSize, featureSizes = featureSizes,
@@ -204,20 +276,25 @@ internal sealed class SymbolInstance(
             featureSizes = iconFeatureSizes,
         ).also { it.crossTileID = crossTileID }
 
-        /** This symbol's label on its own, for when the icon could not be placed. */
+        /**
+         * This symbol's label on its own, for when the icon could not be placed.
+         *
+         * [art] is the setting the placement pass settled on -- [text] or [verticalText].
+         */
         fun textOnly(
             id: String,
             global: Point,
             placement: CompoundLabelPlacement,
             spriteAnchorGlobal: Point? = null,
             textOffset: Offset? = null,
+            art: LabelArt = text,
         ): Text = Text(
             id = id,
             key = key,
             global = global,
             tileAnchor = tileAnchor,
             placement = placement,
-            value = text,
+            value = art,
             viewportAligned = viewportAligned,
             spriteAnchorGlobal = spriteAnchorGlobal,
             textOffset = textOffset,
