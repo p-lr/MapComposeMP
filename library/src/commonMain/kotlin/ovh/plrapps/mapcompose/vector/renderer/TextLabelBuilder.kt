@@ -146,7 +146,13 @@ internal class TextLabelBuilder(
         vertical: Boolean = false,
     ): LabelArt? {
         val shapingText = shapingTextOf(formatted)
-        if (shapingText.isBlank() || shapingText.length > MAX_LABEL_LENGTH) return null
+        /* Blank only, never long: upstream's `shapeText` rejects a label on one condition,
+         * `isEmpty(positionedLines)`, and has no maximum length (`src/symbol/shaping.ts`). A
+         * 256-code-unit cap here silently dropped any label past it -- before the glyph path *and*
+         * the fallback, so such a `text-field` drew nothing at all. What the cap was standing in
+         * for is the one cost upstream does not have, the per-label bitmap, and that is bounded
+         * where it is allocated instead (`GlyphRasterizer.render`). */
+        if (shapingText.isBlank()) return null
         if (vertical && !GlyphLayout.allowsVerticalWritingMode(shapingText)) return null
 
         val key = style.cacheKey(formatted, perGlyph, vertical)
@@ -413,9 +419,6 @@ internal class TextLabelBuilder(
     }
 
     companion object {
-        /** Longer than any label a style means to draw; a runaway `text-field` is dropped. */
-        const val MAX_LABEL_LENGTH = 256
-
         /** The Compose fallback cannot wrap by ems the way the shaper does, so it is capped. */
         const val MAX_LABEL_LINES = 5
 
