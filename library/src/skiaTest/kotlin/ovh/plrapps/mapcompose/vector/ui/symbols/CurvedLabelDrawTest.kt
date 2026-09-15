@@ -59,7 +59,7 @@ class CurvedLabelDrawTest {
             lineHeight = 1.2f,
             maxWidth = 0f,
             justify = TEXT_JUSTIFY_CENTER,
-            writingMode = null,
+            vertical = false,
             transform = TEXT_TRANSFORM_NONE,
         )
         val rendered = assertNotNull(

@@ -7,8 +7,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_RIGHT
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_LOWERCASE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_UPPERCASE
-import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_HORIZONTAL
-import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.VerticalAlign
 import kotlin.math.abs
 import kotlin.test.Test
@@ -57,7 +55,7 @@ class GlyphLayoutTest {
         lineHeight: Float = 1.2f,
         maxWidth: Float = 0f,
         justify: String = TEXT_JUSTIFY_CENTER,
-        writingMode: List<String>? = null,
+        vertical: Boolean = false,
         transform: String = TEXT_TRANSFORM_NONE,
         missing: Set<Int> = emptySet(),
         sections: List<TextSection>? = null,
@@ -70,7 +68,7 @@ class GlyphLayoutTest {
         lineHeight = lineHeight,
         maxWidth = maxWidth,
         justify = justify,
-        writingMode = writingMode,
+        vertical = vertical,
         transform = transform,
     )
 
@@ -247,7 +245,7 @@ class GlyphLayoutTest {
 
     @Test
     fun `text-writing-mode vertical stacks cjk glyphs`() {
-        val label = shape("中中中", writingMode = listOf(WRITING_MODE_VERTICAL))
+        val label = shape("中中中", vertical = true)
         assertTrue(label.vertical)
         assertEquals(3, label.lines.size)
         assertEquals(listOf(0f, 0f, 0f), label.glyphs.map { it.x })
@@ -255,10 +253,24 @@ class GlyphLayoutTest {
     }
 
     @Test
-    fun `latin text stays horizontal even when vertical is allowed`() {
-        val label = shape("abc", writingMode = listOf(WRITING_MODE_VERTICAL, WRITING_MODE_HORIZONTAL))
+    fun `the same text shapes horizontally when the caller asks for it`() {
+        val label = shape("中中中", vertical = false)
         assertEquals(false, label.vertical)
         assertEquals(1, label.lines.size)
+    }
+
+    @Test
+    fun `only text this port can stack allows vertical writing mode`() {
+        assertTrue(GlyphLayout.allowsVerticalWritingMode("中中中"))
+        // Upstream would accept this one and rotate the Latin run; there is no glyph rotation here.
+        assertEquals(false, GlyphLayout.allowsVerticalWritingMode("中a中"))
+        assertEquals(false, GlyphLayout.allowsVerticalWritingMode("abc"))
+        assertEquals(false, GlyphLayout.allowsVerticalWritingMode(""))
+    }
+
+    @Test
+    fun `an inline image stacks like an ideograph`() {
+        assertTrue(GlyphLayout.allowsVerticalWritingMode("中${Char(PUA_BEGIN)}中"))
     }
 
     @Test

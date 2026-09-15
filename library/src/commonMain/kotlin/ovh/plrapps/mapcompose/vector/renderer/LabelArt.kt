@@ -88,7 +88,14 @@ internal abstract class LabelArt {
         }
     }
 
-    /** Compose-measured text, the fallback for a style with no glyph server. */
+    /**
+     * Compose-measured text, the fallback for a style with no glyph server.
+     *
+     * Besides losing a `["format", ...]`'s per-section styling and its inline images, it has no
+     * vertical setting: Compose cannot stack a run, so a label that falls back here is always
+     * horizontal whatever `text-writing-mode` asks for, and contributes no vertical candidate for
+     * the placement pass to choose between.
+     */
     class Measured(val layout: TextLayoutResult) : LabelArt() {
         override val text: String get() = layout.layoutInput.text.text
         override val width: Float get() = layout.size.width.toFloat()
