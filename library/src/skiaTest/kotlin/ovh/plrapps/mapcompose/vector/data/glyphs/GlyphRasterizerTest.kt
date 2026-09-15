@@ -1,7 +1,10 @@
 package ovh.plrapps.mapcompose.vector.data.glyphs
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
+import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
 import ovh.plrapps.mapcompose.vector.renderer.assertColorEquals
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_JUSTIFY_CENTER
 import ovh.plrapps.mapcompose.vector.spec.style.TEXT_TRANSFORM_NONE
@@ -324,6 +327,77 @@ class GlyphRasterizerTest {
         assertEquals(one.boxWidth * 2f, two.boxWidth)
         assertTrue(two.bitmap.width > one.bitmap.width)
     }
+
+    // region inline images -- upstream's `symbol_text_and_icon` icon branch
+
+    /** A solid square, standing in for a sprite the sheet resolved. */
+    private fun solidImage(color: Color, size: Int = 8): ImageBitmap =
+        imageBitmapFromArgb(IntArray(size * size) { color.toArgb() }, size, size)
+
+    private fun shapeWithImage(
+        text: String,
+        image: ImageBitmap,
+        width: Float,
+        height: Float,
+    ): ShapedLabel = GlyphLayout.shape(
+        sections = buildList {
+            if (text.isNotEmpty()) add(TextSection(text))
+            add(TextSection(text = "", image = SectionImage(width, height, image)))
+        },
+        glyphs = { _, _ -> blockGlyph() },
+        defaultFontStack = listOf("Test"),
+        fontSize = FONT_SIZE, letterSpacing = 0f, lineHeight = 1.2f, maxWidth = 0f,
+        justify = TEXT_JUSTIFY_CENTER, writingMode = null, transform = TEXT_TRANSFORM_NONE,
+    )
+
+    @Test
+    fun `an inline image is drawn into the label bitmap`() {
+        val label = shapeWithImage("", solidImage(Color.Blue), width = 20f, height = 20f)
+        val rendered = assertNotNull(
+            GlyphRasterizer.render(label, Color.Black, Color.Transparent, 0f, 0f)
+        )
+        assertEquals(20f, rendered.boxWidth)
+
+        val placed = label.items.filterIsInstance<ShapedImage>().single()
+        val pixels = rendered.bitmap.toPixelMap()
+        val x = (rendered.boxLeft + placed.x + placed.width / 2f).toInt()
+        val y = (rendered.boxTop + placed.y + placed.height / 2f).toInt()
+        assertColorEquals(Color.Blue, pixels[x, y], tolerance = 0.02f)
+    }
+
+    @Test
+    fun `text-opacity scales an inline image`() {
+        // Upstream's `fragColor = texture(u_texture_icon, tex_icon) * total_opacity`.
+        val label = shapeWithImage("", solidImage(Color.Blue), width = 20f, height = 20f)
+        val rendered = assertNotNull(
+            GlyphRasterizer.render(label, Color.Black, Color.Transparent, 0f, 0f, opacity = 0.5f)
+        )
+        val placed = label.items.filterIsInstance<ShapedImage>().single()
+        val pixels = rendered.bitmap.toPixelMap()
+        val x = (rendered.boxLeft + placed.x + placed.width / 2f).toInt()
+        val y = (rendered.boxTop + placed.y + placed.height / 2f).toInt()
+        assertTrue(
+            abs(pixels[x, y].alpha - 0.5f) < 0.02f,
+            "an inline image should carry text-opacity, got ${pixels[x, y].alpha}",
+        )
+    }
+
+    @Test
+    fun `a line label carries a quad for its inline image`() {
+        val label = shapeWithImage("a", solidImage(Color.Blue), width = 20f, height = 20f)
+        val quads = assertNotNull(
+            GlyphRasterizer.renderGlyphs(label, Color.Black, Color.Transparent, 0f, 0f)
+        )
+        assertEquals(2, quads.size)
+
+        val imageQuad = quads.last()
+        val placed = label.items.filterIsInstance<ShapedImage>().single()
+        assertEquals(placed.x + placed.advance / 2f - label.width / 2f, imageQuad.alongOffset, 0.001f)
+        val pixels = imageQuad.bitmap.toPixelMap()
+        assertColorEquals(Color.Blue, pixels[pixels.width / 2, pixels.height / 2], tolerance = 0.02f)
+    }
+
+    // endregion
 
     @Test
     fun `a section colour overrides the layer's text-color`() {
