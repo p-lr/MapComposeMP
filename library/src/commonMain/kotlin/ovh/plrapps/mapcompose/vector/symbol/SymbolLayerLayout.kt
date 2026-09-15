@@ -73,6 +73,7 @@ internal class SymbolLayerLayout(
     /** Shapes and rasterizes labels, from the style's glyph server where it has one. */
     private val labelBuilder = TextLabelBuilder(
         glyphManager = configuration.glyphManager,
+        spriteManager = spriteManager,
         textMeasurerState = textMeasurerState,
         cache = pathCache,
         mutex = mutex,

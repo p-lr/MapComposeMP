@@ -232,9 +232,28 @@ Paint: `icon-color`, `-opacity`, `-halo-color`, `-halo-width`, `-halo-blur`, `-t
 `icon-translate-anchor` / `text-translate-anchor`.
 
 `text-field` is typed `formatted` and `icon-image` `resolvedImage`, so `["format", …]` and
-`["image", …]` compile and evaluate; a `["format", …]` section's `font-scale`, `text-font` and
-`text-color` are honoured per section. The legacy `{token}` syntax is still expanded, `{name}`
-preferring the configured language's `name:xx`.
+`["image", …]` compile and evaluate; a `["format", …]` section's `font-scale`, `text-font`,
+`text-color`, `vertical-align` and inline `image` are all honoured per section. The legacy `{token}`
+syntax is still expanded, `{name}` preferring the configured language's `name:xx`.
+
+An image section is upstream's `TaggedString.addImageSection`: it contributes one private-use
+character to the shaped text — which is what lets a `text-field` made of an image alone render at
+all, where the concatenated section text is empty — its `font-scale` is ignored, since a sprite
+carries its own size, and an image the sheet does not have drops the section entirely, its advance
+included (`if (!imagePosition) continue`). A section shorter than its line is offset by
+`vertical-align`, `bottom` by default, and a line grown by a tall image or by a `font-scale` above
+one takes upstream's second `align()` branch, where the pen is the line's own top rather than
+`SHAPING_DEFAULT_OFFSET` plus half a line — all of it in `data/glyphs/GlyphLayout.kt`. Shading
+follows `symbol_text_and_icon.fragment.glsl`, which is the program upstream picks for a label
+carrying images: a plain image is blitted with only `text-opacity` applied, an SDF entry falls into
+the same branch the glyphs do and is recoloured by the **text**'s `text-color` and `text-halo-*`.
+
+**Inline images diverge in three ways.** Only the glyph path draws them: the Compose `TextMeasurer`
+fallback a style with no `glyphs` URL falls back to measures one run in one style, so it drops a
+section's font, scale, colour and image alike, and a field made only of an image is not drawn by it
+at all. An inline image belongs to the label's own box and takes no part in `icon-text-fit`. And
+`mergeLines` and `anchorIsTooClose` still key on section *text*, so two labels differing only by an
+inline image are one key for merging and for repeat suppression.
 
 Where a symbol ends up on screen, and whether it is drawn at all, is not this file's business — see
 [Symbol layout and placement](#symbol-layout-and-placement).
