@@ -82,6 +82,72 @@ class GeoJsonTest {
         assertEquals(2, feature.rings.size)
     }
 
+    // region ring winding
+
+    /**
+     * Twice a ring's signed area, in `classify_rings.ts`'s orientation: positive is an exterior
+     * ring, negative a hole.
+     */
+    private fun signedArea(ring: List<GeoJsonPoint>): Double {
+        var sum = 0.0
+        var j = ring.size - 1
+        for (i in ring.indices) {
+            sum += (ring[j].x - ring[i].x) * (ring[i].y + ring[j].y)
+            j = i
+        }
+        return sum
+    }
+
+    @Test
+    fun `a hole wound like its exterior is rewound`() {
+        /* Both rings given clockwise in lon/lat. Nothing downstream can tell such a hole from a
+         * second polygon -- `classifyRings` groups by the sign of the area -- so the hole used to be
+         * filled in rather than cut out. `geojson-vt` rewinds on the way in (`src/tile.ts`). */
+        val feature = parse(
+            """{"type":"Polygon","coordinates":[
+                [[0,0],[0,10],[10,10],[10,0],[0,0]],
+                [[2,2],[2,8],[8,8],[8,2],[2,2]]
+            ]}"""
+        ).single()
+
+        assertEquals(2, feature.rings.size)
+        assertTrue(signedArea(feature.rings[0]) > 0.0, "the exterior ring must be positive")
+        assertTrue(signedArea(feature.rings[1]) < 0.0, "the hole must be negative")
+    }
+
+    @Test
+    fun `an exterior ring wound the other way is rewound too`() {
+        val feature = parse(
+            """{"type":"Polygon","coordinates":[
+                [[0,0],[10,0],[10,10],[0,10],[0,0]],
+                [[2,2],[8,2],[8,8],[2,8],[2,2]]
+            ]}"""
+        ).single()
+
+        assertTrue(signedArea(feature.rings[0]) > 0.0, "the exterior ring must be positive")
+        assertTrue(signedArea(feature.rings[1]) < 0.0, "the hole must be negative")
+    }
+
+    @Test
+    fun `every polygon of a multipolygon is rewound on its own`() {
+        // The rings are concatenated, so `classifyRings` can only find the second polygon's
+        // exterior by its sign.
+        val feature = parse(
+            """{"type":"MultiPolygon","coordinates":[
+                [[[0,0],[0,10],[10,10],[10,0],[0,0]], [[2,2],[2,8],[8,8],[8,2],[2,2]]],
+                [[[20,0],[30,0],[30,10],[20,10],[20,0]], [[22,2],[28,2],[28,8],[22,8],[22,2]]]
+            ]}"""
+        ).single()
+
+        assertEquals(4, feature.rings.size)
+        assertTrue(signedArea(feature.rings[0]) > 0.0)
+        assertTrue(signedArea(feature.rings[1]) < 0.0)
+        assertTrue(signedArea(feature.rings[2]) > 0.0)
+        assertTrue(signedArea(feature.rings[3]) < 0.0)
+    }
+
+    // endregion
+
     @Test
     fun `a geometry collection becomes several features sharing the properties`() {
         val features = parse(
