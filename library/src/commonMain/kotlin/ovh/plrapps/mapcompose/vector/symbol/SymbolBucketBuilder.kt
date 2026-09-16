@@ -104,21 +104,31 @@ internal class SymbolBucketBuilder(
          * tile-local geometry back to lng/lat with. */
         val canonical = CanonicalTileId(z = ref.z, x = ref.x, y = ref.y)
 
+        /* A function of the source and the source layer alone -- see `promoteIdPropertyFor`, and
+         * note that `localPropCache` is itself per (source, tile), so the features it caches carry
+         * the right id. */
+        val promoteIdProperty = promoteIdPropertyFor(sourceName, tileLayer)
+
         for ((index, feature) in tileLayer.features.withIndex()) {
             /* The feature's position in the tile layer. See the note in `TileRenderer.render`: an
              * MVT feature usually has no `id`, and a hash collides. */
             val featureIdKey = "f$index"
             val propertyKey = if (ref.x != 0 || ref.y != 0) "T-${ref.x}-${ref.y}-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, canonical) }
+                localPropCache.getOrPut(propertyKey) {
+                    buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
+                }
             } else {
-                buildEvalFeature(feature, tileLayer, canonical)
+                buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
             }
 
             val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)
             if (!isShouldRenderFeature) continue
 
             val extent = tileLayer.extent ?: 4096
+            /* The bucket's own identity key, not an expression id: it names the instance within
+             * this layout pass, so it stays the raw protobuf id whatever `promoteId` says --
+             * promoting it would churn cross-tile identity for nothing upstream can see. */
             val id = feature.id?.toString() ?: "unknown_$index"
 
             if (feature.type != Tile.GeomType.POINT &&

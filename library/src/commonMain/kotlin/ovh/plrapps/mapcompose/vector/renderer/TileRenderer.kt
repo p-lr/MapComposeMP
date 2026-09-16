@@ -373,6 +373,9 @@ class TileRenderer(
         canonical: CanonicalTileId,
     ): List<VisibleFeature> {
         val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
+        /* A function of the source and the source layer alone, so hoisting it out of the loop is
+         * safe and so is caching the features it builds. See `promoteIdPropertyFor`. */
+        val promoteIdProperty = promoteIdPropertyFor(styleLayer.source, tileLayer)
         tileLayer.features.forEachIndexed { index, feature ->
             /* The feature's position in the tile layer, not its `id` or its `hashCode`.
              * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
@@ -384,9 +387,11 @@ class TileRenderer(
             val featureIdKey = "f$index"
             val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
             val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) { buildEvalFeature(feature, tileLayer, canonical) }
+                localPropCache.getOrPut(propertyKey) {
+                    buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
+                }
             } else {
-                buildEvalFeature(feature, tileLayer, canonical)
+                buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
             }
 
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
@@ -468,9 +473,10 @@ class TileRenderer(
         val offsetX = dx.toDouble() * geometrySize - tileRef.subX.toDouble() * canvasSize
         val offsetY = dy.toDouble() * geometrySize - tileRef.subY.toDouble() * canvasSize
 
+        val promoteIdProperty = promoteIdPropertyFor(styleLayer.source, tileLayer)
         for (feature in tileLayer.features) {
             if (feature.type != Tile.GeomType.POINT) continue
-            val properties = buildEvalFeature(feature, tileLayer, canonical)
+            val properties = buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, properties)) continue
 
             val decoded = geometryDecoders.decodePoint(

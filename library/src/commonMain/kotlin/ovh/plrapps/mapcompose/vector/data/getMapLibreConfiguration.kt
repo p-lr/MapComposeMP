@@ -9,8 +9,10 @@ import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
 import ovh.plrapps.mapcompose.vector.data.glyphs.FontFaceManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.LocalGlyphSource
+import ovh.plrapps.mapcompose.vector.spec.style.PromoteId
 import ovh.plrapps.mapcompose.vector.spec.style.Source
 import ovh.plrapps.mapcompose.vector.spec.style.fontFaces
+import ovh.plrapps.mapcompose.vector.spec.style.promoteIdSpec
 import ovh.plrapps.mapcompose.vector.spec.style.sprites
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
 import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
@@ -52,10 +54,16 @@ suspend fun getMapLibreConfiguration(
 
         val geoJsonSources = mutableMapOf<String, GeoJsonSource>()
 
+        val promoteIds = mutableMapOf<String, PromoteId>()
+
         style.sources?.toList()?.forEach { (name, source) ->
             val sourceUrl = source.url
             val tiles = source.tiles
             val type = SourceType.fromSpec(source.type)
+            /* Read before the geojson branch returns: both source kinds promote ids, and the spec
+             * declares the property on `source_vector` as well as on `source_geojson`. A malformed
+             * one is reported rather than thrown -- see [promoteIdSpec]. */
+            source.promoteIdSpec(location = "sources.$name")?.let { promoteIds[name] = it }
             if (type == SourceType.GEOJSON) {
                 /* A geojson source has no tile URL: the whole document is loaded once and cut into
                  * tiles on demand, so it never reaches the tile fetcher at all. */
@@ -150,6 +158,7 @@ suspend fun getMapLibreConfiguration(
              * reported with everything else the parse found. */
             diagnostics = diagnostics + StyleDiagnostics.drain(),
             globalState = globalState,
+            promoteIds = promoteIds,
         ))
 
     } catch (e: Exception) {

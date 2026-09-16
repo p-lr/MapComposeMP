@@ -3,6 +3,7 @@ package ovh.plrapps.mapcompose.vector.data
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
+import ovh.plrapps.mapcompose.vector.spec.style.PromoteId
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostic
 
 data class MapLibreConfiguration(
@@ -42,4 +43,14 @@ data class MapLibreConfiguration(
      * declared -- and it is what a future runtime setter would have to swap and invalidate against.
      */
     val globalState: Map<String, Any?> = emptyMap(),
+    /**
+     * Each source's `promoteId`, keyed by source name; absent for a source that declares none.
+     *
+     * Kept here rather than on [MapLibreTileSource] because a `geojson` source is not one of those
+     * and promotes ids just the same, and because it is not a TileJSON property -- a referenced
+     * document can never declare it, so it never goes through `TileJson.overriddenBy`.
+     *
+     * `renderer/BaseRenderer.promoteIdPropertyFor` is the only reader.
+     */
+    val promoteIds: Map<String, PromoteId> = emptyMap(),
 )

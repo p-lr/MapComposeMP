@@ -112,7 +112,33 @@ class GeoJsonTest {
         val feature = parse(
             """{"type":"Feature","id":42,"properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}"""
         ).single()
-        assertEquals(42L, feature.id)
+        assertEquals(42.0, feature.id)
+    }
+
+    @Test
+    fun `a string feature id stays a string`() {
+        val feature = parse(
+            """{"type":"Feature","id":"abc","properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}"""
+        ).single()
+        assertEquals("abc", feature.id)
+    }
+
+    /* RFC 7946 types an id as a string or a number, and the quoting is what decides which. This
+     * used to fall back to `content.toLongOrNull()` and read a quoted "42" as the number 42. */
+    @Test
+    fun `a quoted numeric feature id stays a string`() {
+        val feature = parse(
+            """{"type":"Feature","id":"42","properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}"""
+        ).single()
+        assertEquals("42", feature.id)
+    }
+
+    @Test
+    fun `a feature with no id has none`() {
+        val feature = parse(
+            """{"type":"Feature","properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}"""
+        ).single()
+        assertEquals(null, feature.id)
     }
 
     @Test

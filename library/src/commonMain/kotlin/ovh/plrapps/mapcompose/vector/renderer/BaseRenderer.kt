@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
+import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonTiler
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
@@ -51,10 +52,14 @@ abstract class BaseRenderer(
         val target = evalFeature ?: buildEvalFeature(feature, tileLayer, canonical)
         /* The id the feature was built with wins, so a caller that hands over an [EvalFeature]
          * cannot silently drop the tile it came from -- which is exactly how `within` came to
-         * reject every feature of a geographically filtered layer. */
+         * reject every feature of a geographically filtered layer.
+         *
+         * [EvalFeature.filterFeature] is upstream's `toEvaluationFeature` view and is non-null only
+         * for a source that promotes its ids: a filter reads the raw protobuf id there, where paint
+         * and layout read the promoted one. See its KDoc. */
         return filter.filter(
             globals = GlobalProperties(zoom = zoom.toInt().toDouble()),
-            feature = target,
+            feature = target.filterFeature ?: target,
             canonical = target.canonical ?: canonical,
         )
     }
@@ -113,20 +118,63 @@ abstract class BaseRenderer(
      * geometry at all, and worse: `TileRenderer.localPropCache` is keyed across style layers, so
      * the first layer to touch a feature decided whether every later layer's filter could see its
      * geometry.
+     *
+     * [promoteIdProperty] is the source's `promoteId` resolved for this tile layer -- see
+     * [promoteIdPropertyFor], and `vector/README.md` for the whole of it. When it is set, *two*
+     * features are built, as upstream builds two: the one returned carries the promoted id and is
+     * what paint and layout evaluate against, and [EvalFeature.filterFeature] carries the raw
+     * protobuf id and is what a layer filter evaluates against, which is upstream's
+     * `toEvaluationFeature`. When it is not set -- nearly every source -- the raw feature is
+     * returned directly and nothing extra is allocated.
      */
     fun buildEvalFeature(
         feature: Tile.Feature,
         tileLayer: Tile.Layer,
         canonical: CanonicalTileId? = null,
+        promoteIdProperty: String? = null,
     ): EvalFeature {
         val extent = tileLayer.extent ?: DEFAULT_MVT_EXTENT
-        return EvalFeature(
+        val properties = extractFeatureProperties(feature, tileLayer)
+        /* A `geojson` source's synthetic tile smuggles a non-integral id through the tag table,
+         * because the MVT wire format has no room for one -- see [GeoJsonTiler.SYNTHETIC_ID_KEY].
+         * Removing it here is what keeps it out of `["get"]` and `["properties"]`. */
+        val syntheticId = properties.remove(GeoJsonTiler.SYNTHETIC_ID_KEY)
+        val raw = EvalFeature(
             type = geometryTypeOf(feature),
-            id = feature.id?.toDouble(),
-            properties = extractFeatureProperties(feature, tileLayer),
+            id = syntheticId ?: feature.id?.toDouble(),
+            properties = properties,
             canonical = canonical,
             geometryProvider = { decodeRawGeometry(feature.geometry, extent) },
         )
+        if (promoteIdProperty == null) return raw
+        /* Upstream's `FeatureIndex.getId`: the promoted value *replaces* the id, it does not fall
+         * back to it, so a property the feature does not carry leaves `["id"]` null exactly as
+         * upstream leaves it `undefined`. The one coercion is the boolean one; every other type is
+         * already an engine value, `extractFeatureProperties` having normalized it. Upstream's
+         * `cluster_id` arm has no analogue -- geojson clustering is not supported here. */
+        val promoted = properties[promoteIdProperty].let { if (it is Boolean) (if (it) 1.0 else 0.0) else it }
+        return EvalFeature(
+            type = raw.type,
+            id = promoted,
+            properties = properties,
+            canonical = canonical,
+            geometryProvider = { raw.geometry },
+            filterFeature = raw,
+        )
+    }
+
+    /**
+     * The property [sourceName]'s `promoteId` promotes on [tileLayer], or `null` for neither.
+     *
+     * This is upstream's `FeatureIndex.getId`'s `typeof this.promoteId === 'string' ? … : …[…]`.
+     * It is a pure function of the source and the source layer, which is what makes it safe to
+     * apply inside the callers' per-feature caches: both are keyed by a tile of one source plus the
+     * source layer's name.
+     */
+    fun promoteIdPropertyFor(sourceName: String?, tileLayer: Tile.Layer): String? {
+        if (sourceName == null) return null
+        val promoteId = configuration.promoteIds[sourceName] ?: return null
+        return promoteId.propertyFor(tileLayer.name.orEmpty())
     }
 
     fun geometryTypeOf(feature: Tile.Feature): String = when (feature.type) {
@@ -145,7 +193,10 @@ abstract class BaseRenderer(
      * variants must not leak in — see the note on `normalizeNumbers`. This is what makes
      * `["==", ["get", "n"], 1]` match a property the tile encoded as a float.
      */
-    fun extractFeatureProperties(feature: Tile.Feature, tileLayer: Tile.Layer): Map<String, Any?> {
+    fun extractFeatureProperties(
+        feature: Tile.Feature,
+        tileLayer: Tile.Layer,
+    ): MutableMap<String, Any?> {
         val props = mutableMapOf<String, Any?>()
         val keys = tileLayer.keys
         val values = tileLayer.values
