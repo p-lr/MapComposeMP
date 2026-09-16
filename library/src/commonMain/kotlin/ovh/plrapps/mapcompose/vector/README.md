@@ -594,6 +594,14 @@ Douglas-Peucker, emit an MVT-shaped `Tile`. From `TileRenderer`'s point of view 
 vector tile from then on. The spec forbids a `source-layer` on a layer reading a geojson source, so
 `BaseRenderer.tileLayerFor` takes the tile's only layer when a style layer names none.
 
+A polygon's rings are **rewound** as they are read (`GeoJson.readPolygon`), so the first is an
+exterior ring and the rest are holes, which is `geojson-vt`'s own rewind (`src/tile.ts`). RFC 7946
+asks for right-hand-rule winding but requires a parser to accept anything, and nothing downstream can
+recover it: rings are grouped by the *sign* of their signed area (`classifyRings`), so a hole wound
+like its exterior read as a second polygon and `PathFillType.NonZero` filled the hole in instead of
+cutting it out. Rewinding at read time rather than at encode time is what lets the clipper and the
+simplifier see correct winding too, and a `MultiPolygon` gets it per polygon for free.
+
 Four of its options are resolved at load, in the order upstream resolves them.
 
 **`filter`** is an ordinary boolean expression, compiled by the same `FeatureFilterSerializer` a

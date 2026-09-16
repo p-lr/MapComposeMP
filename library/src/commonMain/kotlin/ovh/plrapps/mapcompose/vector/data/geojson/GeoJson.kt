@@ -195,10 +195,45 @@ object GeoJson {
         return GeoJsonFeature(geomType, rings, properties, id)
     }
 
+    /**
+     * One polygon's rings, rewound so the first is an exterior ring and the rest are holes.
+     *
+     * RFC 7946 asks for right-hand-rule winding but says a parser must accept anything, and
+     * `geojson-vt` rewinds on the way in (`src/tile.ts`). Nothing downstream can recover it: rings
+     * are grouped by the *sign* of their signed area (`classifyRings`), so a hole wound like its
+     * exterior reads as a second polygon and `PathFillType.NonZero` fills the hole in instead of
+     * cutting it out.
+     *
+     * Rewinding here rather than at encode time is what lets the tiler, the clipper and the
+     * simplifier all see correct winding; a `MultiPolygon` gets it per polygon for free, since this
+     * is called once per polygon there.
+     */
     private fun readPolygon(coordinates: JsonArray): List<List<GeoJsonPoint>> =
         coordinates.mapNotNull { ring ->
             (ring as? JsonArray)?.let { readLine(it) }?.takeIf { it.size >= 3 }
+        }.mapIndexed { index, ring ->
+            // `classifyRings`: a positive signed area is an exterior ring, a negative one a hole.
+            val wantsPositive = index == 0
+            if ((signedArea(ring) < 0.0) == wantsPositive) ring.reversed() else ring
         }
+
+    /**
+     * Twice a ring's signed area, in the same orientation `classifyRings` reads.
+     *
+     * Transcribed from `classify_rings.ts`'s `calculateSignedArea` -- the two have to agree on the
+     * sign or the rewind would be the wrong way round.
+     */
+    private fun signedArea(ring: List<GeoJsonPoint>): Double {
+        var sum = 0.0
+        var j = ring.size - 1
+        for (i in ring.indices) {
+            val p1 = ring[i]
+            val p2 = ring[j]
+            sum += (p2.x - p1.x) * (p1.y + p2.y)
+            j = i
+        }
+        return sum
+    }
 
     private fun readLine(coordinates: JsonArray): List<GeoJsonPoint> =
         coordinates.mapNotNull { position -> (position as? JsonArray)?.let { readPosition(it) } }
