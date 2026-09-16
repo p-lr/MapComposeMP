@@ -958,14 +958,13 @@ internal class SymbolLayerLayout(
         )
     }
 
-    /** Builds the label symbols of a feature that has text but no icon. */
+    /** Builds the label symbol of a point feature that has text but no icon. */
     private suspend fun produceText(
         placement: SymbolAnchorPlacement,
         style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
         tileZ: Double,
-        lineStrings: List<List<Pair<Float, Float>>>? = null,
         id: String,
         canvasSize: Int,
         tileX: Int,
@@ -973,15 +972,13 @@ internal class SymbolLayerLayout(
         density: Density,
         layerIndex: Int,
         sizes: SymbolSizes,
-        compareText: MutableMap<String, MutableList<Pair<Float, Float>>>? = null,
     ): List<SymbolInstance> {
         val layout = style.layout
         val paint = style.paint
 
         val anchor = textAnchorOf(layout, featureProperties, actualZoom)
         val built = buildLabel(
-            layout, paint, featureProperties, actualZoom, density, anchor,
-            lineLabel = !lineStrings.isNullOrEmpty(),
+            layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = false,
         ) ?: return emptyList()
         val art = built.art
         val textStyle = built.style
@@ -989,110 +986,99 @@ internal class SymbolLayerLayout(
         val userOffset = textOffsetPx(layout, featureProperties, actualZoom, anchor, textStyle.fontSize)
         val offset = userOffset + textTranslatePx(paint, featureProperties, actualZoom, density)
 
-        return if (lineStrings != null && lineStrings.isNotEmpty()) {
-            produceLineText(
+        return listOfNotNull(
+            producePointText(
                 id = id,
-                lineStrings = lineStrings,
-                layout = layout,
-                featureProperties = featureProperties,
-                actualZoom = actualZoom,
+                placement = placement,
+                anchor = anchor,
                 dx = offset.x,
                 dy = offset.y,
                 tileX = tileX,
                 tileY = tileY,
-                art = art,
                 tileZ = tileZ,
                 canvasSize = canvasSize,
+                layout = layout,
+                featureProperties = featureProperties,
+                actualZoom = actualZoom,
+                art = art,
                 density = density,
                 layerIndex = layerIndex,
                 fontSize = textStyle.fontSize,
                 sizes = sizes,
-                compareText = compareText,
+                verticalArt = built.vertical,
+                writingModes = writingModesOf(textStyle, built.vertical),
             )
-        } else {
-            listOfNotNull(
-                producePointText(
-                    id = id,
-                    placement = placement,
-                    anchor = anchor,
-                    dx = offset.x,
-                    dy = offset.y,
-                    tileX = tileX,
-                    tileY = tileY,
-                    tileZ = tileZ,
-                    canvasSize = canvasSize,
-                    layout = layout,
-                    featureProperties = featureProperties,
-                    actualZoom = actualZoom,
-                    art = art,
-                    density = density,
-                    layerIndex = layerIndex,
-                    fontSize = textStyle.fontSize,
-                    sizes = sizes,
-                    verticalArt = built.vertical,
-                    writingModes = writingModesOf(textStyle, built.vertical),
-                )
-            )
-        }
+        )
     }
 
     /**
-     * Labels along a line, one per `symbol-spacing` step.
+     * Every symbol a line-placed feature contributes, icon and label alike.
      *
-     * Every placement the walk finds is emitted; only the first used to be, so `symbol-spacing`
-     * could never repeat a label along a long road however small the spacing was.
+     * Upstream's `symbol_layout.ts` walks each line **once** -- `getAnchors` for
+     * `symbol-placement: line`, `getCenterAnchor` for `line-center` -- and hands every anchor to
+     * `addSymbolAtAnchor`, which places the icon and the label together. This port used to put the
+     * icon at the first vertex of the first line at angle 0 and let the label walk the line on its
+     * own, so a repeated arrow icon became one arrow pointing nowhere and `line-center` started the
+     * icon rather than centring it.
+     *
+     * The label is shaped once per feature, before the walk, because its width is what sets the
+     * spacing enlargement -- upstream shapes before `getAnchors` for the same reason. An icon-only
+     * layer walks with a width of 0, which is upstream passing no `shapedText`.
      */
-    private fun produceLineText(
-        id: String,
+    private suspend fun produceAlongLines(
         lineStrings: List<List<Pair<Float, Float>>>,
-        layout: SymbolLayout,
+        style: SymbolLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-        dx: Float,
-        dy: Float,
+        tileZ: Double,
+        id: String,
+        canvasSize: Int,
         tileX: Int,
         tileY: Int,
-        art: LabelArt,
-        tileZ: Double,
-        canvasSize: Int,
         density: Density,
         layerIndex: Int,
-        fontSize: Float,
         sizes: SymbolSizes,
         compareText: MutableMap<String, MutableList<Pair<Float, Float>>>?,
+        hasSprite: Boolean,
+        hasText: Boolean,
     ): List<SymbolInstance> {
-        val textWidth = art.width
-        val textHeight = art.height
+        val layout = style.layout
+        val paint = style.paint
+
+        val anchor = textAnchorOf(layout, featureProperties, actualZoom)
+        val built = if (hasText) {
+            buildLabel(layout, paint, featureProperties, actualZoom, density, anchor, lineLabel = true)
+        } else {
+            null
+        }
+        if (built == null && !hasSprite) return emptyList()
+
+        val textOffset = if (built != null) {
+            textOffsetPx(layout, featureProperties, actualZoom, anchor, built.style.fontSize) +
+                textTranslatePx(paint, featureProperties, actualZoom, density)
+        } else {
+            Offset.Zero
+        }
+        val textWidth = built?.art?.width ?: 0f
+        val fontSize = built?.style?.fontSize ?: 0f
+        val plainText = built?.art?.text
+
         /* Upstream's `bucket.overscaling`: how many map tiles this canonical tile covers per axis,
          * which is the bucket's `TileRef.span`. The layout space is `layoutTileSize(density, span)`
          * wide, so it is what that size is a multiple of. */
         val overscaling = (canvasSize / layoutTileSize(density.density, span = 1)).coerceAtLeast(1)
         val symbolSpacing = (layout.symbolSpacing.processAsFloat(featureProperties, actualZoom)
             ?: StyleSpecDefaults.SYMBOL_SPACING.toFloat()) * density.density
-        val maxAngleDeg = layout.textMaxAngle.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_MAX_ANGLE.toFloat()
-        val textRotateDeg = layout.textRotate.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_ROTATE.toFloat()
-        val keepUpright = layout.textKeepUpright?.processAsBoolean(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.TEXT_KEEP_UPRIGHT
-        val textViewportAligned = resolveViewportAligned(
-            layout.textRotationAlignment?.processAsString(featureProperties, actualZoom),
-            defaultViewportAligned = false  // "auto" + line placement = map-aligned
-        )
-        val textPadding = (layout.textPadding.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
-        val avoidEdges = avoidsEdges(layout, featureProperties, actualZoom)
-        val overlapMode = resolveTextOverlapMode(layout, featureProperties, actualZoom)
-        val ignorePlacement = layout.textIgnorePlacement?.processAsBoolean(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT
-        val plainText = art.text
-
+        val maxAngleDeg = layout.textMaxAngle.processAsFloat(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.TEXT_MAX_ANGLE.toFloat()
         val centerOnly = placementModeOf(layout, featureProperties, actualZoom) ==
             SYMBOL_PLACEMENT_LINE_CENTER
 
         val out = mutableListOf<SymbolInstance>()
 
-        lineStrings.forEachIndexed lineStrings@{ indexLine, line ->
+        lineStrings.forEachIndexed lineStrings@{ lineIndex, line ->
             if (line.size < 2) return@lineStrings
-            val lineLength = lineLengthOf(line)
-            if (lineLength < textWidth) return@lineStrings
+            if (lineLengthOf(line) < textWidth) return@lineStrings
 
             val placements = if (centerOnly) {
                 LineLabelPlacement.centerPlacement(line)?.let { listOf(it) } ?: emptyList()
@@ -1108,76 +1094,165 @@ internal class SymbolLayerLayout(
                 )
             }
 
-            placements.forEachIndexed { index, (pos, angle) ->
+            placements.forEachIndexed { index, (position, angle) ->
                 /* Upstream's `anchorIsTooClose`: a repeat of the same text within half a
                  * `symbol-spacing` of an anchor already taken in this tile is dropped before it ever
-                 * reaches collision detection, so one road does not carry its name twice over. */
-                if (!centerOnly && compareText != null &&
-                    anchorIsTooClose(compareText, plainText, symbolSpacing / 2f, pos)
+                 * reaches collision detection, so one road does not carry its name twice over. It
+                 * gates the whole anchor, icon included, exactly as upstream's own
+                 * `if (!shapedText || !anchorIsTooClose(...)) addSymbolAtAnchor(...)` does. */
+                if (!centerOnly && compareText != null && plainText != null &&
+                    anchorIsTooClose(compareText, plainText, symbolSpacing / 2f, position)
                 ) return@forEachIndexed
-                val x = pos.first + dx
-                val y = pos.second + dy
-                val displayAngle = if (keepUpright) makeTextUpright(angle) else angle
 
-                val normalizedPoint =
-                    tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), tileZ, canvasSize)
-                /* The stretch of road this label covers, cut around the anchor *before* the
-                 * offsets are applied -- the draw pass walks from there and applies them along the
-                 * path, as upstream's `lineOffsetX` / `lineOffsetY` do. The cut is generous: the
-                 * label is drawn in screen pixels and walked in layout ones, and the two differ by
-                 * the bucket's projection factor, which is never below a half. */
-                val stretch = SymbolProjection.labelPathOf(
-                    line = line,
-                    anchor = Offset(pos.first, pos.second),
-                    halfLength = textWidth * LINE_STRETCH_FACTOR + abs(dx),
-                )
-                val globalLine = stretch?.points?.map { point ->
-                    tileCoordToNormalized(tileX, tileY, point.x.toDouble(), point.y.toDouble(), tileZ, canvasSize)
+                if (hasSprite) {
+                    produceSprite(
+                        id = "S${tileX}_${tileY}_${id}_${lineIndex}_$index",
+                        placement = SymbolAnchorPlacement(
+                            position = ObbPoint(position.first, position.second),
+                            angle = angle,
+                        ),
+                        style = style,
+                        featureProperties = featureProperties,
+                        actualZoom = actualZoom,
+                        tileZ = tileZ,
+                        canvasSize = canvasSize,
+                        tileX = tileX,
+                        tileY = tileY,
+                        density = density,
+                        layerIndex = layerIndex,
+                        sizes = sizes,
+                    )?.let { out.add(it) }
                 }
 
-                val lineTextAngle = displayAngle + textRotateDeg
-                val labelPlacement = labelPlacementOf(
-                    text = plainText,
-                    center = ObbPoint(x, y),
-                    width = textWidth,
-                    height = textHeight,
-                    padding = textPadding,
-                    angle = lineTextAngle,
-                    layerIndex = layerIndex,
-                    layout = layout,
-            featureProperties = featureProperties,
-            actualZoom = actualZoom,
-                    overlapMode = overlapMode,
-                    ignorePlacement = ignorePlacement,
-                )
-                if (avoidEdges && crossesTileEdge(labelPlacement.bounds, canvasSize)) return@forEachIndexed
-
-                // Create a deterministic ID based on a tile, coordinates and indices
-                val coordHash = "${x.toInt()}_${y.toInt()}_${displayAngle.toInt()}"
-                out += SymbolInstance.Text(
-                    id = "L${tileX}_${tileY}_${id}_${indexLine}_${index}_$coordHash",
-                    key = textKey(plainText),
-                    global = Point(normalizedPoint.x, normalizedPoint.y),
-                    tileAnchor = Offset(x, y),
-                    placement = CompoundLabelPlacement(labelPlacement, labelPlacement),
-                    value = art,
-                    viewportAligned = textViewportAligned,
-                    line = line,
-                    globalLine = globalLine,
-                    globalAnchorIndex = stretch?.anchorIndex ?: 0,
-                    lineOffsetX = dx,
-                    lineOffsetY = dy,
-                    keepUpright = keepUpright,
-                    layoutSize = fontSize / density.density,
-                    featureSizes = getFeatureSizes(
-                        sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
-                        StyleSpecDefaults.TEXT_SIZE,
-                    ),
-                )
+                if (built != null) {
+                    produceLineTextAt(
+                        id = "L${tileX}_${tileY}_T${tileX}_${tileY}_${id}_${lineIndex}_$index",
+                        line = line,
+                        position = position,
+                        angle = angle,
+                        layout = layout,
+                        featureProperties = featureProperties,
+                        actualZoom = actualZoom,
+                        dx = textOffset.x,
+                        dy = textOffset.y,
+                        tileX = tileX,
+                        tileY = tileY,
+                        art = built.art,
+                        tileZ = tileZ,
+                        canvasSize = canvasSize,
+                        density = density,
+                        layerIndex = layerIndex,
+                        fontSize = built.style.fontSize,
+                        sizes = sizes,
+                    )?.let { out.add(it) }
+                }
             }
         }
 
         return out
+    }
+
+    /**
+     * One label at one of the anchors [produceAlongLines] walked out.
+     *
+     * Everything here is per-anchor; what is per-feature -- the shaping, the spacing, the walk --
+     * belongs to the caller, which is what lets an icon share the anchor.
+     */
+    private fun produceLineTextAt(
+        id: String,
+        line: List<Pair<Float, Float>>,
+        position: Pair<Float, Float>,
+        angle: Float,
+        layout: SymbolLayout,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        dx: Float,
+        dy: Float,
+        tileX: Int,
+        tileY: Int,
+        art: LabelArt,
+        tileZ: Double,
+        canvasSize: Int,
+        density: Density,
+        layerIndex: Int,
+        fontSize: Float,
+        sizes: SymbolSizes,
+    ): SymbolInstance? {
+        val textRotateDeg = layout.textRotate.processAsFloat(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.TEXT_ROTATE.toFloat()
+        val keepUpright = layout.textKeepUpright?.processAsBoolean(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.TEXT_KEEP_UPRIGHT
+        val textViewportAligned = resolveViewportAligned(
+            layout.textRotationAlignment?.processAsString(featureProperties, actualZoom),
+            defaultViewportAligned = false  // "auto" + line placement = map-aligned
+        )
+        val textPadding = (layout.textPadding.processAsFloat(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        val plainText = art.text
+
+        val x = position.first + dx
+        val y = position.second + dy
+        val displayAngle = if (keepUpright) makeTextUpright(angle) else angle
+
+        val normalizedPoint =
+            tileCoordToNormalized(tileX, tileY, x.toDouble(), y.toDouble(), tileZ, canvasSize)
+        /* The stretch of road this label covers, cut around the anchor *before* the offsets are
+         * applied -- the draw pass walks from there and applies them along the path, as upstream's
+         * `lineOffsetX` / `lineOffsetY` do. The cut is generous: the label is drawn in screen pixels
+         * and walked in layout ones, and the two differ by the bucket's projection factor, which is
+         * never below a half. */
+        val stretch = SymbolProjection.labelPathOf(
+            line = line,
+            anchor = Offset(position.first, position.second),
+            halfLength = art.width * LINE_STRETCH_FACTOR + abs(dx),
+        )
+        val globalLine = stretch?.points?.map { point ->
+            tileCoordToNormalized(tileX, tileY, point.x.toDouble(), point.y.toDouble(), tileZ, canvasSize)
+        }
+
+        val labelPlacement = labelPlacementOf(
+            text = plainText,
+            center = ObbPoint(x, y),
+            width = art.width,
+            height = art.height,
+            padding = textPadding,
+            angle = displayAngle + textRotateDeg,
+            layerIndex = layerIndex,
+            layout = layout,
+            featureProperties = featureProperties,
+            actualZoom = actualZoom,
+            overlapMode = resolveTextOverlapMode(layout, featureProperties, actualZoom),
+            ignorePlacement = layout.textIgnorePlacement?.processAsBoolean(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.TEXT_IGNORE_PLACEMENT,
+        )
+        if (avoidsEdges(layout, featureProperties, actualZoom) &&
+            crossesTileEdge(labelPlacement.bounds, canvasSize)
+        ) {
+            return null
+        }
+
+        // Create a deterministic ID based on a tile, coordinates and indices
+        val coordHash = "${x.toInt()}_${y.toInt()}_${displayAngle.toInt()}"
+        return SymbolInstance.Text(
+            id = "${id}_$coordHash",
+            key = textKey(plainText),
+            global = Point(normalizedPoint.x, normalizedPoint.y),
+            tileAnchor = Offset(x, y),
+            placement = CompoundLabelPlacement(labelPlacement, labelPlacement),
+            value = art,
+            viewportAligned = textViewportAligned,
+            line = line,
+            globalLine = globalLine,
+            globalAnchorIndex = stretch?.anchorIndex ?: 0,
+            lineOffsetX = dx,
+            lineOffsetY = dy,
+            keepUpright = keepUpright,
+            layoutSize = fontSize / density.density,
+            featureSizes = getFeatureSizes(
+                sizes.textSizeData, layout.textSize, featureProperties, sizes.tileZoom,
+                StyleSpecDefaults.TEXT_SIZE,
+            ),
+        )
     }
 
     /**
@@ -1408,11 +1483,34 @@ internal class SymbolLayerLayout(
                 }
                 ?.filter { it.size >= 2 }?.takeIf { it.isNotEmpty() }
 
-            pointPlacements = lineStrings?.firstOrNull()?.firstOrNull()?.let {
-                listOf(SymbolAnchorPlacement(position = ObbPoint(it.first, it.second), angle = 0f))
-            } ?: emptyList()
+            pointPlacements = emptyList()
         } else {
             pointPlacements = emptyList()
+        }
+
+        /* A line-placed layer anchors icon *and* label at the same walk of the line, which is
+         * upstream's `addSymbolAtAnchor` under one `getAnchors` call. This used to place the icon at
+         * the first vertex of the first line, at angle 0, while the label walked the line on its
+         * own -- so a repeated arrow became one arrow pointing nowhere, `line-center` put the icon at
+         * the start rather than the middle, and an icon and its label could drift apart. */
+        if (lineStrings != null) {
+            return produceAlongLines(
+                lineStrings = lineStrings,
+                style = style,
+                featureProperties = featureProperties,
+                actualZoom = actualZoom,
+                tileZ = tileZ,
+                id = id,
+                canvasSize = canvasSize,
+                tileX = tileX,
+                tileY = tileY,
+                density = density,
+                layerIndex = layerIndex,
+                sizes = sizes,
+                compareText = compareText,
+                hasSprite = hasSprite,
+                hasText = hasText,
+            )
         }
 
         if (pointPlacements.isEmpty()) return emptyList()
@@ -1421,7 +1519,7 @@ internal class SymbolLayerLayout(
         for ((index, placement) in pointPlacements.withIndex()) {
             val pointId = if (pointPlacements.size == 1) id else "${id}_$index"
 
-            if (hasSprite && hasText && feature.type == Tile.GeomType.POINT && lineStrings == null) {
+            if (hasSprite && hasText && feature.type == Tile.GeomType.POINT) {
                 // Create a SpriteWithText combo symbol for point objects
                 val combined = produceSpriteWithText(
                     id = "ST${tileX}_${tileY}_${pointId}",
@@ -1468,14 +1566,12 @@ internal class SymbolLayerLayout(
                     featureProperties = featureProperties,
                     actualZoom = actualZoom,
                     tileZ = tileZ,
-                    lineStrings = lineStrings,
                     canvasSize = canvasSize,
                     tileX = tileX,
                     tileY = tileY,
                     density = density,
                     layerIndex = layerIndex,
                     sizes = sizes,
-                    compareText = compareText,
                 )
             }
         }

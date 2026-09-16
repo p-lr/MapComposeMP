@@ -710,6 +710,67 @@ class SymbolLayerLayoutTest {
     }
 
     @Test
+    fun `a line-placed icon takes the label's anchors`() {
+        runTest {
+            /* Upstream walks a line once -- `getAnchors` -- and hands every anchor to
+             * `addSymbolAtAnchor`, which places the icon and the label together. The icon used to be
+             * put at the first vertex of the first line, at angle 0, while the label walked the line
+             * on its own: one arrow pointing nowhere instead of a repeated one. */
+            val line = Mvt.lineFeature(listOf(0 to 2048, 4096 to 2048))
+            val symbols = produce(
+                layer(
+                    """{"text-field":"ab","text-font":["Test Regular"],"icon-image":"marker",""" +
+                        """"symbol-placement":"line","symbol-spacing":80}"""
+                ),
+                feature = line,
+            )
+
+            val labels = symbols.filterIsInstance<SymbolInstance.Text>()
+            val icons = symbols.filterIsInstance<SymbolInstance.Sprite>()
+            assertTrue(labels.size > 1, "the label repeats along the line")
+            assertEquals(labels.size, icons.size, "one icon per label anchor")
+            assertContentEquals(
+                labels.map { it.tileAnchor.x },
+                icons.map { it.tileAnchor.x },
+                "icon and label share every anchor",
+            )
+        }
+    }
+
+    @Test
+    fun `a line-placed icon follows the line's angle`() {
+        runTest {
+            // A diagonal: an icon anchored at angle 0 is the giveaway that it never walked the line.
+            val line = Mvt.lineFeature(listOf(0 to 0, 4096 to 4096))
+            val symbols = produce(
+                layer("""{"icon-image":"marker","symbol-placement":"line","symbol-spacing":80}"""),
+                feature = line,
+            )
+
+            val icons = symbols.filterIsInstance<SymbolInstance.Sprite>()
+            assertTrue(icons.size > 1, "the icon repeats along the line")
+            assertTrue(
+                icons.all { abs(it.placement.spritePlacement.angle - 45f) < 1f },
+                "every icon should follow the line, got ${icons.map { it.placement.spritePlacement.angle }}",
+            )
+        }
+    }
+
+    @Test
+    fun `a line-center icon is centred rather than started`() {
+        runTest {
+            val line = Mvt.lineFeature(listOf(0 to 2048, 4096 to 2048))
+            val symbols = produce(
+                layer("""{"icon-image":"marker","symbol-placement":"line-center"}"""),
+                feature = line,
+            )
+
+            val icon = symbols.filterIsInstance<SymbolInstance.Sprite>().single()
+            assertEquals(CANVAS / 2f, icon.tileAnchor.x, 1f, "the middle of the line, not its start")
+        }
+    }
+
+    @Test
     fun `symbol-placement line labels a polygon ring`() {
         runTest {
             val polygon = Mvt.polygonFeature(Mvt.clockwiseRing(200, 200, 3800, 3800))
