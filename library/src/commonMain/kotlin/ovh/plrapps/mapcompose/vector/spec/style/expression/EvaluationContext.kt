@@ -39,6 +39,21 @@ class EvalFeature(
     /** The tile this feature was decoded from. See the note above; needed by `within`/`distance`. */
     val canonical: CanonicalTileId? = null,
     private val geometryProvider: (() -> List<List<Point2D>>)? = null,
+    /**
+     * The same feature as a layer *filter* must see it, or `null` when the two are the same.
+     *
+     * Upstream builds two objects per feature: `toEvaluationFeature(feature, needGeometry)`
+     * (`src/data/evaluation_feature.ts`), which every bucket's `populate` filters against and which
+     * keeps the raw protobuf `feature.id`, and the `BucketFeature` handed to paint and layout, whose
+     * `id` is `FeatureIndex.getId`'s -- the *promoted* one when the source sets `promoteId`. So on
+     * MapLibre an `["id"]` or `$id` filter does not see a promoted id, and this is how that is
+     * ported: `BaseRenderer.buildEvalFeature` fills this in only for a promoting source, and
+     * `BaseRenderer.shouldRenderFeature` filters against `filterFeature ?: this`.
+     *
+     * A plain nullable field rather than a lazy view, so a source promoting nothing -- which is
+     * nearly every source -- pays one null reference and no allocation.
+     */
+    val filterFeature: EvalFeature? = null,
 ) {
     val geometry: List<List<Point2D>> by lazy { geometryProvider?.invoke() ?: emptyList() }
 

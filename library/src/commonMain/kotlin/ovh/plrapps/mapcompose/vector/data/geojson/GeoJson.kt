@@ -28,7 +28,16 @@ class GeoJsonFeature(
     val type: Tile.GeomType,
     val rings: List<List<GeoJsonPoint>>,
     val properties: Map<String, Any?>,
-    val id: Long?,
+    /**
+     * The feature's own `id`, normalized to an engine value: a [Double] for a number, a [String]
+     * for a string, `null` for neither.
+     *
+     * RFC 7946 allows both, and so does MapLibre -- a string id is not rounded to a number and a
+     * quoted `"42"` stays a string. That is why this is not the `Long` the MVT wire format can
+     * carry; see `GeoJsonTiler.SYNTHETIC_ID_KEY` for how a non-integral one crosses the synthetic
+     * tile.
+     */
+    val id: Any?,
 )
 
 class GeoJsonPoint(val x: Double, val y: Double)
@@ -55,7 +64,7 @@ object GeoJson {
         element: JsonElement?,
         out: MutableList<GeoJsonFeature>,
         properties: Map<String, Any?>,
-        id: Long?,
+        id: Any?,
     ) {
         val obj = element as? JsonObject ?: return
         when ((obj["type"] as? JsonPrimitive)?.contentOrNull()) {
@@ -81,7 +90,7 @@ object GeoJson {
     private fun readGeometry(
         obj: JsonObject,
         properties: Map<String, Any?>,
-        id: Long?,
+        id: Any?,
     ): GeoJsonFeature? {
         val type = (obj["type"] as? JsonPrimitive)?.contentOrNull() ?: return null
         val coordinates = obj["coordinates"] as? JsonArray ?: return null
@@ -144,9 +153,18 @@ object GeoJson {
         else -> value.toString()
     }
 
-    private fun readId(element: JsonElement?): Long? {
+    /**
+     * A feature's `id`, which RFC 7946 types as a string or a number and MapLibre keeps as either.
+     *
+     * The quoting decides: `"id": "42"` is a string id and stays one, where this used to fall back
+     * to `content.toLongOrNull()` and turn it into a number. A number is a [Double], the engine's
+     * only numeric type.
+     */
+    private fun readId(element: JsonElement?): Any? {
         val primitive = element as? JsonPrimitive ?: return null
-        return primitive.doubleOrNull?.toLong() ?: primitive.content.toLongOrNull()
+        if (primitive is JsonNull) return null
+        if (primitive.isString) return primitive.content
+        return primitive.doubleOrNull
     }
 
     private fun JsonPrimitive.contentOrNull(): String? = if (this is JsonNull) null else content

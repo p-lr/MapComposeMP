@@ -385,10 +385,10 @@ being a whitelist rather than "everything that is not raster".
 
 | Type | Honoured | Not honoured |
 |---|---|---|
-| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), overzoom | `encoding: "mlt"` — refused, see below |
+| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), `promoteId`, overzoom | `encoding: "mlt"` — refused, see below |
 | `raster` | the above, but overzoomed by stretching | `bounds`, `tileSize` |
 | `raster-dem` | the above, plus `encoding` (`mapbox` / `terrarium` / `custom`, per `DemUnpack`) | `bounds` |
-| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, overzoom | `cluster*`, `lineMetrics`, `promoteId`, `tolerance` |
+| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, `promoteId`, overzoom | `cluster*`, `lineMetrics`, `tolerance` |
 | `image`, `video` | — | recognised, never fetched |
 
 A source's own options win over the TileJSON it references, which is upstream's
@@ -427,6 +427,63 @@ reachable from `commonMain` across Android, iOS, desktop and wasm. The format is
 with FSST string dictionaries, FastPFOR/varint integer encodings, morton-ordered geometry and its
 own protobuf tileset-metadata schema, and it is still marked experimental and evolving.
 `VectorEncoding` is the seam a decoder would plug into.
+
+#### `promoteId`
+
+A `vector` or `geojson` source may name the feature property that stands in for the feature's id.
+Upstream reads it once per feature, in `src/data/feature_index.ts`:
+
+```ts
+getId(feature: VectorTileFeatureLike, sourceLayerId: string): string | number {
+    let id: string | number = feature.id;
+    if (this.promoteId) {
+        const propName = typeof this.promoteId === 'string' ?
+            this.promoteId : this.promoteId[sourceLayerId];
+        id = feature.properties[propName] as string | number;
+        if (typeof id === 'boolean') id = Number(id);
+        …
+    }
+    return id;
+}
+```
+
+`renderer/BaseRenderer.buildEvalFeature` is this port's seam for it, and
+`promoteIdPropertyFor` is the `typeof … === 'string'` branch. Both shapes the spec allows are read:
+a bare property name, and the object naming one property per source layer -- which a `geojson`
+source keys under `_geojsonTileLayer`, upstream's name for its single synthetic layer and
+`GeoJsonTiler.LAYER_NAME` here. The promoted value *replaces* the id rather than falling back to it,
+so a property the feature does not carry leaves `["id"]` null, as upstream leaves it `undefined`;
+the one coercion is upstream's boolean one, every other type arriving already normalized by
+`extractFeatureProperties`. Upstream's `cluster_id` arm has no analogue -- geojson clustering is not
+supported.
+
+Modelling it as anything but raw JSON is what the object form used to break. `Source.promoteId` was
+a `String?`, and kotlinx-serialization has no union, so `{"roads": "ref"}` -- what any multi-layer
+vector source writes -- threw out of the decode, which `getMapLibreConfiguration` turns into a
+`Result.failure` that blanks the whole map. It is a `JsonElement` normalized by
+`Source.promoteIdSpec`, the pattern `sprite` and `font-faces` already use, and a shape the spec does
+not allow is now a `StyleDiagnostic` under `sources.<name>` with that source simply keeping its
+protobuf ids.
+
+**A layer filter reads the raw id, not the promoted one, and that is upstream's behaviour.**
+`src/source/worker_tile.ts` computes the promoted id and hands it to `bucket.populate`, but every
+bucket's `populate` filters against `toEvaluationFeature(feature, needGeometry)`
+(`src/data/evaluation_feature.ts`), which keeps `feature.id`; only the `BucketFeature` that reaches
+paint and layout carries `getId`'s. So `["id"]` in a `filter` sees the protobuf id and `["id"]` in
+`fill-color` sees the promoted one. `EvalFeature.filterFeature` is that second object -- non-null
+only for a promoting source, so nothing else allocates for it -- and `shouldRenderFeature` filters
+against `filterFeature ?: this`. `renderer/PromoteIdWiringTest.kt` pins both halves.
+
+**A GeoJSON feature's own id may be a string, and the synthetic tile smuggles it.** RFC 7946 types
+an id as a string or a number and MapLibre keeps either, but `Tile.Feature.id` is a protobuf
+`uint64` and `spec/vector_tile.kt` is pbandk-generated. `GeoJsonTiler` therefore writes the id into
+the layer's own tag table under `SYNTHETIC_ID_KEY` -- a NUL-prefixed key no document writes -- and
+`buildEvalFeature` lifts it back out and removes it before the properties reach `["get"]` or
+`["properties"]`. It rides inside the `Tile`, so it survives the overzoom crop, the neighbour gather
+and both tile caches with no plumbing of its own. An integral id is additionally written to
+`Tile.Feature.id`, so the tile stays readable as an ordinary MVT one. `GeoJson.readId` reads the
+quoting rather than guessing: it used to fall back to `content.toLongOrNull()` and turn the string
+`"42"` into the number 42.
 
 ### Tile URL templates
 
