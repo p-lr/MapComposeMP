@@ -862,7 +862,15 @@ exception on an *empty* id instead, as this did, broke every bare `icon-image` o
 beside its first. An entry's `pixelRatio` is divided out wherever a size in layout pixels
 is needed — icon size, pattern tile — so an `@2x` sheet draws at the same size as a plain one.
 `stretchX` / `stretchY` / `content` drive the nine-patch path in
-`renderer/utils/StretchableIcon.kt`, which is what `icon-text-fit` stretches an icon with. SDF
+`renderer/utils/StretchableIcon.kt`, which is what `icon-text-fit` stretches an icon with:
+`iconTextFitSize` is `fitIconToText` (`src/symbol/shaping.ts`), so the icon is stretched to the
+label's own extent plus `icon-text-fit-padding` -- the frame is absorbed by the nine-patch stretch
+rather than added on top, and there is no `max` in it, so a large shield around a short label
+**shrinks** onto the label. `textFitWidth` / `textFitHeight` are read too, by the port of
+`applyTextFit`: `proportional` on one axis makes it follow the other through the content box's
+aspect ratio, `stretchOnly` on the other limits that to growing, and `stretchOrShrink` -- the default
+for either -- imposes nothing. Both fields used to be parsed and never read, on top of an icon that
+could only grow and was a frame's width too large. SDF
 entries are recoloured by `renderer/utils/SdfShading.kt`, a port of `symbol_sdf.fragment.glsl`:
 `icon-color` fills, `icon-halo-color` / `-width` / `-blur` surround, and the fill is composited over
 the halo rather than added to it. An entry the sheet index does *not* flag `sdf` is cut out and
