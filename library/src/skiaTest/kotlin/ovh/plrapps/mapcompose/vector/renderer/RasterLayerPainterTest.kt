@@ -202,6 +202,25 @@ class RasterLayerPainterTest {
         )
     }
 
+    @Test
+    fun `the unprefixed resampling spelling is read too`() = runTest {
+        /* The spec declares `resampling` on `paint_raster` beside `raster-resampling`, and
+         * `webgl/draw/draw_raster.ts` reads both:
+         * `get('resampling') === 'nearest' || get('raster-resampling') === 'nearest'`.
+         * Only the prefixed one used to be modelled, so this drew bilinear. */
+        val source = renderToBitmap(size = 2) {
+            drawRect(color = Color.Black, topLeft = Offset(0f, 0f), size = Size(1f, 2f))
+            drawRect(color = Color.White, topLeft = Offset(1f, 0f), size = Size(1f, 2f))
+        }
+
+        val nearest = render(
+            RasterPaint(resampling = ExpressionOrValue.Value("nearest")),
+            wholeTile(source),
+        )
+        assertColorEquals(Color.Black, nearest.pixelAt(SIZE / 2 - 1, SIZE / 2), message = "left of the seam")
+        assertColorEquals(Color.White, nearest.pixelAt(SIZE / 2, SIZE / 2), message = "right of the seam")
+    }
+
     private companion object {
         const val SIZE = 64
     }
