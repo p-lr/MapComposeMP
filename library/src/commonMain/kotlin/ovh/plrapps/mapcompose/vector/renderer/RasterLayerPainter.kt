@@ -83,8 +83,12 @@ class RasterLayerPainter {
             ?: StyleSpecDefaults.RASTER_BRIGHTNESS_MIN.toFloat()
         val brightnessMax = paint.rasterBrightnessMax.processAsFloat(zoom = actualZoom)
             ?: StyleSpecDefaults.RASTER_BRIGHTNESS_MAX.toFloat()
-        val resampling = paint.rasterResampling.processAsString(zoom = actualZoom)
-            ?: StyleSpecDefaults.RASTER_RESAMPLING
+        /* Either spelling asking for `nearest` is enough, which is upstream's own `||` -- see
+         * `RasterPaint`. */
+        val nearest = (paint.resampling.processAsString(zoom = actualZoom)
+            ?: StyleSpecDefaults.RASTER_RESAMPLING) == RESAMPLING_NEAREST ||
+            (paint.rasterResampling.processAsString(zoom = actualZoom)
+                ?: StyleSpecDefaults.RASTER_RESAMPLING) == RESAMPLING_NEAREST
 
         val colorFilter = rasterColorMatrix(
             hueRotate = hueRotate,
@@ -96,7 +100,7 @@ class RasterLayerPainter {
 
         /* A raster tile is magnified far more often than it is minified here, so `linear` maps onto
          * bilinear rather than one of the mipmapped qualities, matching upstream's TEXTURE filter. */
-        val filterQuality = if (resampling == RESAMPLING_NEAREST) {
+        val filterQuality = if (nearest) {
             FilterQuality.None
         } else {
             FilterQuality.Low

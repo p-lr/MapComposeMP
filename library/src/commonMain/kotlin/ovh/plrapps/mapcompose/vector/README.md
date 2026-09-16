@@ -293,9 +293,13 @@ Where a symbol ends up on screen, and whether it is drawn at all, is not this fi
 ### raster — `renderer/RasterLayerPainter.kt`
 
 `raster-opacity`, `-hue-rotate`, `-saturation`, `-contrast`, `-brightness-min`, `-brightness-max`,
-`-resampling`. Supported; the colour adjustments collapse into one `ColorMatrix`
-(`renderer/utils/RasterColorMatrix.kt`), which returns `null` when everything is at its default so
-the common case draws with no colour filter at all. **Inert:** `raster-fade-duration`.
+`-resampling` — and the unprefixed `resampling`, which the spec declares on `paint_raster` too and
+which `draw_raster.ts` reads beside the prefixed one (`get('resampling') === 'nearest' ||
+get('raster-resampling') === 'nearest'`); modelling only the prefixed spelling made
+`"resampling": "nearest"` draw bilinear. Supported; the colour adjustments collapse into one
+`ColorMatrix` (`renderer/utils/RasterColorMatrix.kt`), which returns `null` when everything is at
+its default so the common case draws with no colour filter at all. **Inert:**
+`raster-fade-duration`.
 
 ### hillshade — `renderer/HillshadeLayerPainter.kt`
 
