@@ -270,6 +270,27 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
         }
 
         /**
+         * Appends [suffix] and [extension] to a sprite URL's **path**, keeping its query and
+         * fragment where they belong.
+         *
+         * Upstream's `style/load_sprite.ts` parses the URL and writes
+         * `parsed.pathname += `${format}${extension}``, so
+         * `https://host/sprite?token=abc` asks for `sprite.json?token=abc`. Concatenating onto the
+         * whole string, as this used to, asks for `sprite?token=abc.json` instead -- a 404 for every
+         * authenticated sprite endpoint, or a request carrying an altered credential.
+         *
+         * Hand-rolled rather than parsed: `commonMain` has no URL type, and everything before the
+         * first `?` or `#` is the path whatever the scheme.
+         */
+        internal fun spriteUrlWith(spriteUrl: String, suffix: String, extension: String): String {
+            val separator = spriteUrl.indexOfFirst { it == '?' || it == '#' }
+            if (separator < 0) return "$spriteUrl$suffix$extension"
+            val path = spriteUrl.substring(0, separator)
+            val rest = spriteUrl.substring(separator)
+            return "$path$suffix$extension$rest"
+        }
+
+        /**
          * Loads one sprite sheet.
          *
          * @param spriteUrl the sheet's URL without an extension; `.json` and `.png` are appended,
@@ -286,8 +307,8 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
             loadResource: suspend (String) -> RawSource?,
         ): Result<SpriteSheet> {
             val suffix = if (pixelRatio > 1) "@2x" else ""
-            val jsonUrl = "$spriteUrl$suffix.json"
-            val imageUrl = "$spriteUrl$suffix.png"
+            val jsonUrl = spriteUrlWith(spriteUrl, suffix, ".json")
+            val imageUrl = spriteUrlWith(spriteUrl, suffix, ".png")
 
             return try {
                 val spriteJson = withContext(IODispatcher) {
