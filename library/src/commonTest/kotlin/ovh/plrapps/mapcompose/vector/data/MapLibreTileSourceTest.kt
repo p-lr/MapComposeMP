@@ -28,15 +28,18 @@ class MapLibreTileSourceTest {
         maxzoom: Int = 22,
         scheme: String = "xyz",
         type: SourceType = SourceType.RASTER,
+        tiles: List<String> = listOf("https://example.test/{z}/{x}/{y}.png"),
+        pixelRatio: () -> Float = { 1f },
     ) = MapLibreTileSource(
         TileJson(
             tilejson = "2.0.0",
-            tiles = listOf("https://example.test/{z}/{x}/{y}.png"),
+            tiles = tiles,
             minzoom = minzoom,
             maxzoom = maxzoom,
             scheme = scheme,
         ),
         type,
+        pixelRatio = pixelRatio,
     )
 
     @Test
@@ -127,6 +130,130 @@ class MapLibreTileSourceTest {
 
         assertEquals("https://example.test/14/3/4.png", tileSource.getTileUrl(ref))
     }
+
+    // region URL template tokens -- upstream's CanonicalTileID.url, src/tile/tile_id.ts
+
+    @Test
+    fun `a prefix token expands to two hex digits`() {
+        // 31 % 16 is 15, which is 'f'; 18 % 16 is 2.
+        val url = source(tiles = listOf("https://example.test/{prefix}/{z}/{x}/{y}.png"))
+            .getTileUrl(z = 5, x = 31, y = 18)
+
+        assertEquals("https://example.test/f2/5/31/18.png", url)
+    }
+
+    @Test
+    fun `a quadkey token expands to one base four digit per zoom level`() {
+        // Bing's own worked example -- z3 x3 y5 is quadkey 213.
+        val url = source(tiles = listOf("https://example.test/{quadkey}.png"))
+            .getTileUrl(z = 3, x = 3, y = 5)
+
+        assertEquals("https://example.test/213.png", url)
+    }
+
+    @Test
+    fun `a quadkey at zoom zero is empty`() {
+        val url = source(tiles = listOf("https://example.test/q{quadkey}.png"))
+            .getTileUrl(z = 0, x = 0, y = 0)
+
+        assertEquals("https://example.test/q.png", url)
+    }
+
+    @Test
+    fun `a ratio token is empty below a pixel ratio of two`() {
+        val url = source(tiles = listOf("https://example.test/{z}/{x}/{y}{ratio}.png"))
+            .getTileUrl(z = 4, x = 3, y = 2)
+
+        assertEquals("https://example.test/4/3/2.png", url)
+    }
+
+    @Test
+    fun `a ratio token is read at call time rather than at construction`() {
+        /* The density only arrives once MapUI has composed, which is after the style is decoded and
+         * every MapLibreTileSource built -- so a ratio baked in at construction is always 1. */
+        var density = 1f
+        val tileSource = source(
+            tiles = listOf("https://example.test/{z}/{x}/{y}{ratio}.png"),
+            pixelRatio = { density },
+        )
+
+        assertEquals("https://example.test/4/3/2.png", tileSource.getTileUrl(z = 4, x = 3, y = 2))
+
+        density = 2f
+        assertEquals("https://example.test/4/3/2@2x.png", tileSource.getTileUrl(z = 4, x = 3, y = 2))
+    }
+
+    @Test
+    fun `a bbox token at the north east quadrant of zoom one starts at the origin`() {
+        /* z1 x1 y0 is the top-right tile, whose projected corners are exactly the origin and the
+         * world's north-east corner -- every component lands on a value the double arithmetic holds
+         * exactly, so this one can be asserted as a whole string. */
+        val url = source(tiles = listOf("https://wms.test?bbox={bbox-epsg-3857}"))
+            .getTileUrl(z = 1, x = 1, y = 0)
+
+        assertEquals(
+            "https://wms.test?bbox=0,0,20037508.342789244,20037508.342789244",
+            url,
+        )
+    }
+
+    @Test
+    fun `a bbox token is four plain decimal numbers of projected metres`() {
+        val url = source(tiles = listOf("https://wms.test?bbox={bbox-epsg-3857}"))
+            .getTileUrl(z = 4, x = 3, y = 2)
+
+        val components = url.substringAfter("bbox=").split(",")
+        assertEquals(4, components.size)
+        /* A WMS server is handed this text verbatim, and Double.toString reaches for exponent
+         * notation above 1e7 on every target while JavaScript's String does not. Which shortest
+         * representation a target picks is its own business, hence the tolerance -- that there is
+         * no exponent at all is not. */
+        for (component in components) {
+            assertTrue('e' !in component && 'E' !in component, "exponent notation in $component")
+        }
+        // The z4 row 2 counted from the top is row 13 from the bottom; H is half the circumference.
+        assertEquals(-12523442.714243278, components[0].toDouble(), 1e-6)
+        assertEquals(12523442.714243278, components[1].toDouble(), 1e-6)
+        assertEquals(-10018754.171394622, components[2].toDouble(), 1e-6)
+        assertEquals(15028131.257091932, components[3].toDouble(), 1e-6)
+    }
+
+    @Test
+    fun `the scheme mirrors the y token and leaves the bbox and the quadkey alone`() {
+        /* Upstream builds both from this.y, before the scheme substitution -- and the bbox does its
+         * own unconditional flip, which is a different thing from TileJSON's scheme. */
+        val template = listOf("https://example.test/{y}?bbox={bbox-epsg-3857}&q={quadkey}")
+        val xyz = source(tiles = template, scheme = "xyz").getTileUrl(z = 4, x = 3, y = 2)
+        val tms = source(tiles = template, scheme = "tms").getTileUrl(z = 4, x = 3, y = 2)
+
+        assertEquals("2", xyz.substringAfter(".test/").substringBefore("?"))
+        assertEquals("13", tms.substringAfter(".test/").substringBefore("?"))
+        assertEquals(xyz.substringAfter("?"), tms.substringAfter("?"))
+    }
+
+    @Test
+    fun `the template of a tile is chosen by x plus y and is therefore stable`() {
+        val tiles = listOf("https://a.test/{z}/{x}/{y}", "https://b.test/{z}/{x}/{y}", "https://c.test/{z}/{x}/{y}")
+        val tileSource = source(tiles = tiles)
+
+        // Same tile, same host, however often it is asked for -- which is what a cache needs.
+        repeat(8) {
+            // (3 + 2) % 3 is 2.
+            assertEquals("https://c.test/4/3/2", tileSource.getTileUrl(z = 4, x = 3, y = 2))
+        }
+        // x + y stepping by one walks the list and wraps.
+        assertEquals("https://a.test/4/4/2", tileSource.getTileUrl(z = 4, x = 4, y = 2))
+        assertEquals("https://b.test/4/5/2", tileSource.getTileUrl(z = 4, x = 5, y = 2))
+    }
+
+    @Test
+    fun `a template with no tokens beyond z x and y is untouched`() {
+        val url = source().getTileUrl(z = 4, x = 3, y = 2)
+
+        assertEquals("https://example.test/4/3/2.png", url)
+    }
+
+    // endregion
 
     @Test
     fun `source types are read off the style`() = runTest {

@@ -398,6 +398,47 @@ rows its own way, and a `raster-dem` source that writes no `encoding` takes the 
 `custom` DEM factors are not in upstream's pick list and stay the source's own. `tileSize` is
 carried and still not honoured.
 
+### Tile URL templates
+
+`MapLibreTileSource.getTileUrl` substitutes every token upstream's `CanonicalTileID.url`
+(`src/tile/tile_id.ts`) does, in upstream's order:
+
+| Token | Expands to |
+|---|---|
+| `{z}` `{x}` | the tile's zoom and column |
+| `{y}` | the row, mirrored when the source's `scheme` is `tms` |
+| `{prefix}` | `(x % 16)` and `(y % 16)` as two lowercase hex digits |
+| `{ratio}` | `@2x` above a pixel ratio of 1, the empty string otherwise |
+| `{quadkey}` | the Bing-style quadkey, one base-4 digit per zoom level |
+| `{bbox-epsg-3857}` | the tile's bounding box in EPSG:3857 metres, `minX,minY,maxX,maxY` |
+
+The last four used to be left literal, so a WMS, quadkey, sharded or retina template requested a URL
+with the braces still in it -- a 404 for every tile of that source rather than a wrong-looking one.
+`{quadkey}` and `{bbox-epsg-3857}` are built by `TileUrlTemplate.kt`, a port of the helpers upstream
+inlines from the archived `@mapbox/whoots-js`; both take the plain xyz row, because upstream calls
+them with `this.y` *before* the `scheme` substitution, and the bounding box does its own,
+unconditional flip -- a different thing from TileJSON's `scheme`, and independent of it. Its four
+components are written by `plainDecimalString` rather than by `Double.toString`: mercator metres live
+around `1e7`, where Kotlin reaches for exponent notation on every target and JavaScript's `String`
+does not, and a WMS server is handed the text verbatim.
+
+Which template a tile takes is `(x + y) % tiles.size`, as upstream does, and deliberately not
+`random()` -- a random shard means the same tile is requested from a different host on every retry,
+so nothing downstream of the fetch can recognise it.
+
+`{ratio}` follows the map's own density: the source holds a `() -> Float` rather than a value,
+because a source is built while the style loads and a tile URL only ever by a fetch that happens
+after `MapUI` has composed and the density is known. Suspending on the density at load time instead
+is the deadlock `addVectorLayer` already avoids, since it awaits `makeTileStreamProvider()` before
+returning the layer id. **Sprite sheets are the half this does not cover**: `SpriteManager.loadSheet`
+is called eagerly while the style loads, so it needs the ratio then, and a style's `@2x` sheet is
+still not requested unless a caller passes `getMapLibreConfiguration`'s own `pixelRatio`. Making it
+follow the density means loading sheets lazily, or resolving the density before the configuration is
+built.
+
+`{s}` is not supported, and is not a divergence: it is a Leaflet token, and upstream does not
+substitute it either.
+
 ### Overzooming
 
 Above a source's `maxzoom` there are no tiles to fetch, and MapLibre does not drop the layer: it

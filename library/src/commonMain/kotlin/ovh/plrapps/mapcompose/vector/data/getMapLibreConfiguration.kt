@@ -27,6 +27,14 @@ suspend fun getMapLibreConfiguration(
      * loader stays the trailing lambda every caller writes it as.
      */
     localGlyphs: LocalGlyphSource? = null,
+    /**
+     * The display's pixel ratio as tile URLs see it, which is what a `{ratio}` token expands from.
+     *
+     * A lambda, and separate from [pixelRatio], because the two are resolved at different moments:
+     * a sprite sheet is fetched here, while the style loads, and a tile URL is built per fetch, long
+     * after `MapUI` has composed and the map knows its density. `VectorLayer` passes the map's own.
+     */
+    tilePixelRatio: () -> Float = { 1f },
     loadResource: suspend (String) -> RawSource?,
 ): Result<MapLibreConfiguration> {
     try {
@@ -78,7 +86,7 @@ suspend fun getMapLibreConfiguration(
             val demUnpack = if (type == SourceType.RASTER_DEM) {
                 DemUnpack.of(source, encoding = tileJson.encoding)
             } else null
-            tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack)
+            tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack, tilePixelRatio)
         }
 
         /* Every declared sheet, not just the first: a list-form `sprite` namespaces each sheet's
