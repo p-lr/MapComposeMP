@@ -204,6 +204,16 @@ ascent line rather than its baseline. `GlyphLayout` starts a line at
 `lineHeight / 2 + SHAPING_DEFAULT_OFFSET` (upstream's `-17`), which centres the ink in the box the
 painter anchors — the box convention this port uses in place of upstream's anchor-relative one.
 
+**`symbol-placement: point` reads every geometry type**, as upstream's `symbol_layout.ts` does: a
+polygon is labelled at `findPoleOfInaccessibility(polygon, 16)`
+(`renderer/utils/FindPoleOfInaccessibility.kt`, the port of `src/util/find_pole_of_inaccessibility.ts`
+and so of `mapbox/polylabel`, upstream's centroid preference included), and a line at the first
+vertex of each of its parts. Both used to yield no anchor at all, so a polygon layer carrying a
+`text-field` -- which is how a country or a landuse name is labelled -- drew nothing. Upstream's
+precision of 16 is a 512th of its `EXTENT`; the geometry here is already scaled to the tile's canvas,
+so the same fraction of that says the same thing at any bitmap size. An anchor outside the tile is
+dropped, as a point's is.
+
 **An icon and its label share the feature's anchor**, as they do in upstream's `symbol_layout.ts`:
 the icon is placed by `icon-anchor` / `icon-offset`, the label by `text-anchor` plus `text-offset` /
 `text-radial-offset` / `text-variable-anchor-offset`, and the icon's size never enters the label's
