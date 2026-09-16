@@ -263,7 +263,14 @@ multicolour PNG icon in such a layer as a monochrome silhouette.
 `text-field` is typed `formatted` and `icon-image` `resolvedImage`, so `["format", …]` and
 `["image", …]` compile and evaluate; a `["format", …]` section's `font-scale`, `text-font`,
 `text-color`, `vertical-align` and inline `image` are all honoured per section. The legacy `{token}`
-syntax is still expanded, `{name}` preferring the configured language's `name:xx`.
+syntax is still expanded, `{name}` preferring the configured language's `name:xx` -- on `icon-image`
+as well as on `text-field`, every token and wherever it sits in the string, so `"poi-{kind}"`
+resolves; the icon path used to require the name to *start* with `{` and replaced only the first
+match, which asked the sheet for the template verbatim. Expansion is gated on the style having
+written the property as a plain string, which is upstream's `getValueAndResolveTokens`
+(`!unevaluated.isDataDriven() && !isExpression(unevaluated.value)`): text an expression produced is
+rendered as it stands, so a feature whose name contains `{foo}` keeps it, where this used to rewrite
+whatever the expression returned.
 
 An image section is upstream's `TaggedString.addImageSection`: it contributes one private-use
 character to the shaped text — which is what lets a `text-field` made of an image alone render at

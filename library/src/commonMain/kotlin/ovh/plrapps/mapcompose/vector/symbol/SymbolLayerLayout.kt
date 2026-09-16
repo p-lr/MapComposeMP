@@ -30,6 +30,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsStringList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
 import ovh.plrapps.mapcompose.vector.renderer.utils.findPoleOfInaccessibility
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite as SpriteInfo
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
@@ -179,6 +180,23 @@ internal class SymbolLayerLayout(
     }
 
     /**
+     * An `icon-image` with its legacy `{token}`s expanded.
+     *
+     * Every token, and anywhere in the string: `subProcess` -- what this replaces -- returned early
+     * unless the name *started* with `{` and then replaced only the first match, so `"poi-{kind}"`
+     * was asked of the sprite sheet verbatim and resolved to nothing. Gated on the property being a
+     * literal, which is upstream's rule for both token-bearing properties; see [isLiteral].
+     */
+    private fun resolveIconTokens(
+        name: String,
+        layout: SymbolLayout,
+        featureProperties: EvalFeature?,
+    ): String {
+        if (!name.contains('{') || !layout.iconImage.isLiteral()) return name
+        return substituteTokens(name, featureProperties?.properties)
+    }
+
+    /**
      * One placement per point of the feature.
      *
      * A MultiPoint is several symbols, not one: upstream's `symbol_layout` iterates every point of
@@ -249,23 +267,22 @@ internal class SymbolLayerLayout(
 
     private val regexForSubProcess = "\\{([^}]+)\\}".toRegex()
 
-    private fun subProcess(
-        input: String,
-        featureProperties: EvalFeature?
-    ): String {
-        return if (input.firstOrNull() == '{') {
-            val matchResult = regexForSubProcess.find(input)
-            if (matchResult != null) {
-                val key = matchResult.groupValues[1]
-                val propValue = featureProperties?.properties?.get(key)?.toString() ?: ""
-                input.replace("{$key}", propValue)
-            } else {
-                input
-            }
-        } else {
-            input
-        }
-    }
+    /**
+     * Whether a property's `{token}`s should be expanded at all.
+     *
+     * Upstream's `getValueAndResolveTokens` (`style/style_layer/symbol_style_layer.ts`) resolves
+     * tokens only for a value the style wrote as a plain constant:
+     *
+     * ```
+     * if (!unevaluated.isDataDriven() && !isExpression(unevaluated.value) && value) {
+     *     return resolveTokens(feature.properties, value);
+     * }
+     * ```
+     *
+     * So text an expression produced is rendered as it stands -- a name that happens to contain
+     * `{foo}` is a name, not a template. This port expanded whatever came out of the expression.
+     */
+    private fun ExpressionOrValue<*>?.isLiteral(): Boolean = this is ExpressionOrValue.Value
 
     // region resolved style
 
@@ -324,8 +341,11 @@ internal class SymbolLayerLayout(
      * The label's text, as an expression-evaluated [Formatted].
      *
      * The legacy `{token}` syntax is still expanded, because styles in the wild use it and upstream
-     * rewrites it too -- but only where the tokens actually appear. A literal `text-field` is now
-     * rendered as written; it used to be silently replaced by the feature's `name`.
+     * rewrites it too -- but only where the tokens actually appear, and only for a `text-field` the
+     * style wrote as a plain string (see [isLiteral]). Text an expression produced is rendered as it
+     * stands, so a feature whose `name` contains `{foo}` keeps it; this used to rewrite whatever the
+     * expression returned. A literal `text-field` with no braces at all is rendered as written too;
+     * it used to be silently replaced by the feature's `name`.
      */
     private fun textFieldOf(
         layout: SymbolLayout,
@@ -335,6 +355,7 @@ internal class SymbolLayerLayout(
         val formatted = layout.textField.processAsFormatted(featureProperties, actualZoom, availableImages)
             ?: return null
         if (formatted.isEmpty()) return null
+        if (!layout.textField.isLiteral()) return formatted
         val properties = featureProperties?.properties
         val sections = formatted.sections.map { section ->
             if (section.text.contains('{')) {
@@ -645,7 +666,7 @@ internal class SymbolLayerLayout(
 
         val spriteId =
             layout.iconImage.processAsImageName(featureProperties, actualZoom, availableImages)
-                ?.let { subProcess(it, featureProperties) }
+                ?.let { resolveIconTokens(it, layout, featureProperties) }
                 ?: return null
         val spriteInfo = spriteManager.getSpriteInfo(spriteId)
             ?: return null
@@ -787,7 +808,7 @@ internal class SymbolLayerLayout(
 
         val spriteId =
             layout.iconImage.processAsImageName(featureProperties, actualZoom, availableImages)
-                ?.let { subProcess(it, featureProperties) }
+                ?.let { resolveIconTokens(it, layout, featureProperties) }
                 ?: return null
         val spriteInfo = spriteManager.getSpriteInfo(spriteId) ?: return null
 
