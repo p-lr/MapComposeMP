@@ -1,11 +1,15 @@
 package ovh.plrapps.mapcompose.vector.data.geojson
 
 import kotlinx.serialization.json.Json
+import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
+import ovh.plrapps.mapcompose.vector.renderer.BaseRenderer
 import ovh.plrapps.mapcompose.vector.renderer.GeometryDecoders
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -257,6 +261,56 @@ class GeoJsonTilerTest {
         // The point at (0, 0) lands in the z4 tile (8, 8), so the overzoomed tile carries it.
         assertNotNull(source.tile(6, 33, 34))
     }
+
+    // region properties the wire format cannot carry
+
+    /** `BaseRenderer` is abstract only because every real renderer adds painting; this adds none. */
+    private class PropertiesRenderer : BaseRenderer(
+        configuration = MapLibreConfiguration(
+            style = MapLibreStyle(),
+            tileSources = emptyMap(),
+            spriteManager = null,
+        )
+    )
+
+    private val document = """{"type":"Feature","properties":{
+            "details":{"rank":5},"values":[1,2],"optional":null,"plain":"x"},
+        "geometry":{"type":"Point","coordinates":[0,0]}}"""
+
+    @Test
+    fun `structured and null properties cross the synthetic tile`() {
+        /* `Tile.Value` holds a string, a number or a boolean and nothing else, so a nested value
+         * used to be flattened to its JSON text -- which is what `["get"]` then read -- and a
+         * null-valued key vanished, so `["has", k]` answered false where upstream's worker, handed
+         * the parsed document, answers true. */
+        val tile = assertNotNull(tiler(document).tile(0, 0, 0))
+        val layer = tile.layer()
+        val feature = layer.features.single()
+
+        val properties = PropertiesRenderer().buildEvalFeature(feature, layer).properties
+
+        assertEquals(mapOf("rank" to 5.0), properties["details"])
+        assertEquals(listOf(1.0, 2.0), properties["values"])
+        assertTrue(properties.containsKey("optional"), "a null-valued key must still be a key")
+        assertNull(properties["optional"])
+        assertEquals("x", properties["plain"], "a property the wire format can carry is untouched")
+        assertFalse(
+            properties.containsKey(GeoJsonTiler.SYNTHETIC_JSON_KEY),
+            "the reserved key must not reach an expression",
+        )
+    }
+
+    @Test
+    fun `a feature the wire format can carry whole takes no synthetic tag`() {
+        val tile = assertNotNull(
+            tiler("""{"type":"Feature","properties":{"a":1,"b":"two","c":true},
+                "geometry":{"type":"Point","coordinates":[0,0]}}""").tile(0, 0, 0)
+        )
+        val layer = tile.layer()
+        assertFalse(layer.keys.contains(GeoJsonTiler.SYNTHETIC_JSON_KEY))
+    }
+
+    // endregion
 
     // region world wrap
     //
