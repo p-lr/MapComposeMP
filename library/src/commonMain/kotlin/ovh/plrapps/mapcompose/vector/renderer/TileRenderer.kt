@@ -283,6 +283,12 @@ class TileRenderer(
      * A neighbour's features are keyed by nothing: [visibleFeatures]' cache keys name the tile being
      * rasterized, and reusing them for another tile's features would hand one feature's properties
      * to another's geometry.
+     *
+     * `circle-sort-key` is applied across **all** of them at once, as upstream sorts the layer's
+     * drawing segments across its tiles (`webgl/draw/draw_circle.ts`). Sorting each tile's share
+     * separately and painting this tile before its neighbours -- which is what this did -- makes two
+     * overlapping discs either side of a boundary stack one way on one tile and the other way on its
+     * neighbour, however explicit the sort key is.
      */
     private suspend fun renderCircles(
         canvas: DrawScope,
@@ -309,15 +315,16 @@ class TileRenderer(
             )
         }
         try {
+            val candidates = mutableListOf<CircleCandidate>()
             if (tile != null && tile.layers.isNotEmpty()) {
-                paintCircles(
-                    canvas, tile, styleLayer, zoom, geometrySize, actualZoom, tileKey, canonical,
+                collectCircles(
+                    candidates, tile, styleLayer, zoom, geometrySize, actualZoom, tileKey, canonical,
                     CircleVertexGate(coveredDirections = covered)
                 )
             }
             for (neighbour in neighbours) {
-                paintCircles(
-                    canvas, neighbour.tile, styleLayer, zoom, geometrySize, actualZoom,
+                collectCircles(
+                    candidates, neighbour.tile, styleLayer, zoom, geometrySize, actualZoom,
                     tileKey = null,
                     // A neighbour's features are addressed by the neighbour, not by this tile.
                     canonical = CanonicalTileId(
@@ -326,14 +333,29 @@ class TileRenderer(
                     gate = CircleVertexGate.forNeighbour(neighbour.dx, neighbour.dy, geometrySize)
                 )
             }
+
+            /* One sort over every tile's features, not one per tile. The sort is stable, so a layer
+             * with no sort key -- and any run of equal keys -- keeps this tile's features ahead of
+             * its neighbours' and each tile's own feature order within that. */
+            val ordered = sortKeyOf(styleLayer)?.let { sortKey ->
+                candidates.sortedBy { evaluateSortKey(sortKey, it.entry.properties, actualZoom) }
+            } ?: candidates
+
+            for (candidate in ordered) {
+                circlePainter.paint(
+                    canvas, candidate.entry.feature, styleLayer, geometrySize, candidate.extent,
+                    zoom, candidate.entry.properties, actualZoom, candidate.entry.cacheKey,
+                    candidate.gate
+                )
+            }
         } finally {
             if (span > 1) nativeCanvas.restore()
         }
     }
 
-    /** One tile's contribution to a `circle` layer, gated by [gate]. */
-    private suspend fun paintCircles(
-        canvas: DrawScope,
+    /** One tile's contribution to a `circle` layer, unsorted and gated by [gate]. */
+    private fun collectCircles(
+        into: MutableList<CircleCandidate>,
         tile: Tile,
         styleLayer: CircleLayer,
         zoom: Double,
@@ -346,13 +368,11 @@ class TileRenderer(
         val tileLayer = tileLayerFor(tile, styleLayer) ?: return
         val extent = tileLayer.extent ?: DEFAULT_EXTENT
         val visible = visibleFeatures(
-            tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical
+            tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical,
+            sorted = false,
         )
         for (entry in visible) {
-            circlePainter.paint(
-                canvas, entry.feature, styleLayer, geometrySize, extent, zoom, entry.properties,
-                actualZoom, entry.cacheKey, gate
-            )
+            into.add(CircleCandidate(entry, extent, gate))
         }
     }
 
@@ -362,6 +382,10 @@ class TileRenderer(
      * Ordering is the tile's own feature order unless the layer declares a `*-sort-key`, which
      * MapLibre sorts ascending so that a higher key draws on top. A [tileKey] of `null` means the
      * caches are skipped -- there is no key that names this tile.
+     *
+     * [sorted] is `false` for the one caller that has to sort *across* tiles: a `circle` layer draws
+     * this tile's features and its neighbours' together, and sorting each tile's share on its own
+     * puts a neighbour's low-keyed disc on top of this tile's high-keyed one. See [renderCircles].
      */
     private fun visibleFeatures(
         tileLayer: Tile.Layer,
@@ -371,6 +395,7 @@ class TileRenderer(
         tileKey: String?,
         geometrySize: Int,
         canonical: CanonicalTileId,
+        sorted: Boolean = true,
     ): List<VisibleFeature> {
         val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
         /* A function of the source and the source layer alone, so hoisting it out of the loop is
@@ -409,8 +434,10 @@ class TileRenderer(
             visible.add(VisibleFeature(feature, featureProperties, featureKey))
         }
 
-        sortKeyOf(styleLayer)?.let { sortKey ->
-            visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
+        if (sorted) {
+            sortKeyOf(styleLayer)?.let { sortKey ->
+                visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
+            }
         }
         return visible
     }
@@ -506,6 +533,18 @@ class TileRenderer(
                 else -> throw IllegalStateException("no painter for layer type '${styleLayer.type}'")
             }
         } as BaseLayerPainter<T>
+
+    /**
+     * One feature of a `circle` layer, with the tile-dependent arguments painting it needs.
+     *
+     * [extent] and [gate] are the *source* tile's, which is why they ride along rather than being
+     * hoisted: the sorted list interleaves this tile's features with its neighbours'.
+     */
+    private class CircleCandidate(
+        val entry: VisibleFeature,
+        val extent: Int,
+        val gate: CircleVertexGate,
+    )
 
     private class VisibleFeature(
         val feature: Tile.Feature,
