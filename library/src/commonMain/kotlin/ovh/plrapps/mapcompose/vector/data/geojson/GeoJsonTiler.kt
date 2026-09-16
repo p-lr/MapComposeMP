@@ -19,17 +19,29 @@ import kotlin.math.pow
  * `O(features)` once. It also precomputes each vertex's simplification distance once for all zooms,
  * where this runs Douglas-Peucker per tile at that tile's own tolerance -- the same shape of
  * result, recomputed. Neither `cluster` nor `lineMetrics` is supported.
+ *
+ * [buffer] and [tolerance] are in tile units at [extent]; the source's own options are in style
+ * pixels and are converted by [pixelsToTileUnits], which is upstream's `_pixelsToTileUnits`.
+ * [maxZoom] exists only for the tolerance: `geojson-vt` simplifies with tolerance 0 at the source's
+ * `maxzoom` (`splitTile`'s `z === options.maxZoom ? 0 : …`), so the deepest level a source serves
+ * keeps every vertex.
  */
 class GeoJsonTiler(
     private val features: List<GeoJsonFeature>,
     private val extent: Int = DEFAULT_EXTENT,
-    private val buffer: Int = DEFAULT_BUFFER,
+    private val buffer: Double = DEFAULT_BUFFER,
     private val tolerance: Double = DEFAULT_TOLERANCE,
+    private val maxZoom: Int = GeoJsonSource.DEFAULT_MAX_ZOOM,
 ) {
 
     /** The tile at `(z, x, y)`, or `null` when no feature reaches it. */
     fun tile(z: Int, x: Int, y: Int): Tile? {
         if (features.isEmpty()) return null
+        /* `splitTile`: the deepest level a source serves is not simplified at all, because nothing
+         * below it will ever add the detail back. Every other level simplifies at the flat
+         * tile-unit tolerance upstream's `options.tolerance / ((1 << z) * options.extent)` works
+         * out to once it is measured against that level's own tile. */
+        val tolerance = if (z >= maxZoom) 0.0 else tolerance
         val scale = 2.0.pow(z)
         val originX = x / scale
         val originY = y / scale
@@ -63,8 +75,8 @@ class GeoJsonTiler(
     // region clipping
 
     private fun clip(type: Tile.GeomType, rings: List<List<Vertex>>): List<List<Vertex>> {
-        val min = -buffer.toDouble()
-        val max = (extent + buffer).toDouble()
+        val min = -buffer
+        val max = extent + buffer
         return when (type) {
             Tile.GeomType.POINT -> rings.map { ring ->
                 ring.filter { it.x >= min && it.x <= max && it.y >= min && it.y <= max }
@@ -256,11 +268,35 @@ class GeoJsonTiler(
         /** MVT's usual tile resolution, and what the painters assume when a layer omits it. */
         const val DEFAULT_EXTENT = 4096
 
-        /** Geometry kept outside the tile so a stroke or a label is not cut at the edge. */
-        const val DEFAULT_BUFFER = 64
+        /**
+         * A style pixel in tile units, upstream's `GeoJSONSource._pixelsToTileUnits`:
+         * `pixelValue * (EXTENT / this.tileSize)`, with `tileSize` hardcoded to 512 there.
+         *
+         * Both of a `geojson` source's geometry options are authored in style pixels and used in
+         * tile units, and getting the conversion wrong is invisible -- it changes only how much
+         * geometry survives the cut.
+         */
+        fun pixelsToTileUnits(pixels: Double, extent: Int): Double = pixels * (extent / 512.0)
 
-        /** Douglas-Peucker tolerance in tile units; `geojson-vt`'s default 3 px at extent 4096. */
-        const val DEFAULT_TOLERANCE = 3.0
+        /** The spec's default `buffer`, in style pixels. */
+        const val DEFAULT_BUFFER_PIXELS = 128.0
+
+        /** The spec's default `tolerance`, in style pixels. */
+        const val DEFAULT_TOLERANCE_PIXELS = 0.375
+
+        /**
+         * Geometry kept outside the tile so a stroke or a label is not cut at the edge.
+         *
+         * A quarter of a tile on each side, which is what upstream's 128 px default comes to. It
+         * used to be a flat 64 units -- a sixteenth of that, 8 px on a 512 px tile -- and this port
+         * needs the buffer *more* than upstream does, not less: a tile is rasterized into its own
+         * bitmap and that bitmap is the clip, where upstream draws the whole viewport into one
+         * framebuffer and can let a shape spill across a tile boundary.
+         */
+        val DEFAULT_BUFFER: Double = pixelsToTileUnits(DEFAULT_BUFFER_PIXELS, DEFAULT_EXTENT)
+
+        /** Douglas-Peucker tolerance in tile units; `geojson-vt`'s default 0.375 px, i.e. 3. */
+        val DEFAULT_TOLERANCE: Double = pixelsToTileUnits(DEFAULT_TOLERANCE_PIXELS, DEFAULT_EXTENT)
 
         /** The layer name a geojson tile carries. Upstream's `GeoJSONWrapper` uses the same one. */
         const val LAYER_NAME = "_geojsonTileLayer"

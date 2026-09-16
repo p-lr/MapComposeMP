@@ -6,8 +6,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
+import ovh.plrapps.mapcompose.vector.spec.style.filter.FeatureFilter
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.ln
@@ -54,9 +58,22 @@ class GeoJsonPoint(val x: Double, val y: Double)
  */
 object GeoJson {
 
-    fun parse(element: JsonElement?): List<GeoJsonFeature> {
+    /**
+     * Reads a document into projected features.
+     *
+     * [generateId] is the source option: every feature's id becomes its index in the document's
+     * top-level `features` array, which is `geojson-vt`'s `convert.js`
+     * (`let id = geojson.id; … else if (options.generateId) id = index || 0`). It *replaces* an id
+     * the document wrote rather than filling in for a missing one, and a bare `Feature` -- which
+     * upstream converts with no index at all -- gets 0.
+     *
+     * Because the index is the position in the array *as handed over*, [applySourceFilter] has to
+     * run before this, exactly as upstream's worker filters `data.features` before geojson-vt
+     * indexes what survived.
+     */
+    fun parse(element: JsonElement?, generateId: Boolean = false): List<GeoJsonFeature> {
         val out = mutableListOf<GeoJsonFeature>()
-        readInto(element, out, properties = emptyMap(), id = null)
+        readInto(element, out, properties = emptyMap(), id = null, generateId = generateId, index = null)
         return out
     }
 
@@ -65,25 +82,83 @@ object GeoJson {
         out: MutableList<GeoJsonFeature>,
         properties: Map<String, Any?>,
         id: Any?,
+        generateId: Boolean,
+        index: Int?,
     ) {
         val obj = element as? JsonObject ?: return
         when ((obj["type"] as? JsonPrimitive)?.contentOrNull()) {
             "FeatureCollection" -> {
                 val features = obj["features"] as? JsonArray ?: return
-                for (feature in features) readInto(feature, out, properties, id)
+                features.forEachIndexed { position, feature ->
+                    readInto(feature, out, properties, id, generateId, index = position)
+                }
             }
 
             "Feature" -> {
                 val ownProperties = readProperties(obj["properties"])
-                readInto(obj["geometry"], out, ownProperties, readId(obj["id"]))
+                val ownId = if (generateId) (index ?: 0).toDouble() else readId(obj["id"])
+                readInto(obj["geometry"], out, ownProperties, ownId, generateId, index)
             }
 
             "GeometryCollection" -> {
                 val geometries = obj["geometries"] as? JsonArray ?: return
-                for (geometry in geometries) readInto(geometry, out, properties, id)
+                for (geometry in geometries) readInto(geometry, out, properties, id, generateId, index)
             }
 
             else -> readGeometry(obj, properties, id)?.let { out += it }
+        }
+    }
+
+    /**
+     * A `geojson` source's own `filter`, applied to the document before it is cut into tiles.
+     *
+     * A port of `_filterGeoJSON` / `_getFilterPredicate` (`src/source/geojson_worker_source.ts`),
+     * which upstream runs in the worker so that `geojson-vt` never sees an excluded feature. Only a
+     * `FeatureCollection` has a `features` array to filter; every other document is returned as it
+     * came, which is what upstream's `data.features.filter(...)` amounts to.
+     *
+     * The filter is evaluated at **zoom 0** with no tile, as upstream's
+     * `compiled.value.evaluate({zoom: 0}, feature)` is, so `within` answers `false` and `distance`
+     * `NaN` -- there is no canonical tile id to project against at load time, and upstream passes
+     * none either.
+     *
+     * **One divergence.** [EvalFeature.type] is the feature's real geometry type, where upstream
+     * hands `evaluate` the raw GeoJSON `Feature` object, whose `.type` is the literal string
+     * `"Feature"` -- so `["geometry-type"]` and `$type` match nothing at all in an upstream source
+     * filter. Reproducing that is of no use to anybody.
+     */
+    fun applySourceFilter(element: JsonElement?, filter: FeatureFilter): JsonElement? {
+        val obj = element as? JsonObject ?: return element
+        if ((obj["type"] as? JsonPrimitive)?.contentOrNull() != "FeatureCollection") return element
+        val features = obj["features"] as? JsonArray ?: return element
+
+        val globals = GlobalProperties(zoom = 0.0)
+        val kept = features.filter { entry ->
+            val feature = entry as? JsonObject ?: return@filter false
+            filter.filter(
+                globals = globals,
+                feature = EvalFeature(
+                    type = evalGeometryTypeOf(feature["geometry"]),
+                    id = readId(feature["id"]),
+                    properties = readProperties(feature["properties"]),
+                ),
+            )
+        }
+        if (kept.size == features.size) return element
+        return buildJsonObject {
+            for ((key, value) in obj) if (key != "features") put(key, value)
+            put("features", JsonArray(kept))
+        }
+    }
+
+    /** The geometry type an expression sees, from a raw GeoJSON geometry object. */
+    private fun evalGeometryTypeOf(geometry: JsonElement?): String {
+        val type = ((geometry as? JsonObject)?.get("type") as? JsonPrimitive)?.contentOrNull()
+        return when (type) {
+            "Point", "MultiPoint" -> "Point"
+            "LineString", "MultiLineString" -> "LineString"
+            "Polygon", "MultiPolygon" -> "Polygon"
+            else -> "Unknown"
         }
     }
 

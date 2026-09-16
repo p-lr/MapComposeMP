@@ -6,6 +6,8 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.data.json
+import ovh.plrapps.mapcompose.vector.spec.style.serializers.FeatureFilterSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.serializers.FilterHolder
 
 /**
  * https://maplibre.org/maplibre-style-spec/
@@ -77,6 +79,49 @@ data class Source(
      * field, so it is kept as raw JSON and told apart when the source is loaded.
      */
     val data: JsonElement? = null,
+
+    /**
+     * `geojson` only: a filter applied to the document once, before it is cut into tiles.
+     *
+     * An ordinary boolean expression, compiled by the same serializer a layer's `filter` is, so
+     * legacy v7 syntax is converted and a filter that fails to compile is a diagnostic rather than a
+     * throw. Upstream applies it in the worker before `geojson-vt` sees the document
+     * (`geojson_worker_source.ts`, `_filterGeoJSON`); see `GeoJson.applySourceFilter`.
+     */
+    @Serializable(with = FeatureFilterSerializer::class)
+    val filter: FilterHolder? = null,
+
+    /**
+     * `geojson` only: replace every feature's id with its index in the *filtered* document.
+     *
+     * `geojson-vt`'s `convert.js`, whose `else if (options.generateId) id = index || 0` replaces an
+     * id the document wrote rather than filling in for a missing one, and loses to `promoteId`.
+     */
+    val generateId: Boolean? = null,
+
+    /**
+     * `geojson` only: the tile buffer in style pixels, `0..512`; 128 when absent.
+     *
+     * Converted to tile units by `GeoJsonTiler.pixelsToTileUnits`, upstream's `_pixelsToTileUnits`.
+     */
+    val buffer: Double? = null,
+
+    /**
+     * `geojson` only: the Douglas-Peucker simplification tolerance in style pixels; 0.375 when
+     * absent. Converted the same way [buffer] is.
+     */
+    val tolerance: Double? = null,
+
+    /**
+     * `geojson` only: recognised so that it can be *reported*; clustering is not supported.
+     *
+     * Modelled for the reason `encoding: "mlt"` is -- `json` has `ignoreUnknownKeys = true`, so an
+     * unmodelled property is not an error, it is silence.
+     */
+    val cluster: Boolean? = null,
+
+    /** `geojson` only: recognised so that it can be reported; `line-gradient` has no progress. */
+    val lineMetrics: Boolean? = null,
 
     /** `raster` only: the source's tile size in pixels; 512 when it says nothing. */
     val tileSize: Int? = null,

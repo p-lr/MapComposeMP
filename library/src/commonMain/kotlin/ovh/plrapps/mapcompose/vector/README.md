@@ -388,7 +388,7 @@ being a whitelist rather than "everything that is not raster".
 | `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), `promoteId`, overzoom | `encoding: "mlt"` — refused, see below |
 | `raster` | the above, but overzoomed by stretching | `bounds`, `tileSize` |
 | `raster-dem` | the above, plus `encoding` (`mapbox` / `terrarium` / `custom`, per `DemUnpack`) | `bounds` |
-| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, `promoteId`, overzoom | `cluster*`, `lineMetrics`, `tolerance` |
+| `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, `promoteId`, `filter`, `generateId`, `buffer`, `tolerance`, overzoom | `cluster*`, `lineMetrics` |
 | `image`, `video` | — | recognised, never fetched |
 
 A source's own options win over the TileJSON it references, which is upstream's
@@ -579,6 +579,41 @@ A `geojson` source has no server: the document is projected once when the style 
 Douglas-Peucker, emit an MVT-shaped `Tile`. From `TileRenderer`'s point of view it is an ordinary
 vector tile from then on. The spec forbids a `source-layer` on a layer reading a geojson source, so
 `BaseRenderer.tileLayerFor` takes the tile's only layer when a style layer names none.
+
+Four of its options are resolved at load, in the order upstream resolves them.
+
+**`filter`** is an ordinary boolean expression, compiled by the same `FeatureFilterSerializer` a
+layer's is — so legacy v7 syntax is converted and a filter that fails to compile is a diagnostic
+rather than a throw. `GeoJson.applySourceFilter` is upstream's `_filterGeoJSON`
+(`src/source/geojson_worker_source.ts`) and runs on the JSON document, before it is parsed, because
+that is where upstream runs it: the worker filters `data.features` and hands `geojson-vt` what
+survived. It is evaluated at **zoom 0** with no tile, as upstream's
+`compiled.value.evaluate({zoom: 0}, feature)` is, so `within` answers `false` and `distance` `NaN`
+— there is no canonical tile id at load time and upstream passes none either. One divergence:
+`EvalFeature.type` is the feature's real geometry type, where upstream hands `evaluate` the raw
+GeoJSON `Feature`, whose `.type` is the literal string `"Feature"`, so `["geometry-type"]` and
+`$type` match nothing at all in an upstream source filter.
+
+**`generateId`** replaces every feature's id with its index in the *filtered* document, which is
+`geojson-vt`'s `convert.js` (`let id = geojson.id; … else if (options.generateId) id = index || 0`)
+— it does not fill in for a missing id, and a bare `Feature` gets 0. Filtering the document rather
+than the parsed feature list is what makes that index right: a feature the filter dropped must not
+consume an id. `promoteId` still wins, and for free, since it is applied later in
+`BaseRenderer.buildEvalFeature` and replaces the id there — `convert.js`'s own precedence.
+
+**`buffer`** and **`tolerance`** are authored in style pixels and used in tile units;
+`GeoJsonTiler.pixelsToTileUnits` is upstream's `GeoJSONSource._pixelsToTileUnits`,
+`pixelValue * (EXTENT / 512)`. So the spec's defaults of 128 px and 0.375 px are 1024 and 3 tile
+units at extent 4096. The buffer used to be a flat 64 units — a sixteenth of upstream's, 8 px on a
+512 px tile — and this port needs it *more* than upstream does, not less: a tile is rasterized into
+its own bitmap and that bitmap is the clip, where upstream draws the whole viewport into one
+framebuffer and lets the owning tile spill a shape across the boundary. `buffer` is clamped to the
+spec's `0..512`. The source's `maxzoom` is not simplified at all, which is `splitTile`'s
+`z === options.maxZoom ? 0 : …`.
+
+`cluster*` and `lineMetrics` are still unsupported, but they are now *reported* through
+`StyleDiagnostics` rather than silently dropped — `json` has `ignoreUnknownKeys = true`, so an
+unmodelled option is not an error, it is silence.
 
 ## Symbol layout and placement
 
@@ -1147,7 +1182,7 @@ tile-worker pool, which makes it copy-on-write or nothing.
 each parent into four children, reusing the parent's already-clipped geometry, and precomputes each
 vertex's simplification distance once for all zooms. This cuts every requested tile straight from the
 whole document and runs Douglas-Peucker per tile at that tile's own tolerance — the same shape of
-result, recomputed. `cluster` and `lineMetrics` are not supported.
+result, recomputed. `cluster` and `lineMetrics` are not supported, and are reported as such.
 
 **MapLibre Tiles (`encoding: "mlt"`) are not decoded.** Upstream selects between the MVT and MLT
 decoders on `params.encoding` (`src/source/vector_tile_worker_source.ts`) and delegates the latter
