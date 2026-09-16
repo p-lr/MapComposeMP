@@ -1180,7 +1180,15 @@ Every one of these is documented at the file that causes it; this is the index.
   upstream's `merge_lines.ts` -- over a `symbol-placement: line` layer's features first, so a road
   arriving as one MVT feature per block is labelled as one long line. `renderer/utils/ClipLine.kt`
   clips those lines to the tile beforehand, as `symbol_layout.ts` does; `line-center` deliberately
-  does not clip.
+  does not clip. **An icon and a label of a line-placed layer share those anchors**, which is
+  upstream walking each line once and handing every anchor to `addSymbolAtAnchor`
+  (`SymbolLayerLayout.produceAlongLines`): the label is shaped once per feature before the walk,
+  because its width is what sets the spacing enlargement, and an icon-only layer walks with a width
+  of 0, which is upstream passing no `shapedText`. The icon used to be placed at the first vertex of
+  the first line at angle 0 while the label walked the line on its own, so a repeated arrow icon
+  became a single arrow pointing nowhere, `line-center` started the icon instead of centring it, and
+  an icon could sit nowhere near its label. `anchorIsTooClose` gates the whole anchor, icon
+  included, as upstream's `if (!shapedText || !anchorIsTooClose(...))` does.
 - `symbol-avoid-edges` is honoured, dropping a label whose padded box crosses the tile edge.
   Upstream declares the property and never reads it, relying on its cross-tile index instead.
 - **A line label whose glyphs do not fit on its path is drawn straight**, at the path's chord
