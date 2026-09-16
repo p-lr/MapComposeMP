@@ -18,7 +18,9 @@ import kotlin.math.pow
  * straight from the whole document, which is simpler and costs `O(features)` per tile rather than
  * `O(features)` once. It also precomputes each vertex's simplification distance once for all zooms,
  * where this runs Douglas-Peucker per tile at that tile's own tolerance -- the same shape of
- * result, recomputed. Neither `cluster` nor `lineMetrics` is supported.
+ * result, recomputed. Geometry is wrapped across the antimeridian as `wrap.ts` wraps it, though per
+ * tile rather than once up front -- see [WORLD_OFFSETS]. Neither `cluster` nor `lineMetrics` is
+ * supported.
  *
  * [buffer] and [tolerance] are in tile units at [extent]; the source's own options are in style
  * pixels and are converted by [pixelsToTileUnits], which is upstream's `_pixelsToTileUnits`.
@@ -34,6 +36,22 @@ class GeoJsonTiler(
     private val maxZoom: Int = GeoJsonSource.DEFAULT_MAX_ZOOM,
 ) {
 
+    /**
+     * Every feature with the normalized x range it spans, so [tile] can tell at a glance which world
+     * copies of it can reach the tile being cut. See [WORLD_OFFSETS].
+     */
+    private val spans: List<FeatureSpan> = features.map { feature ->
+        var minX = Double.POSITIVE_INFINITY
+        var maxX = Double.NEGATIVE_INFINITY
+        for (ring in feature.rings) {
+            for (point in ring) {
+                if (point.x < minX) minX = point.x
+                if (point.x > maxX) maxX = point.x
+            }
+        }
+        FeatureSpan(feature, minX, maxX)
+    }
+
     /** The tile at `(z, x, y)`, or `null` when no feature reaches it. */
     fun tile(z: Int, x: Int, y: Int): Tile? {
         if (features.isEmpty()) return null
@@ -47,27 +65,44 @@ class GeoJsonTiler(
         val originY = y / scale
 
         val builder = TileBuilder(extent)
-        for (feature in features) {
-            val local = feature.rings.map { ring ->
-                ring.map { point ->
-                    Vertex(
-                        ((point.x - originX) * scale * extent),
-                        ((point.y - originY) * scale * extent),
-                    )
+        for (span in spans) {
+            val feature = span.feature
+            for (offset in WORLD_OFFSETS) {
+                /* Whether this world copy reaches the tile at all, in tile units, before any
+                 * coordinate is transformed: a document that stays inside `[0, 1]` -- which is
+                 * every document that does not cross the antimeridian -- pays two comparisons per
+                 * feature for the two copies it does not have. Touching the clip boundary is not
+                 * reaching the tile: a copy admitted on equality survives the clip as a degenerate
+                 * two-vertex line sitting on the boundary. */
+                val low = (span.minX + offset - originX) * scale * extent
+                val high = (span.maxX + offset - originX) * scale * extent
+                if (high <= -buffer || low >= extent + buffer) continue
+
+                val local = feature.rings.map { ring ->
+                    ring.map { point ->
+                        Vertex(
+                            ((point.x + offset - originX) * scale * extent),
+                            ((point.y - originY) * scale * extent),
+                        )
+                    }
                 }
+                val clipped = clip(feature.type, local)
+                if (clipped.isEmpty()) continue
+                val simplified = if (feature.type == Tile.GeomType.POINT) {
+                    clipped
+                } else {
+                    clipped.map { simplify(it, tolerance) }
+                        .filter { it.size >= minimumVertices(feature.type) }
+                }
+                if (simplified.isEmpty()) continue
+                builder.add(feature, simplified)
             }
-            val clipped = clip(feature.type, local)
-            if (clipped.isEmpty()) continue
-            val simplified = if (feature.type == Tile.GeomType.POINT) {
-                clipped
-            } else {
-                clipped.map { simplify(it, tolerance) }.filter { it.size >= minimumVertices(feature.type) }
-            }
-            if (simplified.isEmpty()) continue
-            builder.add(feature, simplified)
         }
         return builder.build()
     }
+
+    /** A feature and the normalized x range it spans; see [spans]. */
+    private class FeatureSpan(val feature: GeoJsonFeature, val minX: Double, val maxX: Double)
 
     private fun minimumVertices(type: Tile.GeomType): Int =
         if (type == Tile.GeomType.POLYGON) 3 else 2
@@ -267,6 +302,22 @@ class GeoJsonTiler(
     companion object {
         /** MVT's usual tile resolution, and what the painters assume when a layer omits it. */
         const val DEFAULT_EXTENT = 4096
+
+        /**
+         * The world copies a feature is cut from, in normalized x.
+         *
+         * `geojson-vt` wraps before it indexes (`src/wrap.ts`): it clips a left copy at
+         * `[-1 - buffer, buffer]` and shifts it by `+1`, a right copy at `[1 - buffer, 2 + buffer]`
+         * shifted by `-1`, and concatenates both around the centre copy. Without it a coordinate
+         * past the antimeridian -- longitude 181 projects to `x ≈ 1.0028` -- falls in no tile at
+         * all, and a line crossing it loses the half that ran over.
+         *
+         * This cuts every requested tile straight from the document rather than building a pyramid,
+         * so the equivalent is per tile: offer each feature at each offset and let the clip decide.
+         * A feature is cut twice where two copies genuinely reach one tile, which is what upstream's
+         * concatenation does too.
+         */
+        private val WORLD_OFFSETS = doubleArrayOf(-1.0, 0.0, 1.0)
 
         /**
          * A style pixel in tile units, upstream's `GeoJSONSource._pixelsToTileUnits`:
