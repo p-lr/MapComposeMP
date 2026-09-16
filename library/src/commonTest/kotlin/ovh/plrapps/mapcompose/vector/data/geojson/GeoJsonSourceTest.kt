@@ -215,8 +215,12 @@ class GeoJsonSourceTest {
     /** How far past the tile's own `0..4096` the cut geometry reaches, in tile units. */
     private suspend fun overhang(options: String): Double {
         val source = assertNotNull(source(options = options, features = equator))
-        val feature = assertNotNull(source.tile(1, 0, 0)).layers.single().features.single()
-        val vertices = decoders.decodeVertices(feature.geometry, extent = 4096, canvasSize = 4096)
+        /* The equator spans the whole world, so the tile carries its wrapped copy in the western
+         * buffer as well; the overhang is the eastern reach, across every copy. */
+        val features = assertNotNull(source.tile(1, 0, 0)).layers.single().features
+        val vertices = features.flatMap {
+            decoders.decodeVertices(it.geometry, extent = 4096, canvasSize = 4096)
+        }
         return vertices.maxOf { it.x } - 4096.0
     }
 
@@ -245,8 +249,10 @@ class GeoJsonSourceTest {
     }
 
     private suspend fun vertexCount(options: String, z: Int): Int {
-        // Twenty collinear points across the world: everything between the ends is redundant.
-        val coordinates = (0..20).joinToString(",") { "[${-180.0 + it * 18.0},0]" }
+        /* Twenty collinear points: everything between the ends is redundant. Kept clear of the
+         * antimeridian, since a document that reaches it is cut from the neighbouring world copies
+         * too and this is about tolerance alone. */
+        val coordinates = (0..20).joinToString(",") { "[${-80.0 + it * 8.0},0]" }
         val source = assertNotNull(
             source(
                 options = options,

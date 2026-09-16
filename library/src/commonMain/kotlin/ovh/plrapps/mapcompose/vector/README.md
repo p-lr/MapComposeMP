@@ -594,6 +594,17 @@ Douglas-Peucker, emit an MVT-shaped `Tile`. From `TileRenderer`'s point of view 
 vector tile from then on. The spec forbids a `source-layer` on a layer reading a geojson source, so
 `BaseRenderer.tileLayerFor` takes the tile's only layer when a style layer names none.
 
+Geometry is **wrapped across the antimeridian**, as `geojson-vt`'s `wrap.ts` wraps it: longitude 181
+projects to `x ≈ 1.0028`, which is no tile's, so a coordinate past the edge of the world used to fall
+in no tile at all and a line crossing it lost the half that ran over. Upstream clips a left copy at
+`[-1 - buffer, buffer]` and shifts it by `+1`, a right copy at `[1 - buffer, 2 + buffer]` shifted by
+`-1`, and concatenates both around the centre copy; this cuts every requested tile straight from the
+document rather than building a pyramid, so it offers each feature at each of `WORLD_OFFSETS` and
+lets the tile's own clip decide. The two compose to the same thing — shifting and then clipping to
+the tile's window is clipping to that window moved by the offset, and then shifting — so a tile near
+the edge of the world carries the wrapped continuation in its buffer exactly as upstream's does, and
+a document that stays inside `[0, 1]` pays two bounds comparisons per feature.
+
 A polygon's rings are **rewound** as they are read (`GeoJson.readPolygon`), so the first is an
 exterior ring and the rest are holes, which is `geojson-vt`'s own rewind (`src/tile.ts`). RFC 7946
 asks for right-hand-rule winding but requires a parser to accept anything, and nothing downstream can
