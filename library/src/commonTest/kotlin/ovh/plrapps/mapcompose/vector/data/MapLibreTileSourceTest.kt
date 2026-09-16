@@ -535,4 +535,118 @@ class MapLibreTileSourceTest {
             "the factors are not in upstream's pick list, so they stay the source's own",
         )
     }
+
+    @Test
+    fun `a vector source declaring the mlt encoding is refused rather than decoded as MVT`() = runTest {
+        /* Upstream picks its decoder off `params.encoding` (`vector_tile_worker_source.ts`); this
+         * port has no MLT decoder, and pbandk does not throw on foreign bytes -- it collects them
+         * into `Tile.unknownFields` -- so an unrecognised source would have rendered a blank map
+         * with nothing said. */
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "mlt-basemap": {
+                  "type": "vector",
+                  "encoding": "mlt",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.mlt"]
+                },
+                "mvt-basemap": {
+                  "type": "vector",
+                  "encoding": "mvt",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.pbf"]
+                },
+                "plain": {
+                  "type": "vector",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.pbf"]
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration = getMapLibreConfiguration(style = style) { null }.getOrThrow()
+
+        assertNull(
+            configuration.tileSources["mlt-basemap"],
+            "an mlt source is not registered, so it is never fetched either",
+        )
+        assertEquals(
+            SourceType.VECTOR,
+            assertNotNull(configuration.tileSources["mvt-basemap"]).type,
+            "an explicit mvt encoding is the spec default and changes nothing",
+        )
+        assertNotNull(
+            configuration.tileSources["plain"],
+            "an absent encoding is mvt, as upstream's `params.encoding !== 'mlt'` says",
+        )
+
+        val diagnostic = assertNotNull(
+            configuration.diagnostics.singleOrNull { it.location == "sources.mlt-basemap" },
+            "the refusal is recorded, so it is not silent: ${configuration.diagnostics}",
+        )
+        assertTrue(
+            "mlt" in diagnostic.message,
+            "the diagnostic names the encoding, got ${diagnostic.message}",
+        )
+    }
+
+    @Test
+    fun `a referenced TileJSON declaring the mlt encoding refuses the source too`() = runTest {
+        /* The encoding is read off the merged document for the same reason `DemUnpack` reads its
+         * own off it: upstream's `params.encoding` comes out of `extend(tileJSON, options)`. */
+        val servedMlt = """
+            {
+              "tilejson": "2.0.0",
+              "tiles": ["https://served.test/{z}/{x}/{y}.mlt"],
+              "minzoom": 3,
+              "maxzoom": 13,
+              "encoding": "mlt"
+            }
+        """.trimIndent()
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "basemap": {
+                  "type": "vector",
+                  "url": "https://example.test/tiles.json"
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration =
+            getMapLibreConfiguration(style = style, loadResource = serving(servedMlt)).getOrThrow()
+
+        assertNull(configuration.tileSources["basemap"])
+        assertNotNull(configuration.diagnostics.singleOrNull { it.location == "sources.basemap" })
+    }
+
+    @Test
+    fun `a raster-dem source keeps its own meaning of encoding`() = runTest {
+        /* `encoding` is one JSON key serving two properties -- the DEM unpacking and the vector wire
+         * format -- so the gate must not catch a raster-dem source whose encoding is terrarium. */
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "terrain": {
+                  "type": "raster-dem",
+                  "encoding": "terrarium",
+                  "tiles": ["https://example.test/{z}/{x}/{y}.png"]
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration = getMapLibreConfiguration(style = style) { null }.getOrThrow()
+
+        val terrain = assertNotNull(configuration.tileSources["terrain"])
+        assertEquals(SourceType.RASTER_DEM, terrain.type)
+        assertEquals(DemUnpack.TERRARIUM, terrain.demUnpack)
+        assertTrue(configuration.diagnostics.isEmpty(), "nothing is refused")
+    }
 }
