@@ -19,9 +19,12 @@ class StretchableIconTest {
         content: List<Double>? = null,
         stretchX: List<List<Double>>? = null,
         stretchY: List<List<Double>>? = null,
+        textFitWidth: String? = null,
+        textFitHeight: String? = null,
     ) = Sprite(
         width = width, height = height, x = 0, y = 0, pixelRatio = pixelRatio,
         stretchX = stretchX, stretchY = stretchY, content = content,
+        textFitWidth = textFitWidth, textFitHeight = textFitHeight,
     )
 
     @Test
@@ -91,7 +94,9 @@ class StretchableIconTest {
 
     @Test
     fun `icon-text-fit width grows only the width`() {
-        // A 20 px icon whose content box is the middle 10 px: 10 px of frame plus the label.
+        /* Upstream's `fitIconToText` stretches the icon to the label's own extent plus the padding;
+         * the sprite's frame is absorbed by the nine-patch stretch rather than added on top, which
+         * is what `icon-text-fit-padding` is authored to leave room for. */
         val size = iconTextFitSize(
             fit = ICON_TEXT_FIT_WIDTH,
             sprite = sprite(content = listOf(5.0, 5.0, 15.0, 15.0)),
@@ -99,7 +104,7 @@ class StretchableIconTest {
             textWidth = 40f, textHeight = 8f,
             padding = listOf(0.0, 0.0, 0.0, 0.0),
         )
-        assertEquals(50f, size.width)
+        assertEquals(40f, size.width)
         assertEquals(20f, size.height)
     }
 
@@ -113,7 +118,7 @@ class StretchableIconTest {
             padding = listOf(0.0, 0.0, 0.0, 0.0),
         )
         assertEquals(20f, size.width)
-        assertEquals(40f, size.height)
+        assertEquals(30f, size.height)
     }
 
     @Test
@@ -125,25 +130,15 @@ class StretchableIconTest {
             textWidth = 40f, textHeight = 30f,
             padding = listOf(1.0, 2.0, 3.0, 4.0),
         )
-        assertEquals(10f + 40f + 4f + 2f, size.width)
-        assertEquals(10f + 30f + 1f + 3f, size.height)
+        assertEquals(40f + 4f + 2f, size.width)
+        assertEquals(30f + 1f + 3f, size.height)
     }
 
     @Test
-    fun `a hidpi content box is measured in layout pixels`() {
-        // The same icon on an @2x sheet: twice the sheet pixels, the same layout size.
-        val size = iconTextFitSize(
-            fit = ICON_TEXT_FIT_WIDTH,
-            sprite = sprite(width = 40, height = 40, pixelRatio = 2f, content = listOf(10.0, 10.0, 30.0, 30.0)),
-            iconWidth = 20f, iconHeight = 20f,
-            textWidth = 40f, textHeight = 8f,
-            padding = listOf(0.0, 0.0, 0.0, 0.0),
-        )
-        assertEquals(50f, size.width)
-    }
-
-    @Test
-    fun `icon-text-fit never shrinks an icon`() {
+    fun `icon-text-fit shrinks a large icon onto a short label`() {
+        /* `fitIconToText` has no `max` in it, so a big shield around a two-character label comes
+         * down to the label. This used to return the icon's own size, which is what
+         * `assertEquals(20f, …)` pinned here before. */
         val size = iconTextFitSize(
             fit = ICON_TEXT_FIT_BOTH,
             sprite = sprite(content = listOf(5.0, 5.0, 15.0, 15.0)),
@@ -151,7 +146,99 @@ class StretchableIconTest {
             textWidth = 2f, textHeight = 2f,
             padding = listOf(0.0, 0.0, 0.0, 0.0),
         )
-        assertEquals(20f, size.width)
-        assertEquals(20f, size.height)
+        assertEquals(2f, size.width)
+        assertEquals(2f, size.height)
     }
+
+    // region textFitWidth / textFitHeight
+    //
+    // `applyTextFit` (`src/symbol/shaping.ts`), reached only for an entry that declares either --
+    // upstream's `if (image.textFitWidth || image.textFitHeight)` in `quads.ts`. Both fields were
+    // parsed here and never read.
+
+    @Test
+    fun `the default stretchOrShrink imposes no aspect ratio`() {
+        val size = iconTextFitSize(
+            fit = ICON_TEXT_FIT_BOTH,
+            sprite = sprite(content = listOf(0.0, 0.0, 20.0, 10.0)),
+            iconWidth = 20f, iconHeight = 20f,
+            textWidth = 40f, textHeight = 40f,
+            padding = listOf(0.0, 0.0, 0.0, 0.0),
+        )
+        assertEquals(40f, size.width)
+        assertEquals(40f, size.height)
+    }
+
+    @Test
+    fun `a proportional height widens the icon to the content's aspect ratio`() {
+        // A content box twice as wide as it is tall, and a label that is square: `proportional`
+        // height with `stretchOnly` width takes the width up to twice the height.
+        val size = iconTextFitSize(
+            fit = ICON_TEXT_FIT_BOTH,
+            sprite = sprite(
+                content = listOf(0.0, 0.0, 20.0, 10.0),
+                textFitWidth = TEXT_FIT_STRETCH_ONLY,
+                textFitHeight = TEXT_FIT_PROPORTIONAL,
+            ),
+            iconWidth = 20f, iconHeight = 20f,
+            textWidth = 40f, textHeight = 40f,
+            padding = listOf(0.0, 0.0, 0.0, 0.0),
+        )
+        assertEquals(80f, size.width)
+        assertEquals(40f, size.height)
+    }
+
+    @Test
+    fun `a stretchOnly width is left alone once it already exceeds the ratio`() {
+        // Wider than the content's aspect ratio asks for: `stretchOnly` may not bring it back down.
+        val size = iconTextFitSize(
+            fit = ICON_TEXT_FIT_BOTH,
+            sprite = sprite(
+                content = listOf(0.0, 0.0, 20.0, 10.0),
+                textFitWidth = TEXT_FIT_STRETCH_ONLY,
+                textFitHeight = TEXT_FIT_PROPORTIONAL,
+            ),
+            iconWidth = 20f, iconHeight = 20f,
+            textWidth = 120f, textHeight = 40f,
+            padding = listOf(0.0, 0.0, 0.0, 0.0),
+        )
+        assertEquals(120f, size.width)
+    }
+
+    @Test
+    fun `a proportional width heightens the icon to the content's aspect ratio`() {
+        val size = iconTextFitSize(
+            fit = ICON_TEXT_FIT_BOTH,
+            sprite = sprite(
+                content = listOf(0.0, 0.0, 20.0, 10.0),
+                textFitWidth = TEXT_FIT_PROPORTIONAL,
+                textFitHeight = TEXT_FIT_STRETCH_ONLY,
+            ),
+            iconWidth = 20f, iconHeight = 20f,
+            textWidth = 80f, textHeight = 10f,
+            padding = listOf(0.0, 0.0, 0.0, 0.0),
+        )
+        assertEquals(80f, size.width)
+        assertEquals(40f, size.height)
+    }
+
+    @Test
+    fun `a hidpi sheet's ratio is the same ratio`() {
+        // The same content box on an @2x sheet: the pixelRatio cancels in the aspect ratio.
+        val size = iconTextFitSize(
+            fit = ICON_TEXT_FIT_BOTH,
+            sprite = sprite(
+                width = 40, height = 40, pixelRatio = 2f,
+                content = listOf(0.0, 0.0, 40.0, 20.0),
+                textFitWidth = TEXT_FIT_STRETCH_ONLY,
+                textFitHeight = TEXT_FIT_PROPORTIONAL,
+            ),
+            iconWidth = 20f, iconHeight = 20f,
+            textWidth = 40f, textHeight = 40f,
+            padding = listOf(0.0, 0.0, 0.0, 0.0),
+        )
+        assertEquals(80f, size.width)
+    }
+
+    // endregion
 }
