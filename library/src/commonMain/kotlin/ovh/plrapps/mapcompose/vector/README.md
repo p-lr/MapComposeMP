@@ -797,7 +797,11 @@ which is what upstream gets for free by re-entering `_updatePlacement` on every 
 ## Sprites and glyphs
 
 **Sprites** (`data/SpriteManager.kt`, `spec/sprites/Sprite.kt`). Every sheet a style declares is
-loaded, not just the first; the list form's `id` namespaces its entries as `"<id>:<name>"`, as
+loaded, not just the first. A sheet's URL grows its `@2x` suffix and its `.json` / `.png` extension
+on the **path**, so a query string or a fragment stays behind them -- upstream parses the URL and
+appends to `parsed.pathname` alone (`style/load_sprite.ts`). Appending to the whole string, as this
+did, asked an authenticated endpoint for `sprite?token=abc.json`. The list
+form's `id` namespaces its entries as `"<id>:<name>"`, as
 upstream's merged atlas does -- except for the id `default`, whose entries keep their bare names
 (`_getSpriteImageId`, `src/render/image_manager.ts`). The single-URL form *is* that id upstream
 (`coerceSpriteToArray`, `src/util/style.ts`), so the two `sprite` forms are one code path; keying the
