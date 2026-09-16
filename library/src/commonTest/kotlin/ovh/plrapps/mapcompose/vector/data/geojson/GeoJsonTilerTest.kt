@@ -28,6 +28,15 @@ class GeoJsonTilerTest {
     private fun Tile.Feature.vertices(canvasSize: Int = 4096) =
         decoders.decodeVertices(geometry, extent = 4096, canvasSize = canvasSize)
 
+    /**
+     * Every vertex the tile carries, across every feature.
+     *
+     * A document that reaches the antimeridian is cut from the neighbouring world copies too, so a
+     * tile near the edge legitimately carries the same feature twice -- once in its own right and
+     * once in the buffer, wrapped. See the world-wrap tests below.
+     */
+    private fun Tile.allVertices() = layer().features.flatMap { it.vertices() }
+
     // region feature ids
 
     /**
@@ -150,7 +159,7 @@ class GeoJsonTilerTest {
         val tile = assertNotNull(
             tiler("""{"type":"LineString","coordinates":[[-180,0],[180,0]]}""").tile(1, 0, 0)
         )
-        val vertices = tile.layer().features.single().vertices()
+        val vertices = tile.allVertices()
         assertTrue(vertices.all { it.x >= -GeoJsonTiler.DEFAULT_BUFFER - 1 })
         assertTrue(vertices.all { it.x <= 4096 + GeoJsonTiler.DEFAULT_BUFFER + 1 })
         // ...and it does reach both edges of it.
@@ -181,17 +190,21 @@ class GeoJsonTilerTest {
                 """{"type":"Polygon","coordinates":[[[-180,-80],[180,-80],[180,80],[-180,80],[-180,-80]]]}"""
             ).tile(1, 0, 0)
         )
-        val feature = tile.layer().features.single()
-        assertEquals(Tile.GeomType.POLYGON, feature.type)
-        val rings = decoders.decodePolygons(feature.geometry, extent = 4096, canvasSize = 4096)
-        assertTrue(rings.isNotEmpty())
-        assertTrue(rings.single().single().size >= 4, "a clipped ring must still enclose an area")
+        // The polygon spans the whole world, so the tile carries its wrapped copy as well; every
+        // copy has to come out of the clip as a closed ring.
+        for (feature in tile.layer().features) {
+            assertEquals(Tile.GeomType.POLYGON, feature.type)
+            val rings = decoders.decodePolygons(feature.geometry, extent = 4096, canvasSize = 4096)
+            assertTrue(rings.isNotEmpty())
+            assertTrue(rings.single().single().size >= 4, "a clipped ring must still enclose an area")
+        }
     }
 
     @Test
     fun `simplification drops vertices that add nothing`() {
-        // Twenty collinear points across the world.
-        val coordinates = (0..20).joinToString(",") { "[${-180.0 + it * 18.0},0]" }
+        // Twenty collinear points. Kept well clear of the antimeridian: a document that reaches it
+        // is cut from the neighbouring world copies too, and this is about simplification alone.
+        val coordinates = (0..20).joinToString(",") { "[${-80.0 + it * 8.0},0]" }
         val detailed = tiler("""{"type":"LineString","coordinates":[$coordinates]}""", tolerance = 0.0)
             .tile(0, 0, 0)!!.layer().features.single().vertices().size
         val simplified = tiler("""{"type":"LineString","coordinates":[$coordinates]}""")
@@ -244,6 +257,51 @@ class GeoJsonTilerTest {
         // The point at (0, 0) lands in the z4 tile (8, 8), so the overzoomed tile carries it.
         assertNotNull(source.tile(6, 33, 34))
     }
+
+    // region world wrap
+    //
+    // `wrap.ts`: a coordinate past the antimeridian projects outside `[0, 1]` and so falls in no
+    // tile at all unless the document is offered at the neighbouring world copies too.
+
+    @Test
+    fun `a point past the antimeridian is wrapped into the world`() {
+        // Longitude 181 projects to x = 1.00278, which is no tile's; wrapped it is x = 0.00278.
+        val tile = tiler("""{"type":"Point","coordinates":[181,0]}""").tile(0, 0, 0)
+
+        assertNotNull(tile)
+        val xs = tile.allVertices().map { it.x }
+        assertTrue(
+            xs.any { it in 5.0..20.0 },
+            "the wrapped point should sit just east of the prime meridian, but got $xs",
+        )
+    }
+
+    @Test
+    fun `a line crossing the antimeridian keeps both halves`() {
+        val tile = tiler("""{"type":"LineString","coordinates":[[179,0],[181,0]]}""").tile(0, 0, 0)
+
+        assertNotNull(tile)
+        val xs = tile.layer().features.flatMap { it.vertices() }.map { it.x }
+        assertTrue(
+            xs.any { it < 100.0 },
+            "the half past the antimeridian should reappear at the western edge, but got $xs",
+        )
+        assertTrue(
+            xs.any { it > 4000.0 },
+            "the half before the antimeridian should stay where it is, but got $xs",
+        )
+    }
+
+    @Test
+    fun `a document inside the world is not duplicated`() {
+        // The two copies a wrap adds must not reach a tile they do not touch.
+        val tile = tiler("""{"type":"Point","coordinates":[0,0]}""").tile(0, 0, 0)
+
+        assertNotNull(tile)
+        assertEquals(1, tile.layer().features.size)
+    }
+
+    // endregion
 
     private fun countMoveTo(geometry: List<Int>): Int {
         var count = 0
