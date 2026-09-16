@@ -710,6 +710,49 @@ class SymbolLayerLayoutTest {
     }
 
     @Test
+    fun `point placement labels a polygon at its pole of inaccessibility`() {
+        runTest {
+            /* Upstream's `symbol_layout.ts` places a polygon's label at
+             * `findPoleOfInaccessibility(polygon, 16)` under the default `symbol-placement: point`.
+             * A non-point feature used to produce no placements at all, so a polygon layer with a
+             * `text-field` drew nothing. */
+            val polygon = Mvt.polygonFeature(Mvt.clockwiseRing(1024, 1024, 3072, 3072))
+            val symbols = produce(
+                layer("""{"text-field":"ab","text-font":["Test Regular"]}"""),
+                feature = polygon,
+            )
+
+            val label = symbols.filterIsInstance<SymbolInstance.Text>().single()
+            // The ring spans a quarter to three quarters of the tile, so its pole is the centre.
+            assertEquals(CANVAS / 2f, label.tileAnchor.x, 4f)
+            assertEquals(CANVAS / 2f, label.tileAnchor.y, 4f)
+        }
+    }
+
+    @Test
+    fun `point placement labels a line at the first vertex of each part`() {
+        runTest {
+            // Upstream: `for (const line of feature.geometry) addSymbolAtAnchor(line[0])`.
+            val line = Mvt.lineFeature(
+                listOf(512 to 1024, 3584 to 1024),
+                listOf(512 to 3072, 3584 to 3072),
+            )
+            val symbols = produce(
+                layer("""{"text-field":"ab","text-font":["Test Regular"]}"""),
+                feature = line,
+            )
+
+            val labels = symbols.filterIsInstance<SymbolInstance.Text>()
+            assertEquals(2, labels.size, "one label per part")
+            assertContentEquals(
+                listOf(64f, 64f),
+                labels.map { it.tileAnchor.x },
+                "each label sits at its part's first vertex",
+            )
+        }
+    }
+
+    @Test
     fun `a line-placed icon takes the label's anchors`() {
         runTest {
             /* Upstream walks a line once -- `getAnchors` -- and hands every anchor to

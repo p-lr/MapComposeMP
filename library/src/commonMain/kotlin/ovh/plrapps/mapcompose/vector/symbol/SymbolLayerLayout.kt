@@ -30,6 +30,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsStringList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
+import ovh.plrapps.mapcompose.vector.renderer.utils.findPoleOfInaccessibility
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite as SpriteInfo
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolPaint
@@ -188,6 +189,55 @@ internal class SymbolLayerLayout(
      * are drawn across tile boundaries, We filter out symbols outside our tile boundaries (which may
      * be included in vector tile buffers) to prevent double-drawing symbols."*
      */
+    /**
+     * Where a non-point feature is anchored under `symbol-placement: point`.
+     *
+     * Upstream's `symbol_layout.ts`, the two branches after the line ones:
+     *
+     * ```
+     * } else if (feature.type === 'Polygon') {
+     *     for (const polygon of classifyRings(feature.geometry, 0)) {
+     *         // 16 here represents 2 pixels
+     *         const poi = findPoleOfInaccessibility(polygon, 16);
+     *         addSymbolAtAnchor(subdividedLine, new Anchor(poi.x, poi.y, 0));
+     *     }
+     * } else if (feature.type === 'LineString') {
+     *     // https://github.com/mapbox/mapbox-gl-js/issues/3808
+     *     for (const line of feature.geometry) {
+     *         addSymbolAtAnchor(subdividedLine, new Anchor(line[0].x, line[0].y, 0));
+     *     }
+     * }
+     * ```
+     *
+     *
+     * An anchor outside the tile is dropped, as [calculatePointPlacements]' are: a polygon crossing
+     * a boundary is carried by both tiles, and both would otherwise label it.
+     */
+    private fun calculateAreaPlacements(
+        feature: Tile.Feature,
+        extent: Int,
+        canvasSize: Int,
+        /* Upstream passes 16 for an `EXTENT` of 8192, i.e. a 512th of the tile. The geometry here
+         * is already scaled to the tile's canvas, so the same fraction of it says the same thing at
+         * any bitmap size. */
+        precision: Double = canvasSize / 512.0,
+    ): List<SymbolAnchorPlacement> {
+        val anchors = when (feature.type) {
+            Tile.GeomType.POLYGON ->
+                geometryDecoders.decodePolygons(feature.geometry, extent = extent, canvasSize = canvasSize)
+                    .mapNotNull { polygon -> findPoleOfInaccessibility(polygon, precision) }
+
+            Tile.GeomType.LINESTRING ->
+                geometryDecoders.decodeLine(feature.geometry, extent = extent, canvasSize = canvasSize)
+                    .mapNotNull { line -> line.firstOrNull() }
+
+            else -> emptyList()
+        }
+        return anchors
+            .filter { isInsideTile(it.first.toDouble(), it.second.toDouble(), canvasSize) }
+            .map { SymbolAnchorPlacement(position = ObbPoint(it.first, it.second), angle = 0f) }
+    }
+
     private fun calculatePointPlacements(
         feature: Tile.Feature,
         extent: Int,
@@ -1485,7 +1535,11 @@ internal class SymbolLayerLayout(
 
             pointPlacements = emptyList()
         } else {
-            pointPlacements = emptyList()
+            /* `symbol-placement: point` over a line or an area, which upstream places too: a polygon
+             * is labelled at its pole of inaccessibility, a line at the first vertex of each of its
+             * parts. Both used to produce nothing at all, so a polygon layer with a `text-field`
+             * drew no labels. */
+            pointPlacements = calculateAreaPlacements(feature, extent, canvasSize)
         }
 
         /* A line-placed layer anchors icon *and* label at the same walk of the line, which is
