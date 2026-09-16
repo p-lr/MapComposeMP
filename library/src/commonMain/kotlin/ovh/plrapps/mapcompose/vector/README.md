@@ -594,6 +594,15 @@ Douglas-Peucker, emit an MVT-shaped `Tile`. From `TileRenderer`'s point of view 
 vector tile from then on. The spec forbids a `source-layer` on a layer reading a geojson source, so
 `BaseRenderer.tileLayerFor` takes the tile's only layer when a style layer names none.
 
+A feature's **properties keep their shape**, including the ones MVT cannot express. `Tile.Value`
+holds a string, a number or a boolean and nothing else, so an object or an array used to be
+flattened to its JSON *text* -- which is what `["get"]` then returned -- and a null-valued key
+vanished altogether, so `["has", k]` answered `false` where upstream's worker, which hands
+`geojson-vt` the parsed document, answers `true`. All three now ride one JSON object under
+`GeoJsonTiler.SYNTHETIC_JSON_KEY`, the trick `SYNTHETIC_ID_KEY` already plays with a string id, and
+`BaseRenderer.buildEvalFeature` lifts them back out and removes the key before an expression can see
+it -- once per (feature, tile), since that is what `localPropCache` holds.
+
 Geometry is **wrapped across the antimeridian**, as `geojson-vt`'s `wrap.ts` wraps it: longitude 181
 projects to `x ≈ 1.0028`, which is no tile's, so a coordinate past the edge of the world used to fall
 in no tile at all and a line crossing it lost the half that ran over. Upstream clips a left copy at

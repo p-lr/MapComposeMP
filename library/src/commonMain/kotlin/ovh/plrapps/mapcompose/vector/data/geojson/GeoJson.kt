@@ -11,6 +11,7 @@ import kotlinx.serialization.json.doubleOrNull
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
+import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.filter.FeatureFilter
 import kotlin.math.PI
 import kotlin.math.abs
@@ -251,17 +252,17 @@ object GeoJson {
         return obj.mapValues { (_, value) -> readValue(value) }
     }
 
-    private fun readValue(value: JsonElement): Any? = when (value) {
-        is JsonNull -> null
-        is JsonPrimitive -> when {
-            value.isString -> value.content
-            value.booleanOrNull != null -> value.booleanOrNull
-            value.doubleOrNull != null -> value.doubleOrNull
-            else -> value.content
-        }
-
-        else -> value.toString()
-    }
+    /**
+     * One property value, as the engine's own value.
+     *
+     * An object or an array stays an object or an array -- upstream's worker hands `geojson-vt` the
+     * parsed document and its features keep whatever the JSON held, so `["get", "rank", ["get",
+     * "details"]]` works. This used to flatten both to their JSON *text*, which is what a
+     * `["get"]` then read. `null` stays `null`, so `["has", …]` can tell a key that is absent from
+     * one whose value is null; carrying either across the synthetic tile is
+     * `GeoJsonTiler.SYNTHETIC_JSON_KEY`'s job, the wire format having no room for them.
+     */
+    private fun readValue(value: JsonElement): Any? = jsonToValue(value)
 
     /**
      * A feature's `id`, which RFC 7946 types as a string or a number and MapLibre keeps as either.
