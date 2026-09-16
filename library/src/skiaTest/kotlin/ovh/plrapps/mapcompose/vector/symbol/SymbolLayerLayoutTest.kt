@@ -107,11 +107,16 @@ class SymbolLayerLayoutTest {
         )
     }
 
-    private fun spriteManager(width: Int = 16, height: Int = 16, pixelRatio: Float = 1f): SpriteManager {
+    private fun spriteManager(
+        width: Int = 16,
+        height: Int = 16,
+        pixelRatio: Float = 1f,
+        name: String = "marker",
+    ): SpriteManager {
         val sheet = renderToBitmap(size = maxOf(width, height)) { drawRect(color = Color.Red) }
         return SpriteManager(
             spriteIndex = mapOf(
-                "marker" to Sprite(
+                name to Sprite(
                     width = width, height = height, x = 0, y = 0, pixelRatio = pixelRatio,
                 )
             ),
@@ -290,6 +295,55 @@ class SymbolLayerLayoutTest {
             )
             val text = assertNotNull(symbols.filterIsInstance<SymbolInstance.Text>().singleOrNull())
             assertEquals(6 * ADVANCE * 16f / 24f, text.value.width)
+        }
+    }
+
+    @Test
+    fun `an expression's text is not treated as a template`() {
+        runTest {
+            /* Upstream's `getValueAndResolveTokens` resolves tokens only for a value the style wrote
+             * as a plain constant, so a name that happens to contain braces is a name. This used to
+             * rewrite whatever the expression returned, so `a{b}c` came back as `ac`. */
+            val symbols = produce(
+                layer("""{"text-field":["get","label"],"text-font":["Test Regular"]}"""),
+                properties = mapOf("label" to "a{b}c"),
+            )
+
+            val text = assertNotNull(symbols.filterIsInstance<SymbolInstance.Text>().singleOrNull())
+            assertEquals(5 * ADVANCE * 16f / 24f, text.value.width, "all five characters are drawn")
+        }
+    }
+
+    @Test
+    fun `an icon-image token is expanded wherever it sits`() {
+        runTest {
+            /* `subProcess` returned early unless the name *started* with `{`, and then replaced only
+             * the first match, so `"poi-{kind}"` was asked of the sheet verbatim and resolved to
+             * nothing at all. */
+            val symbols = produce(
+                layer("""{"icon-image":"poi-{kind}-{size}"}"""),
+                properties = mapOf("kind" to "bus", "size" to "sm"),
+                sprites = spriteManager(name = "poi-bus-sm"),
+            )
+
+            assertEquals(
+                1,
+                symbols.filterIsInstance<SymbolInstance.Sprite>().size,
+                "every token should be expanded, wherever it sits in the name",
+            )
+        }
+    }
+
+    @Test
+    fun `an icon-image from an expression is not treated as a template`() {
+        runTest {
+            val symbols = produce(
+                layer("""{"icon-image":["get","icon"]}"""),
+                properties = mapOf("icon" to "marker"),
+                sprites = spriteManager(),
+            )
+
+            assertEquals(1, symbols.filterIsInstance<SymbolInstance.Sprite>().size)
         }
     }
 
