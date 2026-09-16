@@ -10,17 +10,26 @@ import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
  * an image; nothing else is fetched at all.
  * @property demUnpack How to read elevation out of that image, set for a [SourceType.RASTER_DEM]
  * source and `null` for every other type.
+ * @property pixelRatio The display's pixel ratio, which is what `{ratio}` expands from. A lambda
+ * rather than a value because a source is built while the style loads, before `MapUI` has composed
+ * and the map knows its density, whereas a tile URL is only ever built by a fetch that happens
+ * after -- see `VectorLayer.makeTileStreamProvider`.
  */
 class MapLibreTileSource(
     val tileJson: TileJson,
     val type: SourceType = SourceType.VECTOR,
     val demUnpack: DemUnpack? = null,
+    private val pixelRatio: () -> Float = { 1f },
 ) {
 
     companion object {
         const val SEGMENT_ZOOM = "{z}"
         const val SEGMENT_X = "{x}"
         const val SEGMENT_Y = "{y}"
+        const val SEGMENT_PREFIX = "{prefix}"
+        const val SEGMENT_RATIO = "{ratio}"
+        const val SEGMENT_QUADKEY = "{quadkey}"
+        const val SEGMENT_BBOX = "{bbox-epsg-3857}"
 
         private const val SCHEME_TMS = "tms"
     }
@@ -46,8 +55,30 @@ class MapLibreTileSource(
 
     fun getTileUrl(ref: TileRef): String = getTileUrl(z = ref.z, x = ref.x, y = ref.y)
 
+    /**
+     * The URL of the tile at [z]/[x]/[y], with every token upstream's `CanonicalTileID.url`
+     * (`src/tile/tile_id.ts`) substitutes:
+     *
+     * ```
+     * return urls[(this.x + this.y) % urls.length]
+     *     .replace(/{prefix}/g, (this.x % 16).toString(16) + (this.y % 16).toString(16))
+     *     .replace(/{z}/g, String(this.z))
+     *     .replace(/{x}/g, String(this.x))
+     *     .replace(/{y}/g, String(scheme === 'tms' ? (Math.pow(2, this.z) - this.y - 1) : this.y))
+     *     .replace(/{ratio}/g, pixelRatio > 1 ? '@2x' : '')
+     *     .replace(/{quadkey}/g, quadkey)
+     *     .replace(/{bbox-epsg-3857}/g, bbox);
+     * ```
+     *
+     * `{y}` is the only token the `scheme` reaches: `{quadkey}` and `{bbox-epsg-3857}` are built
+     * from the plain xyz row, and the bounding box does its own, unconditional flip.
+     *
+     * The template is chosen by `(x + y) % size`, as upstream does, and deliberately not at random:
+     * a random shard means the same tile is requested from a different host on every retry, so
+     * nothing downstream of the fetch -- an HTTP cache included -- can recognise it.
+     */
     fun getTileUrl(z: Int, x: Int, y: Int): String {
-        val template = tileTemplates.random()
+        val template = tileTemplates[(x + y).mod(tileTemplates.size)]
 
         /* TileJSON's `scheme` says which way the y axis runs. "xyz" -- the default, and what
          * MapCompose's tile pyramid uses -- counts rows from the top; "tms" counts them from the
@@ -59,9 +90,13 @@ class MapLibreTileSource(
         }
 
         return template
+            .replace(SEGMENT_PREFIX, tilePrefix(x = x, y = y))
             .replace(SEGMENT_ZOOM, z.toString())
             .replace(SEGMENT_X, x.toString())
             .replace(SEGMENT_Y, row.toString())
+            .replace(SEGMENT_RATIO, if (pixelRatio() > 1f) "@2x" else "")
+            .replace(SEGMENT_QUADKEY, tileQuadkey(z = z, x = x, y = y))
+            .replace(SEGMENT_BBOX, tileBBoxEpsg3857(z = z, x = x, y = y))
     }
 }
 
