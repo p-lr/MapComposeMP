@@ -109,6 +109,12 @@ internal class VectorLayer(
             /* What draws a grapheme with a font file the style declared in `font-faces`: the map's
              * own `TextMeasurer`, awaited, since it only exists once `MapUI` has composed. */
             localGlyphs = ComposeGlyphRasterizer(mapState.textMeasurerState),
+            /* Read per tile URL rather than awaited here: the density only arrives once `MapUI` has
+             * composed, and this call is awaited by `addVectorLayer` before it returns the layer id,
+             * so suspending on it is the deadlock that function's own density read avoids. Nothing
+             * builds a tile URL before then -- the tile stream provider below returns null while the
+             * density is null. */
+            tilePixelRatio = { mapState.densityState.value?.density ?: 1f },
         ).getOrThrow()
 
         val rasterizer = VectorRasterizer(
