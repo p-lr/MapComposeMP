@@ -158,4 +158,61 @@ class GeoJsonTest {
         assertTrue(parse("""{"type":"Polygon","coordinates":[[[0,0],[1,1]]]}""").isEmpty())
         assertTrue(GeoJson.parse(null).isEmpty())
     }
+
+    // region generateId
+
+    private fun generated(text: String) =
+        GeoJson.parse(Json.parseToJsonElement(text), generateId = true).map { it.id }
+
+    @Test
+    fun `generateId is the position in the collection`() {
+        val ids = generated(
+            """{"type":"FeatureCollection","features":[
+              {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}},
+              {"type":"Feature","geometry":{"type":"Point","coordinates":[1,1]},"properties":{}},
+              {"type":"Feature","geometry":{"type":"Point","coordinates":[2,2]},"properties":{}}
+            ]}"""
+        )
+        assertEquals(listOf(0.0, 1.0, 2.0), ids)
+    }
+
+    /** `convert` calls `convertFeature` with no index for a bare feature, and `index || 0` is 0. */
+    @Test
+    fun `generateId gives a bare feature zero`() {
+        assertEquals(
+            listOf(0.0),
+            generated("""{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}}""")
+        )
+    }
+
+    /** `let id = geojson.id; ... else if (options.generateId) id = index || 0` -- it replaces. */
+    @Test
+    fun `generateId replaces an id the document wrote`() {
+        assertEquals(
+            listOf(0.0),
+            generated(
+                """{"type":"Feature","id":"keep me","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}}"""
+            )
+        )
+    }
+
+    /**
+     * A `GeometryCollection` is one entry of the collection, so every geometry it holds shares that
+     * entry's index -- upstream's `convertFeature` recurses with the index it was given.
+     */
+    @Test
+    fun `every member of a geometry collection shares the entry's index`() {
+        val ids = generated(
+            """{"type":"FeatureCollection","features":[
+              {"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}},
+              {"type":"Feature","properties":{},"geometry":{"type":"GeometryCollection","geometries":[
+                {"type":"Point","coordinates":[1,1]},
+                {"type":"Point","coordinates":[2,2]}
+              ]}}
+            ]}"""
+        )
+        assertEquals(listOf(0.0, 1.0, 1.0), ids)
+    }
+
+    // endregion
 }
