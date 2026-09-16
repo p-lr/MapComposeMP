@@ -1,6 +1,8 @@
 package ovh.plrapps.mapcompose.vector.data
 
 import kotlinx.coroutines.test.runTest
+import kotlinx.io.Buffer
+import kotlinx.io.RawSource
 import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -256,5 +258,154 @@ class MapLibreTileSourceTest {
         assertEquals(SourceType.UNKNOWN, SourceType.fromSpec("something-new"))
         assertEquals(SourceType.VECTOR, SourceType.fromSpec(null))
         assertEquals(SourceType.RASTER_DEM, SourceType.fromSpec("raster-dem"))
+    }
+
+    /* ---- the TileJSON merge -------------------------------------------------------------- */
+
+    /**
+     * Serves one TileJSON document whatever is asked for, which is all these need: a style here has
+     * a single `url` source.
+     */
+    private fun serving(tileJson: String): suspend (String) -> RawSource? = { _: String ->
+        Buffer().apply { write(tileJson.encodeToByteArray()) }
+    }
+
+    private val servedTileJson = """
+        {
+          "tilejson": "2.0.0",
+          "tiles": ["https://served.test/{z}/{x}/{y}.pbf"],
+          "minzoom": 3,
+          "maxzoom": 13,
+          "scheme": "xyz"
+        }
+    """.trimIndent()
+
+    @Test
+    fun `explicit source options take precedence over the referenced TileJSON`() = runTest {
+        /* Upstream's `extend(tileJSON, options)` (`load_tilejson.ts`), whose own comment says so.
+         * These used to be discarded wholesale the moment a source carried a `url`, so a source
+         * overriding a document to tms still addressed rows the document's way. */
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "basemap": {
+                  "type": "vector",
+                  "url": "https://example.test/tiles.json",
+                  "tiles": ["https://overridden.test/{z}/{x}/{y}.pbf"],
+                  "minzoom": 5,
+                  "maxzoom": 18,
+                  "scheme": "tms"
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration =
+            getMapLibreConfiguration(style = style, loadResource = serving(servedTileJson)).getOrThrow()
+
+        val basemap = assertNotNull(configuration.tileSources["basemap"])
+        assertEquals(5, basemap.minZoom)
+        assertEquals(18, basemap.maxZoom)
+        assertEquals(
+            "https://overridden.test/4/3/13.pbf",
+            basemap.getTileUrl(z = 4, x = 3, y = 2),
+            "the source's own tiles and its tms scheme, not the document's",
+        )
+    }
+
+    @Test
+    fun `a referenced TileJSON supplies what the source leaves out`() = runTest {
+        /* The other direction, and the guard against applying the merge the wrong way round. */
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "basemap": {
+                  "type": "vector",
+                  "url": "https://example.test/tiles.json"
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+
+        val configuration =
+            getMapLibreConfiguration(style = style, loadResource = serving(servedTileJson)).getOrThrow()
+
+        val basemap = assertNotNull(configuration.tileSources["basemap"])
+        assertEquals(3, basemap.minZoom)
+        assertEquals(13, basemap.maxZoom)
+        assertEquals("https://served.test/4/3/2.pbf", basemap.getTileUrl(z = 4, x = 3, y = 2))
+    }
+
+    @Test
+    fun `a dem source with no encoding takes the referenced TileJSON's`() = runTest {
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "terrain": {
+                  "type": "raster-dem",
+                  "url": "https://example.test/tiles.json"
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+        val tileJson = """
+            {
+              "tilejson": "2.0.0",
+              "tiles": ["https://served.test/{z}/{x}/{y}.png"],
+              "encoding": "terrarium"
+            }
+        """.trimIndent()
+
+        val configuration =
+            getMapLibreConfiguration(style = style, loadResource = serving(tileJson)).getOrThrow()
+
+        assertEquals(
+            DemUnpack.TERRARIUM,
+            assertNotNull(configuration.tileSources["terrain"]).demUnpack,
+            "only `encoding` travels from the document, and it does",
+        )
+    }
+
+    @Test
+    fun `a dem source's own encoding beats the referenced TileJSON's`() = runTest {
+        val style = """
+            {
+              "version": 8,
+              "sources": {
+                "terrain": {
+                  "type": "raster-dem",
+                  "url": "https://example.test/tiles.json",
+                  "encoding": "custom",
+                  "redFactor": 2.0,
+                  "greenFactor": 3.0,
+                  "blueFactor": 4.0,
+                  "baseShift": 5.0
+                }
+              },
+              "layers": []
+            }
+        """.trimIndent()
+        val tileJson = """
+            {
+              "tilejson": "2.0.0",
+              "tiles": ["https://served.test/{z}/{x}/{y}.png"],
+              "encoding": "terrarium"
+            }
+        """.trimIndent()
+
+        val configuration =
+            getMapLibreConfiguration(style = style, loadResource = serving(tileJson)).getOrThrow()
+
+        assertEquals(
+            DemUnpack(red = 2.0, green = 3.0, blue = 4.0, baseShift = 5.0),
+            assertNotNull(configuration.tileSources["terrain"]).demUnpack,
+            "the factors are not in upstream's pick list, so they stay the source's own",
+        )
     }
 }

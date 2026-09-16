@@ -49,8 +49,13 @@ data class DemUnpack(
          * `custom` reads `redFactor` / `greenFactor` / `blueFactor` / `baseShift` off the source,
          * each falling back to the style-spec default (`1.0`, `1.0`, `1.0`, `0.0`); the other two
          * encodings ignore them, as upstream does.
+         *
+         * [encoding] is a parameter because a source referencing a TileJSON may leave the encoding
+         * to the document: upstream's merge carries `encoding` -- and only `encoding`, not the four
+         * factors -- from the TileJSON when the source writes none (`load_tilejson.ts`). It
+         * defaults to the source's own, which is every other caller's case.
          */
-        fun of(source: Source): DemUnpack = when (DemEncoding.fromSpec(source.encoding)) {
+        fun of(source: Source, encoding: String? = source.encoding): DemUnpack = when (DemEncoding.fromSpec(encoding)) {
             DemEncoding.MAPBOX -> MAPBOX
             DemEncoding.TERRARIUM -> TERRARIUM
             DemEncoding.CUSTOM -> DemUnpack(

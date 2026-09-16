@@ -390,6 +390,14 @@ being a whitelist rather than "everything that is not raster".
 | `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, overzoom | `cluster*`, `lineMetrics`, `promoteId`, `tolerance` |
 | `image`, `video` | — | recognised, never fetched |
 
+A source's own options win over the TileJSON it references, which is upstream's
+`extend(tileJSON, options)` in `src/source/load_tilejson.ts` -- `tiles`, `minzoom`, `maxzoom`,
+`scheme`, `attribution`, `bounds`, `tileSize` and `encoding`, each applied only where the style
+actually wrote it. So a source pointing at a document and overriding `"scheme": "tms"` addresses
+rows its own way, and a `raster-dem` source that writes no `encoding` takes the document's. The four
+`custom` DEM factors are not in upstream's pick list and stay the source's own. `tileSize` is
+carried and still not honoured.
+
 ### Overzooming
 
 Above a source's `maxzoom` there are no tiles to fetch, and MapLibre does not drop the layer: it

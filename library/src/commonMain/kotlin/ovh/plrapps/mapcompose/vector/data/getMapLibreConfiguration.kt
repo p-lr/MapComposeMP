@@ -9,6 +9,7 @@ import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonSource
 import ovh.plrapps.mapcompose.vector.data.glyphs.FontFaceManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.LocalGlyphSource
+import ovh.plrapps.mapcompose.vector.spec.style.Source
 import ovh.plrapps.mapcompose.vector.spec.style.fontFaces
 import ovh.plrapps.mapcompose.vector.spec.style.sprites
 import ovh.plrapps.mapcompose.vector.spec.style.utils.StyleDiagnostics
@@ -53,25 +54,31 @@ suspend fun getMapLibreConfiguration(
                 GeoJsonSource.load(source, loadResource)?.let { geoJsonSources[name] = it }
                 return@forEach
             }
-            /* Only a raster-dem source's channels mean elevation; every other type leaves this null
-             * so nothing else can be mistaken for a DEM. */
-            val demUnpack = if (type == SourceType.RASTER_DEM) DemUnpack.of(source) else null
-            if (sourceUrl !== null) {
-                val tileJson = getTileJson(sourceUrl, loadResource).getOrElse { e -> return Result.failure(e) }
-                tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack)
-            } else if(tiles != null) {
-                tileSources[name] = MapLibreTileSource(
-                    TileJson(
-                        tilejson = "2.0.0",
-                        tiles = tiles,
-                        maxzoom = source.maxzoom ?: 22,
-                        minzoom = source.minzoom ?: 0,
-                        scheme = source.scheme ?: "xyz",
-                    ),
-                    type,
-                    demUnpack,
+            val tileJson = if (sourceUrl !== null) {
+                getTileJson(sourceUrl, loadResource)
+                    .getOrElse { e -> return Result.failure(e) }
+                    .overriddenBy(source)
+            } else if (tiles != null) {
+                TileJson(
+                    tilejson = "2.0.0",
+                    tiles = tiles,
+                    maxzoom = source.maxzoom ?: 22,
+                    minzoom = source.minzoom ?: 0,
+                    scheme = source.scheme ?: "xyz",
+                    tileSize = source.tileSize,
+                    encoding = source.encoding,
                 )
+            } else {
+                return@forEach
             }
+            /* Only a raster-dem source's channels mean elevation; every other type leaves this null
+             * so nothing else can be mistaken for a DEM. The encoding is read off the merged
+             * TileJson rather than off the source, because a referenced document may be the one
+             * declaring it. */
+            val demUnpack = if (type == SourceType.RASTER_DEM) {
+                DemUnpack.of(source, encoding = tileJson.encoding)
+            } else null
+            tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack)
         }
 
         /* Every declared sheet, not just the first: a list-form `sprite` namespaces each sheet's
@@ -117,6 +124,37 @@ suspend fun getMapLibreConfiguration(
         return Result.failure(e)
     }
 }
+
+/**
+ * The TileJSON a source actually uses: the document it references, with every option the style wrote
+ * on the source itself applied over it.
+ *
+ * Upstream's `src/source/load_tilejson.ts`, whose own comment is "explicit source options take
+ * precedence over TileJSON":
+ *
+ * ```
+ * pick(extend(tileJSON, options),
+ *      ['tiles', 'minzoom', 'maxzoom', 'attribution', 'bounds', 'scheme', 'tileSize', 'encoding'])
+ * ```
+ *
+ * `options` there is the raw style-source object, so a key the style did not write is simply absent
+ * and leaves the served value standing -- which is exactly what `?:` does over [Source]'s nullable
+ * fields. Without this a source overriding a referenced TileJSON to `"scheme": "tms"` still
+ * addressed rows the document's way and every tile landed mirrored.
+ *
+ * `redFactor` and the other three `custom` DEM factors are deliberately absent: they are not in
+ * upstream's pick list, so only `encoding` itself can arrive from a TileJSON.
+ */
+private fun TileJson.overriddenBy(source: Source): TileJson = copy(
+    tiles = source.tiles ?: tiles,
+    minzoom = source.minzoom ?: minzoom,
+    maxzoom = source.maxzoom ?: maxzoom,
+    scheme = source.scheme ?: scheme,
+    attribution = source.attribution ?: attribution,
+    bounds = source.bounds ?: bounds,
+    tileSize = source.tileSize ?: tileSize,
+    encoding = source.encoding ?: encoding,
+)
 
 suspend fun getTileJson(tileJsonUrl: String, loadResource: suspend (String) -> RawSource?): Result<TileJson> {
     return try {
