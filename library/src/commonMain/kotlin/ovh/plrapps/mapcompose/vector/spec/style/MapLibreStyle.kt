@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
+import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.data.json
 
 /**
@@ -101,7 +102,11 @@ val MapLibreStyle.sprites: List<SpriteSource>
     get() {
         val element = this.sprite
         return when(element) {
-            is JsonPrimitive -> listOf(SpriteSource(id = "", element.contentOrNull))
+            /* Upstream's `coerceSpriteToArray` (`src/util/style.ts`) gives the single-URL form the
+             * id `default`, which is exactly the id whose entries are not namespaced. */
+            is JsonPrimitive -> listOf(
+                SpriteSource(id = SpriteManager.DEFAULT_SPRITE_ID, url = element.contentOrNull)
+            )
             is JsonArray -> {
                 json.decodeFromJsonElement(ListSerializer(SpriteSource.serializer()), element)
             }
