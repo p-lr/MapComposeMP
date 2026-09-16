@@ -59,6 +59,7 @@ both ends hold an `ImageBitmap`. See [Tile encoding](#tile-encoding).
 | Piece | State |
 |---|---|
 | MVT protobuf decode (`spec/vector_tile.kt`, pbandk) | ✅ |
+| MLT decode (`vector` source with `encoding: "mlt"`) | ❌ — recognised, source refused at load |
 | MVT geometry command stream (`renderer/GeometryDecoders.kt`) | ✅ |
 | Style JSON, incl. legacy v7 functions and filters | ✅ |
 | Expressions (577-case upstream conformance suite) | ✅ |
@@ -384,7 +385,7 @@ being a whitelist rather than "everything that is not raster".
 
 | Type | Honoured | Not honoured |
 |---|---|---|
-| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), overzoom | — |
+| `vector` | TileJSON `tiles`, `minzoom`, `maxzoom`, `scheme` (`tms` mirrors the row), overzoom | `encoding: "mlt"` — refused, see below |
 | `raster` | the above, but overzoomed by stretching | `bounds`, `tileSize` |
 | `raster-dem` | the above, plus `encoding` (`mapbox` / `terrarium` / `custom`, per `DemUnpack`) | `bounds` |
 | `geojson` | inline `data` or a URL, `minzoom`, `maxzoom`, overzoom | `cluster*`, `lineMetrics`, `promoteId`, `tolerance` |
@@ -397,6 +398,35 @@ actually wrote it. So a source pointing at a document and overriding `"scheme": 
 rows its own way, and a `raster-dem` source that writes no `encoding` takes the document's. The four
 `custom` DEM factors are not in upstream's pick list and stay the source's own. `tileSize` is
 carried and still not honoured.
+
+#### `encoding: "mlt"` is refused, not decoded
+
+A `vector` source may declare its wire format. Upstream picks its decoder off it in
+`src/source/vector_tile_worker_source.ts`:
+
+```ts
+const vectorTile = params.encoding !== 'mlt'
+    ? new VectorTile(new PbfReader(rawData))
+    : new MLTVectorTile(rawData);
+```
+
+MapLibre Tiles is not decoded here. `data/VectorEncoding.kt` reads the property -- off the *merged*
+TileJSON, as `DemUnpack` reads its own, because upstream's `params.encoding` also comes out of
+`extend(tileJSON, options)` -- and `getMapLibreConfiguration` refuses such a source: it records a
+`StyleDiagnostic` under `sources.<name>` and does not register it, so it is never fetched and never
+reaches `decodePBFFromByteArray`. Layers reading it draw nothing.
+
+Refusing is the point. pbandk does not reliably throw on foreign bytes: it collects them into
+`Tile.unknownFields`, so an MLT tile handed to the protobuf decoder comes back as an empty or
+garbage `Tile` and not even the `catch` in `decodePBFFromByteArray` fires. The map was simply blank
+with nothing said, which is the same failure `SourceType.UNKNOWN` was introduced to avoid.
+
+Porting a decoder is deliberately out of scope. Upstream delegates to the npm package
+`@maplibre/mlt`; the implementations that exist are TypeScript, Java, Rust and C++, none of them
+reachable from `commonMain` across Android, iOS, desktop and wasm. The format is column-oriented
+with FSST string dictionaries, FastPFOR/varint integer encodings, morton-ordered geometry and its
+own protobuf tileset-metadata schema, and it is still marked experimental and evolving.
+`VectorEncoding` is the seam a decoder would plug into.
 
 ### Tile URL templates
 
@@ -1061,6 +1091,13 @@ each parent into four children, reusing the parent's already-clipped geometry, a
 vertex's simplification distance once for all zooms. This cuts every requested tile straight from the
 whole document and runs Douglas-Peucker per tile at that tile's own tolerance — the same shape of
 result, recomputed. `cluster` and `lineMetrics` are not supported.
+
+**MapLibre Tiles (`encoding: "mlt"`) are not decoded.** Upstream selects between the MVT and MLT
+decoders on `params.encoding` (`src/source/vector_tile_worker_source.ts`) and delegates the latter
+to the npm package `@maplibre/mlt`; there is no Kotlin or Kotlin Multiplatform decoder to delegate
+to, and the format is still experimental. A vector source declaring it is refused at load with a
+`StyleDiagnostic` and draws nothing, rather than being fed to the protobuf decoder -- which does not
+fail on foreign bytes, it collects them into `Tile.unknownFields`. See **Sources** above.
 
 ## Tile resolution
 

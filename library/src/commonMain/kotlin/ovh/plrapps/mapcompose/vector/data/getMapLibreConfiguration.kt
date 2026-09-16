@@ -86,6 +86,26 @@ suspend fun getMapLibreConfiguration(
             val demUnpack = if (type == SourceType.RASTER_DEM) {
                 DemUnpack.of(source, encoding = tileJson.encoding)
             } else null
+            /* A vector source may declare its wire format, and MapLibre Tiles is not one this port
+             * decodes -- see [VectorEncoding]. Refuse the source here rather than register it: an
+             * MLT tile fed to the protobuf decoder does not fail, pbandk collects the bytes into
+             * `Tile.unknownFields` and the tile comes back empty, so the map would simply be blank
+             * with nothing said. Not registering it also means the fetch loop never sees the source
+             * and no round trip is spent on bytes that cannot be read.
+             *
+             * The encoding is read off the merged TileJson for the same reason [DemUnpack] reads
+             * its own off it: a referenced document may be the one declaring it, and upstream's
+             * `params.encoding` likewise comes out of `extend(tileJSON, options)`. */
+            if (type == SourceType.VECTOR &&
+                VectorEncoding.fromSpec(tileJson.encoding) == VectorEncoding.MLT
+            ) {
+                StyleDiagnostics.report(
+                    location = "sources.$name",
+                    message = "vector encoding \"mlt\" is not supported; this source is not fetched",
+                )
+                println("Unsupported vector tile encoding \"mlt\" on source \"$name\"; source skipped")
+                return@forEach
+            }
             tileSources[name] = MapLibreTileSource(tileJson, type, demUnpack, tilePixelRatio)
         }
 
@@ -124,7 +144,11 @@ suspend fun getMapLibreConfiguration(
             geoJsonSources = geoJsonSources,
             spriteManager = spriteManager,
             glyphManager = glyphManager,
-            diagnostics = diagnostics,
+            /* The second drain is the source loop's: it runs after the first one, so anything it
+             * reports -- an unsupported vector encoding -- would otherwise be dropped on the floor.
+             * The first drain stays where it is so that a malformed font face declaration is still
+             * reported with everything else the parse found. */
+            diagnostics = diagnostics + StyleDiagnostics.drain(),
             globalState = globalState,
         ))
 
