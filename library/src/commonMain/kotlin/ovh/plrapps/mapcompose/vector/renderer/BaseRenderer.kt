@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.vector.renderer
 
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.geojson.GeoJsonTiler
+import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
@@ -10,6 +11,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Point2D
 import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.EXTENT
+import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 import kotlin.math.round
@@ -139,6 +141,7 @@ abstract class BaseRenderer(
          * because the MVT wire format has no room for one -- see [GeoJsonTiler.SYNTHETIC_ID_KEY].
          * Removing it here is what keeps it out of `["get"]` and `["properties"]`. */
         val syntheticId = properties.remove(GeoJsonTiler.SYNTHETIC_ID_KEY)
+        restoreSyntheticProperties(properties)
         val raw = EvalFeature(
             type = geometryTypeOf(feature),
             id = syntheticId ?: feature.id?.toDouble(),
@@ -193,6 +196,27 @@ abstract class BaseRenderer(
      * variants must not leak in — see the note on `normalizeNumbers`. This is what makes
      * `["==", ["get", "n"], 1]` match a property the tile encoded as a float.
      */
+    /**
+     * Puts back the properties the MVT wire format could not carry.
+     *
+     * A `geojson` source's synthetic tile collects a feature's object-, array- and null-valued
+     * properties into one JSON object under [GeoJsonTiler.SYNTHETIC_JSON_KEY], because `Tile.Value`
+     * holds a string, a number or a boolean and nothing else. Without this they reached an
+     * expression as their JSON *text*, or -- a null -- not at all, so `["has", k]` answered `false`
+     * where upstream's worker answers `true`.
+     *
+     * Malformed text is dropped rather than thrown on: the key is this port's own, so a failure
+     * here is a bug rather than a document's fault, and losing the properties beats losing the
+     * feature.
+     */
+    private fun restoreSyntheticProperties(properties: MutableMap<String, Any?>) {
+        val text = properties.remove(GeoJsonTiler.SYNTHETIC_JSON_KEY) as? String ?: return
+        val decoded = runCatching { jsonToValue(json.parseToJsonElement(text)) }.getOrNull()
+        (decoded as? Map<*, *>)?.forEach { (key, value) ->
+            properties[key.toString()] = normalizeNumbers(value)
+        }
+    }
+
     fun extractFeatureProperties(
         feature: Tile.Feature,
         tileLayer: Tile.Layer,

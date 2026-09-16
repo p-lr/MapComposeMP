@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.data.geojson
 
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import ovh.plrapps.mapcompose.vector.spec.style.expression.valueToJson
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.pow
@@ -366,6 +367,22 @@ class GeoJsonTiler(
          * NUL is what makes it a key no GeoJSON document writes.
          */
         const val SYNTHETIC_ID_KEY = "\u0000id"
+
+        /**
+         * The tag key the properties the MVT wire format cannot carry ride under, as JSON text.
+         *
+         * `Tile.Value` holds a string, a number or a boolean and nothing else, so an object, an
+         * array or a `null` had nowhere to go: a nested value was flattened to its JSON text, which
+         * is what `["get"]` then returned, and a null-valued key vanished entirely, so `["has", k]`
+         * answered `false` where upstream's worker -- which hands `geojson-vt` the parsed document
+         * -- answers `true`. Collecting them into one JSON object under a reserved key is the same
+         * trick [SYNTHETIC_ID_KEY] plays, and buys the same thing: it survives the overzoom crop,
+         * the neighbour gather and both tile caches with no plumbing.
+         *
+         * Lifted back out and removed by `renderer/BaseRenderer.buildEvalFeature`, once per
+         * (feature, tile) since the result is what `localPropCache` holds.
+         */
+        const val SYNTHETIC_JSON_KEY = "\u0000json"
     }
 
     /**
@@ -389,11 +406,27 @@ class GeoJsonTiler(
 
         fun add(feature: GeoJsonFeature, rings: List<List<Vertex>>) {
             val tags = mutableListOf<Int>()
+            var unrepresentable: MutableMap<String, Any?>? = null
             for ((key, raw) in feature.properties) {
-                if (raw == null) continue
-                val value = valueOf(raw) ?: continue
+                val value = if (raw == null) null else valueOf(raw)
+                if (value == null || raw == null) {
+                    // An object, an array or a null: it rides [SYNTHETIC_JSON_KEY] instead.
+                    val extras = unrepresentable
+                        ?: mutableMapOf<String, Any?>().also { unrepresentable = it }
+                    extras[key] = raw
+                    continue
+                }
                 tags += keyIndex.getOrPut(key) { keys.add(key); keys.size - 1 }
                 tags += valueIndex.getOrPut(raw) { values.add(value); values.size - 1 }
+            }
+            unrepresentable?.let { extras ->
+                val text = valueToJson(extras).toString()
+                tags += keyIndex.getOrPut(SYNTHETIC_JSON_KEY) {
+                    keys.add(SYNTHETIC_JSON_KEY); keys.size - 1
+                }
+                tags += valueIndex.getOrPut(text) {
+                    values.add(Tile.Value(stringValue = text)); values.size - 1
+                }
             }
             /* The id goes through the tag table whatever its type -- see [SYNTHETIC_ID_KEY] -- and
              * additionally through `Tile.Feature.id` when it is an exact integer, so that the tile
@@ -435,12 +468,17 @@ class GeoJsonTiler(
             )
         }
 
-        private fun valueOf(raw: Any?): Tile.Value? = when (raw) {
-            null -> null
+        /**
+         * The value as the wire format can hold it, or `null` when it cannot.
+         *
+         * An object or an array returns `null` rather than its `toString()`: stringifying it is
+         * exactly what `["get"]` used to read back. See [SYNTHETIC_JSON_KEY].
+         */
+        private fun valueOf(raw: Any): Tile.Value? = when (raw) {
             is String -> Tile.Value(stringValue = raw)
             is Boolean -> Tile.Value(boolValue = raw)
             is Number -> Tile.Value(doubleValue = raw.toDouble())
-            else -> Tile.Value(stringValue = raw.toString())
+            else -> null
         }
 
         /** Encodes rings as an MVT command stream, the form every decoder here already reads. */
