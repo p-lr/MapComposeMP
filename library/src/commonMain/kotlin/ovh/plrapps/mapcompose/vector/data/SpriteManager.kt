@@ -54,6 +54,9 @@ class SpriteSheet(
  * is addressed as `"<id>:<name>"`, which is the namespacing upstream applies when it merges the
  * sheets into one atlas. Only the first sheet used to be loaded, so a style using the list form
  * silently lost every icon but one sheet's.
+ *
+ * The id [DEFAULT_SPRITE_ID] is the exception and keeps its entries' bare names -- see
+ * [spriteImageId]. The single-URL form *is* that id, so the two forms are one code path.
  */
 class SpriteManager(private val sheets: List<SpriteSheet>) {
 
@@ -157,6 +160,28 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
         private const val SPRITE_CACHE_MAX_SIZE = 512
 
         /**
+         * The sheet id whose entries keep their bare names.
+         *
+         * `coerceSpriteToArray` (`src/util/style.ts`) is what gives the single-URL `sprite` form
+         * this id upstream, so both forms reach `_getSpriteImageId` and only this one is special
+         * -- which is why a style that wraps its one sheet as `[{"id": "default", ...}]`, as it
+         * does the moment a second sheet is added beside it, must keep resolving bare
+         * `icon-image` names.
+         */
+        const val DEFAULT_SPRITE_ID = "default"
+
+        /**
+         * How a sheet's id and an entry's name make the id the style addresses it by.
+         *
+         * A port of `_getSpriteImageId` (`src/render/image_manager.ts`). The empty string is
+         * treated as [DEFAULT_SPRITE_ID] too: that is what a list entry with no `id` decodes to
+         * here, and upstream's own destructuring would namespace such an entry as `"undefined:"`.
+         */
+        internal fun spriteImageId(spriteId: String, imageId: String): String =
+            if (spriteId.isEmpty() || spriteId == DEFAULT_SPRITE_ID) imageId
+            else "$spriteId:$imageId"
+
+        /**
          * The size an SDF entry is magnified to before it is shaded.
          *
          * The distance field is linear, so bilinear magnification is lossless in a way the shaded
@@ -250,7 +275,8 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
          * @param spriteUrl the sheet's URL without an extension; `.json` and `.png` are appended,
          * prefixed with `@2x` when [pixelRatio] asks for the hidpi variant.
          * @param id the sheet's id from a list-form `sprite`, used to namespace its entries as
-         * `"<id>:<name>"`. Empty for the single-URL form, whose entries keep their bare names.
+         * `"<id>:<name>"` -- except for [DEFAULT_SPRITE_ID], and for the empty string a list entry
+         * with no `id` decodes to, both of which keep their bare names. See [spriteImageId].
          */
         @OptIn(ExperimentalResourceApi::class)
         suspend fun loadSheet(
@@ -268,7 +294,7 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
                     loadResource(jsonUrl)?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
                 }
                 val decoded = json.decodeFromString<Map<String, Sprite>>(spriteJson)
-                val spriteIndex = if (id.isEmpty()) decoded else decoded.mapKeys { "$id:${it.key}" }
+                val spriteIndex = decoded.mapKeys { spriteImageId(id, it.key) }
 
                 val spriteImageBytes = withContext(IODispatcher) {
                     loadResource(imageUrl)?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")

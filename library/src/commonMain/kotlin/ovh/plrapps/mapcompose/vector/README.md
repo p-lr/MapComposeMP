@@ -627,7 +627,12 @@ which is what upstream gets for free by re-entering `_updatePlacement` on every 
 
 **Sprites** (`data/SpriteManager.kt`, `spec/sprites/Sprite.kt`). Every sheet a style declares is
 loaded, not just the first; the list form's `id` namespaces its entries as `"<id>:<name>"`, as
-upstream's merged atlas does. An entry's `pixelRatio` is divided out wherever a size in layout pixels
+upstream's merged atlas does -- except for the id `default`, whose entries keep their bare names
+(`_getSpriteImageId`, `src/render/image_manager.ts`). The single-URL form *is* that id upstream
+(`coerceSpriteToArray`, `src/util/style.ts`), so the two `sprite` forms are one code path; keying the
+exception on an *empty* id instead, as this did, broke every bare `icon-image` of a style written as
+`[{"id": "default", "url": ...}]` -- which is what a style becomes the moment a second sheet is added
+beside its first. An entry's `pixelRatio` is divided out wherever a size in layout pixels
 is needed — icon size, pattern tile — so an `@2x` sheet draws at the same size as a plain one.
 `stretchX` / `stretchY` / `content` drive the nine-patch path in
 `renderer/utils/StretchableIcon.kt`, which is what `icon-text-fit` stretches an icon with. SDF
