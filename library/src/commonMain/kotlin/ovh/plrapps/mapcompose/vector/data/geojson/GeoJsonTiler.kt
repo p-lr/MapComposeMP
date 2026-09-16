@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.vector.data.geojson
 
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import kotlin.math.abs
+import kotlin.math.floor
 import kotlin.math.pow
 
 /**
@@ -263,6 +264,21 @@ class GeoJsonTiler(
 
         /** The layer name a geojson tile carries. Upstream's `GeoJSONWrapper` uses the same one. */
         const val LAYER_NAME = "_geojsonTileLayer"
+
+        /**
+         * The tag key a feature's id rides under when the MVT wire format cannot carry it.
+         *
+         * `Tile.Feature.id` is a protobuf `uint64` and `spec/vector_tile.kt` is pbandk-generated,
+         * so a string id -- which RFC 7946 allows and upstream keeps -- has nowhere else to go. A
+         * geojson tile is synthesized by this tiler rather than fetched, so smuggling the id
+         * through the layer's own tag table costs nothing and means it survives every path a tile
+         * takes: the overzoom crop, the neighbour gather and both tile caches.
+         *
+         * Private to this tiler and to `renderer/BaseRenderer.buildEvalFeature`, which lifts it
+         * back out and removes it, so it never reaches `["get"]` or `["properties"]`. The leading
+         * NUL is what makes it a key no GeoJSON document writes.
+         */
+        const val SYNTHETIC_ID_KEY = "\u0000id"
     }
 
     /**
@@ -292,12 +308,28 @@ class GeoJsonTiler(
                 tags += keyIndex.getOrPut(key) { keys.add(key); keys.size - 1 }
                 tags += valueIndex.getOrPut(raw) { values.add(value); values.size - 1 }
             }
+            /* The id goes through the tag table whatever its type -- see [SYNTHETIC_ID_KEY] -- and
+             * additionally through `Tile.Feature.id` when it is an exact integer, so that the tile
+             * stays self-describing for anything reading it as an ordinary MVT tile. */
+            feature.id?.let { id ->
+                valueOf(id)?.let { value ->
+                    tags += keyIndex.getOrPut(SYNTHETIC_ID_KEY) { keys.add(SYNTHETIC_ID_KEY); keys.size - 1 }
+                    tags += valueIndex.getOrPut(id) { values.add(value); values.size - 1 }
+                }
+            }
             features += Tile.Feature(
-                id = feature.id,
+                id = integralId(feature.id),
                 type = feature.type,
                 geometry = encode(feature.type, rings),
                 tags = tags,
             )
+        }
+
+        /** The id as `Tile.Feature.id` can hold it, or `null` when the wire format cannot. */
+        private fun integralId(id: Any?): Long? = when (id) {
+            is Long -> id
+            is Double -> id.takeIf { it.isFinite() && it == floor(it) && abs(it) <= 9.007199254740992E15 }?.toLong()
+            else -> null
         }
 
         fun build(): Tile? {
