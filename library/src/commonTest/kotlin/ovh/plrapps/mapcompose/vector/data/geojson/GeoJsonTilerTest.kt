@@ -28,6 +28,61 @@ class GeoJsonTilerTest {
     private fun Tile.Feature.vertices(canvasSize: Int = 4096) =
         decoders.decodeVertices(geometry, extent = 4096, canvasSize = canvasSize)
 
+    // region feature ids
+
+    /**
+     * `Tile.Feature.id` is a protobuf `uint64` and `spec/vector_tile.kt` is pbandk-generated, so a
+     * string id -- which RFC 7946 allows and MapLibre keeps -- rides the layer's own tag table
+     * instead. `BaseRenderer.buildEvalFeature` lifts it back out and removes it, so it never
+     * reaches `["get"]`; here the tile is inspected directly.
+     */
+    @Test
+    fun `a string feature id crosses the synthetic tile`() {
+        val tile = assertNotNull(
+            tiler("""{"type":"Feature","id":"abc","properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}""")
+                .tile(0, 0, 0)
+        )
+        val layer = tile.layer()
+        val feature = layer.features.single()
+        assertNull(feature.id, "the wire format cannot hold a string id")
+        assertEquals("abc", layer.tagValue(feature, GeoJsonTiler.SYNTHETIC_ID_KEY))
+    }
+
+    @Test
+    fun `an integral feature id is carried both ways so the tile stays self-describing`() {
+        val tile = assertNotNull(
+            tiler("""{"type":"Feature","id":42,"properties":{},"geometry":{"type":"Point","coordinates":[0,0]}}""")
+                .tile(0, 0, 0)
+        )
+        val layer = tile.layer()
+        val feature = layer.features.single()
+        assertEquals(42L, feature.id)
+        assertEquals(42.0, layer.tagValue(feature, GeoJsonTiler.SYNTHETIC_ID_KEY))
+    }
+
+    @Test
+    fun `a feature with no id carries no synthetic tag`() {
+        val tile = assertNotNull(
+            tiler("""{"type":"Feature","properties":{"a":1},"geometry":{"type":"Point","coordinates":[0,0]}}""")
+                .tile(0, 0, 0)
+        )
+        val layer = tile.layer()
+        assertNull(layer.tagValue(layer.features.single(), GeoJsonTiler.SYNTHETIC_ID_KEY))
+        assertTrue(GeoJsonTiler.SYNTHETIC_ID_KEY !in layer.keys)
+    }
+
+    /** The value a feature carries under [key], read through the layer's shared tables. */
+    private fun Tile.Layer.tagValue(feature: Tile.Feature, key: String): Any? {
+        for (i in feature.tags.indices step 2) {
+            if (keys.getOrNull(feature.tags[i]) != key) continue
+            val value = values.getOrNull(feature.tags[i + 1]) ?: return null
+            return value.stringValue ?: value.doubleValue ?: value.intValue ?: value.boolValue
+        }
+        return null
+    }
+
+    // endregion
+
     @Test
     fun `the zero tile covers the whole world`() {
         val tile = assertNotNull(tiler("""{"type":"Point","coordinates":[0,0]}""").tile(0, 0, 0))

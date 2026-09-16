@@ -84,8 +84,14 @@ data class Source(
     /** `[west, south, east, north]`; parsed but not yet honoured -- see the raster painter. */
     val bounds: List<Double>? = null,
 
-    /** `geojson` only: the feature property to promote to the feature's id. */
-    val promoteId: String? = null,
+    /**
+     * The feature property that stands in for a feature's id, on a `vector` or `geojson` source.
+     *
+     * Kept as raw JSON because the spec allows either a bare property name or an object naming one
+     * per source layer -- the same reason `sprite` and `font-faces` are. See [promoteIdSpec], which
+     * normalizes it, and `renderer/BaseRenderer.buildEvalFeature`, which applies it.
+     */
+    val promoteId: JsonElement? = null,
 
     /* raster-dem only: how the tile's RGB channels encode elevation. See DemUnpack. */
     val encoding: String? = null,
