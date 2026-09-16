@@ -67,7 +67,7 @@ suspend fun getMapLibreConfiguration(
             if (type == SourceType.GEOJSON) {
                 /* A geojson source has no tile URL: the whole document is loaded once and cut into
                  * tiles on demand, so it never reaches the tile fetcher at all. */
-                GeoJsonSource.load(source, loadResource)?.let { geoJsonSources[name] = it }
+                GeoJsonSource.load(source, name, loadResource)?.let { geoJsonSources[name] = it }
                 return@forEach
             }
             val tileJson = if (sourceUrl !== null) {
