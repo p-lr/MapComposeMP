@@ -181,6 +181,16 @@ was **not** gathered, which is the fallback for a neighbour whose fetch failed. 
 the buffered copy was the only repair, and it is bounded by the source's buffer: at the usual 64
 units of a 4096 extent a disc reaching further than `tileBitmapSize / 64` pixels was drawn by nobody.
 
+**`circle-sort-key` is applied across the gathered tiles, not within each.** Upstream sorts the
+layer's drawing segments across every tile it draws (`draw_circle.ts`), and sorting each tile's share
+on its own -- then painting this tile before its neighbours, as this did -- makes two overlapping
+discs either side of a boundary stack one way on one tile's bitmap and the other way on its
+neighbour's, however explicit the key. `TileRenderer` collects the features of this tile and of every
+gathered neighbour into one list and sorts it once; the sort is stable, so a layer with no sort key
+keeps this tile's features ahead of its neighbours' and each tile's own feature order within that.
+Each feature carries its own tile's extent and `CircleVertexGate` along, since the sorted list
+interleaves them.
+
 Gathering is gated on a circle layer being visible and in zoom range, since it costs 8 fetches per
 source — a style with no circle layer at that zoom pays nothing, and a source a heatmap reads too
 gathers once. What remains bounded is a disc reaching further than one whole tile, the same limit

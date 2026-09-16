@@ -383,6 +383,39 @@ class TileRendererTest {
     }
 
     @Test
+    fun `circle-sort-key orders this tile's features against its neighbours'`() = runTest {
+        /* Two discs overlapping across the western seam. Upstream sorts a circle layer's drawing
+         * segments across every tile (`webgl/draw/draw_circle.ts`); sorting each tile's share on its
+         * own and painting this tile first -- which is what this did -- put the neighbour's *lower*
+         * key on top, and the pair stacked the other way round on the neighbour's own bitmap. */
+        val ranked = layer(
+            """{"id":"dots","type":"circle","source":"src","source-layer":"points",
+                "layout":{"circle-sort-key":["get","rank"]},
+                "paint":{"circle-radius":8,
+                         "circle-color":["match",["get","rank"],0,"#0000ff","#ff0000"]}}"""
+        )
+        // rank 1 just inside this tile's western edge, rank 0 just inside the neighbour's eastern
+        // one: one canvas pixel apart, so the discs cover each other almost entirely.
+        val own = rankedPointTile(64 to 2048, rank = 1.0)
+        val west = NeighbourTile(
+            tile = rankedPointTile(4032 to 2048, rank = 0.0), dx = -1, dy = 0, ref = WEST_REF
+        )
+
+        val bitmap = render(ranked, own, neighbours = listOf(west))
+
+        assertColorEquals(Color.Red, bitmap.pixelAt(1, 32), message = "the higher sort key draws on top")
+    }
+
+    private fun rankedPointTile(point: Pair<Int, Int>, rank: Double) = Mvt.tile(
+        Mvt.layer(
+            name = "points",
+            features = listOf(Mvt.pointFeature(point, tags = listOf(0, 0))),
+            keys = listOf("rank"),
+            values = listOf(Mvt.numberValue(rank)),
+        )
+    )
+
+    @Test
     fun `a buffered copy is drawn when its own tile was not gathered`() = runTest {
         // No neighbours: the buffered copy is all this tile has, and dropping it would leave the
         // disc's half missing entirely -- the behaviour a failed neighbour fetch falls back to.
