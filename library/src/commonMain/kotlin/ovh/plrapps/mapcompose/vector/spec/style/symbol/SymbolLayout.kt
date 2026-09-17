@@ -6,7 +6,9 @@ import kotlinx.serialization.json.JsonElement
 import ovh.plrapps.mapcompose.vector.spec.style.LayoutInterface
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueNumberArraySerializer
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueFormattedSerializer
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueResolvedImageSerializer
 import ovh.plrapps.mapcompose.vector.spec.style.props.VISIBILITY_DEFAULT
@@ -46,8 +48,18 @@ data class SymbolLayout(
     @SerialName("icon-rotate")
     val iconRotate: ExpressionOrValue<Double>? = null,
 
+    /**
+     * Typed `padding` by the spec, with a default of `[2]`: a number or one to four of them.
+     *
+     * Carried as a `numberArray` rather than as a `padding` -- the engine models no `padding` type,
+     * and the two agree on everything this property needs, a bare scalar becoming a one-element
+     * array included (`NumberArray.parse`). The CSS expansion into four sides is
+     * `renderer/utils/PaddingSides.kt`. Modelled as a plain `Double`, an asymmetric `[0, 20, 0, 0]`
+     * failed the constant decode and the property fell back to its default.
+     */
     @SerialName("icon-padding")
-    val iconPadding: ExpressionOrValue<Double>? = null,
+    @Serializable(with = ExpressionOrValueNumberArraySerializer::class)
+    val iconPadding: ExpressionOrValue<NumberArray>? = null,
 
     @SerialName("icon-keep-upright")
     val iconKeepUpright: ExpressionOrValue<Boolean>? = null,
