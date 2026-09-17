@@ -222,6 +222,15 @@ gap on top of it — which this port used to add, half the icon's height plus 2 
 about a text line too low. `spriteWithTextBounds` is the union of the two boxes, and is what
 `SymbolComposer` positions the pair by and what `Symbol.SpriteWithText.align` is derived from.
 
+**`text-variable-anchor-offset` names its own candidates** where `text-variable-anchor` is absent,
+which is upstream walking `variableAnchorOffset.values` two at a time to derive
+`variableTextAnchor`. It used to supply an offset for an anchor that was already a candidate and
+nothing more, so a style declaring it alone got the one ordinary anchor and its label vanished
+wherever that anchor collided. The collection is read as an ordered list
+(`renderer/utils/AnchorOffsets.kt`), because its order is the order the anchors are tried in and
+because a repeated anchor must not silently replace the offset written before it -- the map form is
+built from it, first entry winning.
+
 **A label that follows a line is drawn glyph by glyph**, along the projected line, as upstream's
 `placeGlyphsAlongLine` (`symbol/projection.ts`) does — the collision pass already walked that curve
 (`Placement.circleChain`), so a label on a bend used to be tested against a chain of circles and then

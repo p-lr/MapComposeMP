@@ -995,6 +995,37 @@ class SymbolLayerLayoutTest {
     }
 
     @Test
+    fun `text-variable-anchor-offset names the candidates on its own`() {
+        runTest {
+            /* Upstream derives `variableTextAnchor` by walking `variableAnchorOffset.values` two at
+             * a time where `text-variable-anchor` is absent. This property used to supply an offset
+             * and nothing more, so a style declaring it alone got the single ordinary anchor and its
+             * label vanished wherever that one anchor collided. */
+            val offsetOnly = produce(
+                layer(
+                    """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                        """"text-variable-anchor-offset":["top",[0,1],"bottom",[0,-1]]}"""
+                )
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
+
+            // Naming the same anchors explicitly has to give the same candidates, in the same order.
+            val spelledOut = produce(
+                layer(
+                    """{"icon-image":"marker","text-field":"ab","text-font":["Test Regular"],""" +
+                        """"text-variable-anchor":["top","bottom"],""" +
+                        """"text-variable-anchor-offset":["top",[0,1],"bottom",[0,-1]]}"""
+                )
+            ).filterIsInstance<SymbolInstance.SpriteWithText>().single()
+
+            assertEquals(2, offsetOnly.textCandidates.size)
+            assertContentEquals(
+                spelledOut.textCandidates.map { it.dy },
+                offsetOnly.textCandidates.map { it.dy },
+            )
+        }
+    }
+
+    @Test
     fun `the icon's size does not enter the label's offset`() {
         runTest {
             /* Upstream's `symbol_layout.ts` anchors the icon and the label at the *same* point: the
