@@ -75,23 +75,40 @@ fun radialOffsetEms(anchor: TextAnchor, radialOffset: Float): Offset {
 }
 
 /**
- * `text-variable-anchor-offset` read into a per-anchor offset in ems.
+ * `text-variable-anchor-offset` read into its anchors **in order**, each with its offset in ems.
  *
  * The spec's `variableAnchorOffsetCollection` is a flat list alternating an anchor name and its own
  * `[x, y]`: `["top", [0, 1], "left", [2, 0]]`. Anything malformed is skipped rather than failing the
  * property, which is what the rest of the style parsing does with a value it cannot use.
+ *
+ * The order is the property's own, because it is also the order the placement pass tries the
+ * anchors in when the property stands alone -- upstream walks `variableAnchorOffset.values` two at
+ * a time to derive `variableTextAnchor`. A list rather than a map for the same reason, and because
+ * a repeated anchor must not silently replace the offset written before it.
  */
-fun variableAnchorOffsets(raw: List<Any?>?): Map<TextAnchor, Offset> {
-    if (raw.isNullOrEmpty()) return emptyMap()
-    val out = mutableMapOf<TextAnchor, Offset>()
+fun variableAnchorOffsetEntries(raw: List<Any?>?): List<Pair<TextAnchor, Offset>> {
+    if (raw.isNullOrEmpty()) return emptyList()
+    val out = mutableListOf<Pair<TextAnchor, Offset>>()
     var index = 0
     while (index + 1 < raw.size) {
         val name = anchorName(raw[index])
         val offset = numberPair(raw[index + 1])
         index += 2
         if (name == null || offset == null) continue
-        out[TextAnchor.fromString(name)] = offset
+        out += TextAnchor.fromString(name) to offset
     }
+    return out
+}
+
+/**
+ * The same collection as a lookup. The first entry for an anchor wins, as the first candidate for
+ * it is the one the placement pass reaches first.
+ */
+fun variableAnchorOffsets(raw: List<Any?>?): Map<TextAnchor, Offset> {
+    val entries = variableAnchorOffsetEntries(raw)
+    if (entries.isEmpty()) return emptyMap()
+    val out = mutableMapOf<TextAnchor, Offset>()
+    for ((anchor, offset) in entries) out.getOrPut(anchor) { offset }
     return out
 }
 

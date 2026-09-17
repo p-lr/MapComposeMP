@@ -42,6 +42,7 @@ import ovh.plrapps.mapcompose.vector.renderer.utils.anchorCenterOffset
 import ovh.plrapps.mapcompose.vector.renderer.utils.iconTextFitSize
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
 import ovh.plrapps.mapcompose.vector.renderer.utils.radialOffsetEms
+import ovh.plrapps.mapcompose.vector.renderer.utils.variableAnchorOffsetEntries
 import ovh.plrapps.mapcompose.vector.renderer.utils.variableAnchorOffsets
 import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_PLACEMENT_LINE
 import ovh.plrapps.mapcompose.vector.spec.style.SYMBOL_PLACEMENT_LINE_CENTER
@@ -904,12 +905,21 @@ internal class SymbolLayerLayout(
         }
 
         /* With icon-text-fit the label is part of the icon, so it neither hangs below it nor takes
-         * a position of its own: every anchor candidate collapses onto the icon. */
+         * a position of its own: every anchor candidate collapses onto the icon.
+         *
+         * Failing that, `text-variable-anchor` names the candidates -- and where it is absent,
+         * `text-variable-anchor-offset` names them itself, which is upstream walking
+         * `variableAnchorOffset.values` two at a time for its `variableTextAnchor`. That property
+         * used to supply an offset and nothing more, so a style declaring it alone got the one
+         * ordinary anchor and its label simply disappeared where that anchor collided. */
         val anchors: List<TextAnchor> = when {
             textInsideIcon -> listOf(TextAnchor.Center)
             else -> layout.textVariableAnchor?.processAsStringList(featureProperties, actualZoom)
                 ?.takeIf { it.isNotEmpty() }
                 ?.map { TextAnchor.fromString(it) }
+                ?: variableAnchorOffsetEntries(
+                    layout.textVariableAnchorOffset.processAsAnyList(featureProperties, actualZoom)
+                ).map { it.first }.distinct().takeIf { it.isNotEmpty() }
                 ?: listOf(anchor)
         }
 
