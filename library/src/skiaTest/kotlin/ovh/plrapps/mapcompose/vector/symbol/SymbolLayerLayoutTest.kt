@@ -500,6 +500,37 @@ class SymbolLayerLayoutTest {
     }
 
     @Test
+    fun `an asymmetric icon-padding reaches the collision box`() {
+        runTest {
+            /* The spec types `icon-padding` `padding`, so `[0, 20, 0, 0]` is a valid value naming
+             * one side. Modelled as a plain `Double` it failed the constant decode, became a
+             * diagnostic, and the property fell back to the scalar default of 2 -- the layer's
+             * collision reserved the wrong ground and the wrong neighbours survived. */
+            val symbols = produce(layer("""{"icon-image":"marker","icon-padding":[0,20,0,0]}"""))
+
+            val sprite = assertNotNull(symbols.filterIsInstance<SymbolInstance.Sprite>().singleOrNull())
+            val bounds = sprite.placement.spritePlacement.bounds
+            assertEquals(16f + 20f, bounds.width, "the padding is on the right alone")
+            assertEquals(16f, bounds.height)
+            assertEquals(sprite.tileAnchor.x - 8f, bounds.left, "the left edge is unpadded")
+            assertEquals(sprite.tileAnchor.x + 8f + 20f, bounds.right)
+        }
+    }
+
+    @Test
+    fun `a scalar icon-padding still pads every side`() {
+        runTest {
+            // A bare number is a one-element array, which is what every style written before the
+            // `padding` typing spells.
+            val symbols = produce(layer("""{"icon-image":"marker","icon-padding":8}"""))
+            val bounds = symbols.filterIsInstance<SymbolInstance.Sprite>().single()
+                .placement.spritePlacement.bounds
+            assertEquals(16f + 16f, bounds.width)
+            assertEquals(16f + 16f, bounds.height)
+        }
+    }
+
+    @Test
     fun `icon-color does not recolour a plain icon`() {
         runTest {
             // `icon-color` is SDF-only. Upstream's ordinary-icon program is

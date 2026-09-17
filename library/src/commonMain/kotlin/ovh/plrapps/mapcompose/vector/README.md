@@ -222,6 +222,18 @@ gap on top of it — which this port used to add, half the icon's height plus 2 
 about a text line too low. `spriteWithTextBounds` is the union of the two boxes, and is what
 `SymbolComposer` positions the pair by and what `Symbol.SpriteWithText.align` is derived from.
 
+**`icon-padding` is four-sided**, as the spec types it (`padding`, default `[2]`) and as upstream's
+`getIconPadding` reads it. It was modelled as a plain `Double`, so an asymmetric `[0, 20, 0, 0]`
+failed the constant decode, became a diagnostic and fell back to the scalar default -- the layer
+reserved the wrong ground and the wrong neighbours survived collision. It is carried as a
+`numberArray` rather than as a `padding`, the engine modelling no such type and the two agreeing on
+everything the property needs, a bare scalar becoming a one-element array included; the CSS
+1/2/3/4-value expansion is `renderer/utils/PaddingSides.kt`. One consequence: an
+`["interpolate", …]` between two paddings types as `numberArray`. `text-padding` really is `number`
+in the spec and stays uniform. An asymmetric padding moves the collision box's centre as well as
+growing it, and that shift is applied in world space rather than in the box's own frame -- which
+costs nothing at the default, where the shift is zero, and upstream's box is axis-aligned anyway.
+
 **`text-variable-anchor-offset` names its own candidates** where `text-variable-anchor` is absent,
 which is upstream walking `variableAnchorOffset.values` two at a time to derive
 `variableTextAnchor`. It used to supply an offset for an anchor that was already a candidate and
