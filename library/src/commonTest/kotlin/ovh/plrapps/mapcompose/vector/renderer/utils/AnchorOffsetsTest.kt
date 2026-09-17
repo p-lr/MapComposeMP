@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.TextAnchor
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
@@ -116,5 +117,28 @@ class AnchorOffsetsTest {
         assertEquals(setOf(TextAnchor.Left), offsets.keys)
         assertEquals(emptyMap(), variableAnchorOffsets(null))
         assertEquals(emptyMap(), variableAnchorOffsets(emptyList()))
+    }
+
+    @Test
+    fun `the entries keep the property's order`() {
+        /* The order is what the placement pass tries the anchors in when the property stands alone,
+         * so the collection cannot be read as a map on the way in. */
+        val raw = Json.parseToJsonElement("""["bottom",[0,1],"top",[0,-1],"left",[1,0]]""") as JsonArray
+        assertContentEquals(
+            listOf(TextAnchor.Bottom, TextAnchor.Top, TextAnchor.Left),
+            variableAnchorOffsetEntries(raw.toList()).map { it.first },
+        )
+    }
+
+    @Test
+    fun `a repeated anchor keeps the offset written first`() {
+        // A map built by assignment would have kept the *last* one, and lost a candidate with it.
+        val entries = variableAnchorOffsetEntries(
+            listOf("top", listOf(0.0, 1.0), "top", listOf(0.0, 2.0))
+        )
+        assertEquals(2, entries.size)
+        assertEquals(Offset(0f, 1f), variableAnchorOffsets(
+            listOf("top", listOf(0.0, 1.0), "top", listOf(0.0, 2.0))
+        )[TextAnchor.Top])
     }
 }
