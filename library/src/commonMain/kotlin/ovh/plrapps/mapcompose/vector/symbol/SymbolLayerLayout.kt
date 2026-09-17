@@ -29,8 +29,11 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsImageName
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsStringList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
+import ovh.plrapps.mapcompose.vector.renderer.utils.PaddingSides
 import ovh.plrapps.mapcompose.vector.renderer.utils.clipLine
+import ovh.plrapps.mapcompose.vector.renderer.utils.paddingSides
 import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import ovh.plrapps.mapcompose.vector.spec.style.props.processAsNumberArray
 import ovh.plrapps.mapcompose.vector.renderer.utils.findPoleOfInaccessibility
 import ovh.plrapps.mapcompose.vector.spec.sprites.Sprite as SpriteInfo
 import ovh.plrapps.mapcompose.vector.spec.style.symbol.SymbolLayout
@@ -587,7 +590,7 @@ internal class SymbolLayerLayout(
         center: ObbPoint,
         width: Float,
         height: Float,
-        padding: Float,
+        padding: PaddingSides,
         angle: Float,
         layerIndex: Int,
         layout: SymbolLayout,
@@ -600,14 +603,18 @@ internal class SymbolLayerLayout(
         position = center,
         angle = angle,
         bounds = Rect(
-            left = center.x - width / 2f - padding,
-            top = center.y - height / 2f - padding,
-            right = center.x + width / 2f + padding,
-            bottom = center.y + height / 2f + padding,
+            left = center.x - width / 2f - padding.left,
+            top = center.y - height / 2f - padding.top,
+            right = center.x + width / 2f + padding.right,
+            bottom = center.y + height / 2f + padding.bottom,
         ),
+        /* An asymmetric padding moves the box's centre as well as growing it. The shift is applied
+         * in world space rather than in the box's own frame, so for a rotated box it is off by the
+         * rotation -- which costs nothing at the spec default, where all four sides are equal and
+         * the shift is zero, and upstream's collision box is axis-aligned anyway. */
         obb = OBB(
-            center,
-            ObbSize(width + 2 * padding, height + 2 * padding),
+            ObbPoint(center.x + padding.centerShiftX, center.y + padding.centerShiftY),
+            ObbSize(width + padding.width, height + padding.height),
             angle,
         ),
         layerIndex = layerIndex,
@@ -715,7 +722,11 @@ internal class SymbolLayerLayout(
             tileSize = canvasSize
         )
 
-        val iconPadding = (layout.iconPadding.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_PADDING.toFloat()) * density.density
+        val iconPadding = paddingSides(
+            layout.iconPadding.processAsNumberArray(featureProperties, actualZoom),
+            default = StyleSpecDefaults.ICON_PADDING,
+            scale = density.density,
+        )
         val isLinePlacement = placementModeOf(layout, featureProperties, actualZoom).isLinePlacement()
         val keepUpright = layout.iconKeepUpright?.processAsBoolean(featureProperties, actualZoom)
             ?: StyleSpecDefaults.ICON_KEEP_UPRIGHT
@@ -873,8 +884,16 @@ internal class SymbolLayerLayout(
             tileSize = canvasSize
         )
 
-        val iconPadding = (layout.iconPadding.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_PADDING.toFloat()) * density.density
-        val textPadding = (layout.textPadding.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        val iconPadding = paddingSides(
+            layout.iconPadding.processAsNumberArray(featureProperties, actualZoom),
+            default = StyleSpecDefaults.ICON_PADDING,
+            scale = density.density,
+        )
+        // `text-padding` really is `number` in the spec, so it is the same on every side.
+        val textPadding = PaddingSides.uniform(
+            (layout.textPadding.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        )
 
         val iconRotateDeg = layout.iconRotate.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.ICON_ROTATE.toFloat()
         val textRotateDeg = layout.textRotate.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_ROTATE.toFloat()
@@ -1267,8 +1286,11 @@ internal class SymbolLayerLayout(
             layout.textRotationAlignment?.processAsString(featureProperties, actualZoom),
             defaultViewportAligned = false  // "auto" + line placement = map-aligned
         )
-        val textPadding = (layout.textPadding.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        // `text-padding` really is `number` in the spec, so it is the same on every side.
+        val textPadding = PaddingSides.uniform(
+            (layout.textPadding.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        )
         val plainText = art.text
 
         val x = position.first + dx
@@ -1408,7 +1430,11 @@ internal class SymbolLayerLayout(
             tileSize = canvasSize
         )
 
-        val textPadding = (layout.textPadding.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        // `text-padding` really is `number` in the spec, so it is the same on every side.
+        val textPadding = PaddingSides.uniform(
+            (layout.textPadding.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.TEXT_PADDING.toFloat()) * density.density
+        )
         val textRotateDeg = layout.textRotate.processAsFloat(featureProperties, actualZoom) ?: StyleSpecDefaults.TEXT_ROTATE.toFloat()
         val pointTextAngle = placement.angle + textRotateDeg
 
