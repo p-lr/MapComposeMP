@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
@@ -90,6 +92,12 @@ class VectorRasterizer(
         weigher = { it.size.toLong() },
     )
     private val pathCache = LruCache<String, Any>(maxSize = PATH_CACHE_SIZE)
+
+    /* Where shared fetches and decodes run -- see [SharedLoads]. Its own supervisor, so one failing
+     * load fails only the callers waiting on it. */
+    private val loadScope = CoroutineScope(SupervisorJob() + IODispatcher)
+    private val sharedFetches = SharedLoads<ByteArray?>(loadScope)
+    private val sharedDecodes = SharedLoads<Tile?>(loadScope)
 
     /* What a decoded tile becomes once a painter has drawn it, keyed by the render key and the size it
      * is decoded at. Its weight is estimated when it is created, before anything is decoded into it. */
@@ -288,11 +296,7 @@ class VectorRasterizer(
             val ref = refs[sourceName] ?: return@associateWith null
             val key = getTileKey(sourceName, ref)
             tileCacheMutex.withLock { tileCache.get(key) }
-                ?: fetched[sourceName]?.let { tile ->
-                    decodePBFFromByteArray(tile.bytes)?.also { t ->
-                        tileCacheMutex.withLock { tileCache.put(key, t) }
-                    }
-                }
+                ?: fetched[sourceName]?.let { tile -> decodeShared(key, tile.bytes) }
         }
 
         /* Raster sources are keyed by the tile actually fetched, not by the tile requested: when the
@@ -482,9 +486,16 @@ class VectorRasterizer(
         val source = configuration.tileSources[sourceName] ?: return null
         val bytes = fetchTile(source.getTileUrl(ref), ref = ref, sourceName = sourceName)
             .getOrNull() ?: return null
-        return decodePBFFromByteArray(bytes)?.also { tile ->
-            tileCacheMutex.withLock { tileCache.put(key, tile) }
-        }
+        return decodeShared(key, bytes)
+    }
+
+    /**
+     * Decodes [bytes] into the tile cache under [key], once however many callers race for it -- a
+     * tile worker and the layout pass usually do. See [SharedLoads].
+     */
+    private suspend fun decodeShared(key: String, bytes: ByteArray): Tile? = sharedDecodes.load(key) {
+        tileCacheMutex.withLock { tileCache.get(key) }
+            ?: decodePBFFromByteArray(bytes)?.also { tile -> tileCacheMutex.withLock { tileCache.put(key, tile) } }
     }
 
     /**
@@ -568,28 +579,25 @@ class VectorRasterizer(
             byteCache.get(key)?.let { return Result.success(it) }
         }
 
-        try {
+        return try {
             // Check if the coroutine is cancelled before the network request
             currentCoroutineContext().ensureActive()
 
-//            println("fetch the tile $url")
-            val result = VectorStats.measure(VectorStats.Phase.FETCH) {
-                withContext(IODispatcher) {
-                    val response = getTileStream(url, ref.y, ref.x, ref.z)
-                    response?.buffered()?.use { bufferedSource ->
-                        bufferedSource.readByteArray()
-                    }
-                }
+            /* Shared, so a tile asked for by a worker and by the layout pass at once is fetched once;
+             * and run in the rasterizer's own scope, so the bytes are cached even when the caller
+             * that started the fetch stopped wanting them -- see [SharedLoads]. */
+            val bytes = sharedFetches.load(key) {
+                byteCacheMutex.withLock { byteCache.get(key) }
+                    ?: VectorStats.measure(VectorStats.Phase.FETCH) {
+                        getTileStream(url, ref.y, ref.x, ref.z)?.buffered()?.use { it.readByteArray() }
+                    }?.also { bytes -> byteCacheMutex.withLock { byteCache.put(key, bytes) } }
             } ?: return Result.failure(LoadTileException("fetch error"))
-            byteCacheMutex.withLock {
-                byteCache.put(key, result)
-            }
-            return Result.success(result)
+            Result.success(bytes)
         } catch (e: CancellationException) {
             // We do not log cancellation as an error - this is normal behavior
             throw e
         } catch (e: Throwable) {
-            return Result.failure(e)
+            Result.failure(e)
         }
     }
 
