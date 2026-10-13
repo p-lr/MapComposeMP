@@ -1293,14 +1293,20 @@ fail on foreign bytes, it collects them into `Tile.unknownFields`. See **Sources
 
 ## Tile resolution
 
-A tile is rasterized at
-`vectorTileBitmapSize(mapState.tileSize, density, superSamplingFactor, magnifyingFactor)`
-(`core/VectorLayer.kt`) and drawn into `mapState.tileSize * relativeScale` device pixels, with
-`relativeScale ∈ (2^(mf-1), 2^mf]` because `VisibleTilesResolver.getLevel` rounds the level up after
-subtracting the magnifying factor. Sizing against `max(density, 2^magnifyingFactor)` is what keeps
-the bitmap ≥ the destination, so a tile is always minified and never stretched. `addVectorLayer`'s
-`superSamplingFactor` renders larger still and filters back down in `VectorRasterizer.getTile`,
-costing `factor²` fill.
+A tile is rasterized at `vectorTileRaster(mapState.tileSize, density, superSamplingFactor,
+magnifyingFactor)` (`core/VectorLayer.kt`) and drawn into `mapState.tileSize * relativeScale` device
+pixels, with `relativeScale ∈ (2^(mf-1), 2^mf]` because `VisibleTilesResolver.getLevel` rounds the
+level up after subtracting the magnifying factor. The resolution is `max(density, 2^(mf - 1/2))`:
+the geometric middle of that range, so a tile is stretched by at most `sqrt(2)` at the top of a level
+and shrunk by at most that at the bottom whatever factor the map uses -- and with the factor
+`addVectorLayer` derives from the density it is simply the density. It used to be
+`max(density, 2^mf)`, which never stretched but rasterized up to four times the pixels a phone
+shows.
+
+`addVectorLayer`'s `superSamplingFactor` renders larger still and filters back down in
+`VectorRasterizer.getTile`, costing `factor²` fill, and **the whole render is capped at
+`MAX_RENDER_PX` (2048)**: super-sampling is reduced first, and only then the resolution. Uncapped,
+512 px tiles with super-sampling 2 on a 3x phone were a 4096 px bitmap -- 64 MB -- per tile.
 
 Symbols are sized in none of those spaces. They are a viewport overlay, laid out against the constant
 `LAYOUT_TILE_SIZE` and projected to the screen by the placement pass -- see
