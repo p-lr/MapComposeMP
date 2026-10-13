@@ -58,7 +58,7 @@ internal class SymbolBucketBuilder(
         /** The integer zoom the map is showing, which is the bucket's own -- upstream's `overscaledZ`. */
         bucketZoom: Int,
         density: Density,
-        localPropCache: MutableMap<String, EvalFeature>
+        localPropCache: MutableMap<Tile.Layer, Array<EvalFeature?>>
     ): SymbolBucket {
         val zoom = bucketZoom.toDouble()
         val canvasSize = layoutTileSize(density.density, ref.span)
@@ -109,18 +109,12 @@ internal class SymbolBucketBuilder(
          * the right id. */
         val promoteIdProperty = promoteIdPropertyFor(sourceName, tileLayer)
 
+        /* Indexed by the feature's position in the tile layer. See the note in
+         * `TileRenderer.visibleFeatures`: an MVT feature usually has no `id`, and a hash collides. */
+        val cached = localPropCache.getOrPut(tileLayer) { arrayOfNulls(tileLayer.features.size) }
         for ((index, feature) in tileLayer.features.withIndex()) {
-            /* The feature's position in the tile layer. See the note in `TileRenderer.render`: an
-             * MVT feature usually has no `id`, and a hash collides. */
-            val featureIdKey = "f$index"
-            val propertyKey = if (ref.x != 0 || ref.y != 0) "T-${ref.x}-${ref.y}-${tileLayer.name}-$featureIdKey" else null
-            val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) {
-                    buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
-                }
-            } else {
-                buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
-            }
+            val featureProperties = cached[index]
+                ?: buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty).also { cached[index] = it }
 
             val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)
             if (!isShouldRenderFeature) continue
