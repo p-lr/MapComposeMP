@@ -312,13 +312,13 @@ class SpriteManager(private val sheets: List<SpriteSheet>) {
 
             return try {
                 val spriteJson = withContext(IODispatcher) {
-                    loadResource(jsonUrl)?.buffered()?.readString() ?: throw Exception("Sprite JSON not found")
+                    loadResource(jsonUrl)?.buffered()?.use { it.readString() } ?: throw Exception("Sprite JSON not found")
                 }
                 val decoded = json.decodeFromString<Map<String, Sprite>>(spriteJson)
                 val spriteIndex = decoded.mapKeys { spriteImageId(id, it.key) }
 
                 val spriteImageBytes = withContext(IODispatcher) {
-                    loadResource(imageUrl)?.buffered()?.readByteArray() ?: throw Exception("Sprite image not found")
+                    loadResource(imageUrl)?.buffered()?.use { it.readByteArray() } ?: throw Exception("Sprite image not found")
                 }
                 val spriteImage = byteArrayToImageBitmap(spriteImageBytes)
 

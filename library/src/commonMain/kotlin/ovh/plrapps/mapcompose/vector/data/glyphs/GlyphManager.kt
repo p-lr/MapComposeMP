@@ -156,7 +156,7 @@ class GlyphManager(
 
         val url = urlFor(stack, range) ?: return emptyMap()
         val bytes = runCatching {
-            withContext(IODispatcher) { loadResource(url)?.buffered()?.readByteArray() }
+            withContext(IODispatcher) { loadResource(url)?.buffered()?.use { it.readByteArray() } }
         }.getOrNull()
 
         val glyphs = bytes
