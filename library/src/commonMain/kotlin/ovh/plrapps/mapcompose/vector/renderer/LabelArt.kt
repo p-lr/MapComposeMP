@@ -6,6 +6,8 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
+import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphRasterizer
+import ovh.plrapps.mapcompose.vector.data.glyphs.LabelBox
 import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedGlyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedLabel
 
@@ -46,6 +48,13 @@ internal abstract class LabelArt {
     abstract val text: String
 
     /**
+     * Does whatever drawing needs done first, off the thread that will draw. A label's pixels are
+     * produced lazily -- see [Glyphs] -- and the placement pass calls this for the symbols it
+     * publishes, so the draw pass never rasterizes.
+     */
+    open fun prepare() = Unit
+
+    /**
      * SDF glyphs from the style's glyph server.
      *
      * [quads] is the same label rasterized glyph by glyph, and is non-null only for a label that
@@ -53,13 +62,54 @@ internal abstract class LabelArt {
      * time, the way upstream's `placeGlyphsAlongLine` does. [rendered] is built either way, because
      * a line label whose projected path is straight enough takes the single-blit path.
      */
-    class Glyphs(
-        val rendered: RenderedLabel,
+    class Glyphs private constructor(
         override val text: String,
-        val quads: List<RenderedGlyph>? = null,
+        private val box: LabelBox,
+        rasterize: () -> RenderedLabel,
+        rasterizeQuads: (() -> List<RenderedGlyph>?)?,
     ) : LabelArt() {
-        override val width: Float get() = rendered.boxWidth
-        override val height: Float get() = rendered.boxHeight
+        /** A label whose pixels are already rendered. */
+        constructor(
+            rendered: RenderedLabel,
+            text: String,
+            quads: List<RenderedGlyph>? = null,
+        ) : this(
+            text = text,
+            box = LabelBox(rendered.boxLeft, rendered.boxTop, rendered.boxWidth, rendered.boxHeight),
+            rasterize = { rendered },
+            rasterizeQuads = quads?.let { { it } },
+        )
+
+        /**
+         * The composited label, rasterized the first time it is needed.
+         *
+         * Layout lays out every label of every tile in and around the viewport, and collision then
+         * keeps a fraction of them; rasterizing at layout time spent most of the layout pass, and
+         * most of the label memory, on labels that were never drawn. The box is all layout and
+         * placement need, and it comes from the glyph metrics alone.
+         */
+        val rendered: RenderedLabel by lazy(rasterize)
+
+        /** The glyph quads of a label that follows a line, rasterized like [rendered]. */
+        val quads: List<RenderedGlyph>? by lazy { rasterizeQuads?.invoke() }
+
+        override val width: Float get() = box.width
+        override val height: Float get() = box.height
+
+        override fun prepare() {
+            rendered
+            quads
+        }
+
+        companion object {
+            /** A label that rasterizes itself on first use, with the box [GlyphRasterizer.measure] gave. */
+            internal fun deferred(
+                text: String,
+                box: LabelBox,
+                rasterize: () -> RenderedLabel,
+                rasterizeQuads: (() -> List<RenderedGlyph>?)?,
+            ): Glyphs = Glyphs(text, box, rasterize, rasterizeQuads)
+        }
 
         /**
          * Draws one glyph with its own centre at the current origin, scaled about that centre.
@@ -80,7 +130,7 @@ internal abstract class LabelArt {
              * it -- so it is placed by the box corner's position *within* the bitmap. */
             scope.translate(topLeft.x, topLeft.y) {
                 scale(scale, scale, pivot = Offset.Zero) {
-                    translate(-rendered.boxLeft, -rendered.boxTop) {
+                    translate(-box.left, -box.top) {
                         drawImage(rendered.bitmap, alpha = alpha)
                     }
                 }

@@ -170,7 +170,11 @@ internal class SdfShade(
  */
 internal fun sourceOverArgb(source: Int, destination: Int): Int {
     val sourceAlpha8 = source ushr 24
+    /* Onto nothing, the source comes out as it went in: `s * a / a` rounds back to the same byte,
+     * since each channel sits half a step from any rounding boundary. The common case by far -- a
+     * glyph's pixels mostly land where no neighbour reached. */
     if (sourceAlpha8 == 255) return source
+    if (destination ushr 24 == 0) return if (sourceAlpha8 == 0) 0 else source
     val sourceAlpha = sourceAlpha8 / 255.0f
     val behind = (destination ushr 24) / 255.0f * (1f - sourceAlpha)
     val alpha = sourceAlpha + behind

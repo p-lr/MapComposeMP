@@ -89,6 +89,15 @@ internal sealed class SymbolInstance(
     val layoutSize: Float = 1f,
     val featureSizes: FeatureSizes = FeatureSizes(0.0, 0.0),
 ) {
+    /** Rasterizes whatever this symbol draws that is rasterized lazily; see [LabelArt.prepare]. */
+    fun prepareForDraw() {
+        when (this) {
+            is Text -> value.prepare()
+            is SpriteWithText -> text.prepare()
+            is Sprite -> Unit
+        }
+    }
+
     /** Assigned by [CrossTileSymbolIndex]; 0 until then. */
     var crossTileID: Long = 0L
 

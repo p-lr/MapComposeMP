@@ -21,6 +21,12 @@ import kotlin.math.min
  * where the box's top-left corner sits inside the bitmap, so the painter can anchor the *box* and
  * still blit the whole bitmap.
  */
+/**
+ * Where a label's box sits inside the bitmap it rasterizes to, known before the bitmap is: the box's
+ * top-left corner in bitmap pixels, and its size. See [GlyphRasterizer.measure].
+ */
+internal class LabelBox(val left: Float, val top: Float, val width: Float, val height: Float)
+
 class RenderedLabel(
     val bitmap: ImageBitmap,
     val boxLeft: Float,
@@ -100,18 +106,22 @@ object GlyphRasterizer {
             width.toLong() * height <= MAX_LABEL_BITMAP_PIXELS
 
     /**
-     * @param opacity `text-opacity`, multiplied into both the fill and the halo as
-     * `Color.withOpacity` does elsewhere -- upstream's `u_opacity` applies to the whole symbol.
-     * @return `null` when the label has no ink at all, e.g. every codepoint missed the font stack.
+     * The box [render] would return, from the glyph metrics alone, or `null` exactly when [render]
+     * would return `null`. What lets a label be laid out and collided without being rasterized.
      */
-    fun render(
-        label: ShapedLabel,
-        fillColor: Color,
-        haloColor: Color,
-        haloWidth: Float,
-        haloBlur: Float,
-        opacity: Float = 1f,
-    ): RenderedLabel? {
+    internal fun measure(label: ShapedLabel): LabelBox? {
+        val bounds = bounds(label) ?: return null
+        return LabelBox(
+            left = -bounds.minX,
+            top = -bounds.minY,
+            width = label.width,
+            height = label.height,
+        )
+    }
+
+    private class Bounds(val items: List<ShapedItem>, val minX: Float, val minY: Float, val width: Int, val height: Int)
+
+    private fun bounds(label: ShapedLabel): Bounds? {
         val items = label.items.filter { it !is ShapedGlyph || it.glyph.hasBitmap }
         if (items.isEmpty()) return null
 
@@ -145,6 +155,28 @@ object GlyphRasterizer {
         val height = ceil(maxY - minY).toInt()
         if (width <= 0 || height <= 0) return null
         if (!isRasterizable(width, height)) return null
+        return Bounds(items, minX, minY, width, height)
+    }
+
+    /**
+     * @param opacity `text-opacity`, multiplied into both the fill and the halo as
+     * `Color.withOpacity` does elsewhere -- upstream's `u_opacity` applies to the whole symbol.
+     * @return `null` when the label has no ink at all, e.g. every codepoint missed the font stack.
+     */
+    fun render(
+        label: ShapedLabel,
+        fillColor: Color,
+        haloColor: Color,
+        haloWidth: Float,
+        haloBlur: Float,
+        opacity: Float = 1f,
+    ): RenderedLabel? {
+        val bounds = bounds(label) ?: return null
+        val items = bounds.items
+        val minX = bounds.minX
+        val minY = bounds.minY
+        val width = bounds.width
+        val height = bounds.height
 
         val pixels = IntArray(width * height)
 
