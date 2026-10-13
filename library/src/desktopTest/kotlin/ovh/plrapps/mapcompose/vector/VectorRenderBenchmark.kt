@@ -7,13 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.Buffer
 import kotlinx.io.RawSource
-import ovh.plrapps.mapcompose.core.decodeFirstLayer
-import ovh.plrapps.mapcompose.core.makeWorkerData
+import ovh.plrapps.mapcompose.core.adoptRenderedBitmap
 import ovh.plrapps.mapcompose.vector.core.VectorRasterizer
 import ovh.plrapps.mapcompose.vector.core.VectorStats
 import ovh.plrapps.mapcompose.vector.core.vectorTileRaster
 import ovh.plrapps.mapcompose.vector.data.TileRef
-import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
@@ -139,13 +137,9 @@ class VectorRenderBenchmark {
         val threads = ManagementFactory.getThreadMXBean() as com.sun.management.ThreadMXBean
         val allocatedBefore = threads.currentThreadAllocatedBytes
         val start = TimeSource.Monotonic.markNow()
-        var handoverMs = 0.0
-        var decodeMs = 0.0
         for (pass in 0 until PASSES) {
             for ((x, y) in tiles) {
-                val (h, d) = render(rasterizer, x, y, scenario.z, bitmapPx, superSampling)
-                handoverMs += h
-                decodeMs += d
+                render(rasterizer, x, y, scenario.z, bitmapPx, superSampling)
             }
         }
         val elapsedMs = start.elapsedNow().inWholeMicroseconds / 1000.0
@@ -156,15 +150,14 @@ class VectorRenderBenchmark {
         val layoutMs = measureLayout(rasterizer, scenario.z, cx, cy)
 
         log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
-        log("  per tile: ${fmt(elapsedMs / count)} ms total, of which core decode ${fmt(decodeMs / count)} ms; " +
+        log("  per tile: ${fmt(elapsedMs / count)} ms total; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
         log("  first layout pass (3x3 + ring): ${fmt(layoutMs)} ms")
         VectorStats.report().lines().forEach { if (it.isNotBlank()) log("  $it") }
-        log("  (handover = toBytes + Buffer; core decode = decodeFirstLayer, ${fmt(handoverMs / count)} / ${fmt(decodeMs / count)} ms per tile)")
         log()
     }
 
-    /** One tile through the whole pipeline. Returns (handover ms, core decode ms). */
+    /** One tile through the whole pipeline, up to core owning the bitmap. */
     private suspend fun render(
         rasterizer: VectorRasterizer,
         x: Int,
@@ -172,28 +165,14 @@ class VectorRenderBenchmark {
         z: Int,
         bitmapPx: Int,
         superSampling: Int,
-    ): Pair<Double, Double> {
+    ) {
         val bitmap = checkNotNull(
             rasterizer.getTile(x = x, y = y, zoom = z.toDouble(), tileSize = bitmapPx, superSampling = superSampling)
         )
-        val handoverStart = TimeSource.Monotonic.markNow()
-        val bytes = VectorStats.measure(VectorStats.Phase.HANDOVER) {
-            val bytes = bitmap.toBytes() ?: return 0.0 to 0.0
+        VectorStats.measure(VectorStats.Phase.HANDOVER) {
             VectorStats.bitmapReleased(bitmap.width.toLong() * bitmap.height * 4)
-            bytes
+            adoptRenderedBitmap(bitmap, hasLayers = false)
         }
-        val buffer = Buffer().apply { write(bytes) }
-        val handoverMs = handoverStart.elapsedNow().inWholeMicroseconds / 1000.0
-        val decodeStart = TimeSource.Monotonic.markNow()
-        checkNotNull(
-            buffer.decodeFirstLayer(
-                hasLayers = false,
-                optimizeForLowEndDevices = false,
-                subSamplingRatio = 1,
-                workerData = makeWorkerData(),
-            )
-        )
-        return handoverMs to decodeStart.elapsedNow().inWholeMicroseconds / 1000.0
     }
 
     private suspend fun measureLayout(rasterizer: VectorRasterizer, z: Int, cx: Int, cy: Int): Double {

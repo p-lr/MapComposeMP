@@ -130,7 +130,11 @@ internal class TileCanvasState(
         tileCollector = TileCollector(
             workerCount = workerCount.coerceAtLeast(1),
             optimizeForLowEndDevices = !highFidelityColors,
-            tileSize = tileSize
+            tileSize = tileSize,
+            /* Read off the worker threads: the state flow's value is an immutable snapshot. */
+            isWanted = { spec ->
+                visibleStateFlow.value?.visibleTiles?.contains(spec.zoom, spec.row, spec.col, spec.subSample) == true
+            },
         )
         scope.launch {
             _layerFlow.collectLatest { layers ->
@@ -330,24 +334,27 @@ internal class TileCanvasState(
         alpha = alphaTick
     }
 
-    private fun VisibleTiles.contains(tile: Tile): Boolean {
-        if (level != tile.zoom) return false
+    private fun VisibleTiles.contains(tile: Tile): Boolean =
+        contains(tile.zoom, tile.row, tile.col, tile.subSample)
+
+    private fun VisibleTiles.contains(zoom: Int, row: Int, col: Int, tileSubSample: Int): Boolean {
+        if (level != zoom) return false
         return when (visibleWindow) {
             is VisibleWindow.BoundsConstrained -> {
-                val colRange = visibleWindow.tileMatrix[tile.row] ?: return false
-                subSample == tile.subSample && tile.col in colRange
+                val colRange = visibleWindow.tileMatrix[row] ?: return false
+                subSample == tileSubSample && col in colRange
             }
 
             is VisibleWindow.InfiniteScrollX -> {
-                if (subSample != tile.subSample) return false
-                visibleWindow.tileMatrix[tile.row]?.let { range ->
-                    tile.col in range
+                if (subSample != tileSubSample) return false
+                visibleWindow.tileMatrix[row]?.let { range ->
+                    col in range
                 } == true ||
-                        visibleWindow.leftOverflow?.tileMatrix?.get(tile.row)?.let { range ->
-                            tile.col in range
+                        visibleWindow.leftOverflow?.tileMatrix?.get(row)?.let { range ->
+                            col in range
                         } == true ||
-                        visibleWindow.rightOverflow?.tileMatrix?.get(tile.row)?.let { range ->
-                            tile.col in range
+                        visibleWindow.rightOverflow?.tileMatrix?.get(row)?.let { range ->
+                            col in range
                         } == true
             }
         }

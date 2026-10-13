@@ -94,3 +94,16 @@ internal actual fun processFinalImage(currentImage: ImageBitmap, previousLayer: 
 private fun canUseHardwareBitmaps(): Boolean {
     return Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
 }
+internal actual fun adoptRenderedBitmap(bitmap: ImageBitmap, hasLayers: Boolean): ImageBitmap {
+    /* Other layers are drawn onto the first one, which therefore has to stay a mutable software
+     * bitmap; processFinalImage moves the composite to a hardware one afterwards. */
+    if (hasLayers || !canUseHardwareBitmaps()) return bitmap
+    val software = bitmap.asAndroidBitmap()
+    val hardware = software.copy(Config.HARDWARE, false) ?: return bitmap
+    software.recycle()
+    return hardware.asImageBitmap()
+}
+
+internal actual fun releaseRenderedBitmap(bitmap: ImageBitmap) {
+    bitmap.asAndroidBitmap().recycle()
+}
