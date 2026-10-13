@@ -74,4 +74,10 @@ internal class RenderBudget(
  */
 internal expect fun defaultRenderBudgetBytes(): Long
 
+/**
+ * The default for how many bytes `VectorRasterizer`'s tile caches may hold between them: encoded
+ * bytes, decoded tiles, raster images and elevation data. See `VectorRasterizer.CacheBudget`.
+ */
+internal expect fun defaultCacheBudgetBytes(): Long
+
 internal const val MB = 1024L * 1024L

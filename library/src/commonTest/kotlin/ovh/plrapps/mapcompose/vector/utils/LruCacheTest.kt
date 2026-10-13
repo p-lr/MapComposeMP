@@ -39,4 +39,66 @@ class LruCacheTest {
         cache.growTo(2)
         assertEquals(4, cache.maxSize)
     }
+
+    @Test
+    fun `shrinking evicts the oldest entries beyond the new size`() {
+        val cache = LruCache<String, Int>(maxSize = 4)
+        for (i in 1..4) cache.put("k$i", i)
+        cache.get("k1")         // "k1" is now the most recently used
+
+        cache.shrinkTo(2)
+
+        assertEquals(2, cache.size())
+        assertEquals(2, cache.maxSize)
+        assertEquals(1, cache.get("k1"))
+        assertEquals(4, cache.get("k4"))
+        assertNull(cache.get("k2"))
+    }
+
+    @Test
+    fun `shrinking never raises the size`() {
+        val cache = LruCache<String, Int>(maxSize = 2)
+        cache.shrinkTo(4)
+        assertEquals(2, cache.maxSize)
+    }
+
+    @Test
+    fun `a weighed cache evicts by weight before it reaches its entry count`() {
+        val cache = LruCache<String, ByteArray>(maxSize = 100, maxWeight = 10, weigher = { it.size.toLong() })
+        cache.put("a", ByteArray(4))
+        cache.put("b", ByteArray(4))
+        assertEquals(8, cache.weight)
+
+        cache.put("c", ByteArray(4))
+
+        assertNull(cache.get("a"), "the oldest entry went to make room")
+        assertEquals(2, cache.size())
+        assertEquals(8, cache.weight)
+    }
+
+    @Test
+    fun `an entry heavier than the whole budget is kept alone`() {
+        val cache = LruCache<String, ByteArray>(maxSize = 100, maxWeight = 10, weigher = { it.size.toLong() })
+        cache.put("a", ByteArray(4))
+        cache.put("big", ByteArray(50))
+
+        assertEquals(1, cache.size())
+        assertEquals(50, cache.weight)
+        assertEquals(50, cache.get("big")?.size)
+    }
+
+    @Test
+    fun `replacing and removing an entry keep the weight exact`() {
+        val cache = LruCache<String, ByteArray>(maxSize = 100, maxWeight = 100, weigher = { it.size.toLong() })
+        cache.put("a", ByteArray(4))
+        cache.put("a", ByteArray(6))
+        assertEquals(6, cache.weight)
+
+        cache.remove("a")
+        assertEquals(0, cache.weight)
+
+        cache.put("b", ByteArray(3))
+        cache.clear()
+        assertEquals(0, cache.weight)
+    }
 }

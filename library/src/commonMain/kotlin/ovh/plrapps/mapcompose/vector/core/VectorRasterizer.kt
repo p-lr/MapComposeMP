@@ -57,6 +57,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
 import pbandk.decodeFromByteArray
 import kotlin.collections.component1
+import kotlin.concurrent.Volatile
 import kotlin.collections.component2
 
 class VectorRasterizer(
@@ -66,13 +67,28 @@ class VectorRasterizer(
     val textMeasurerState: MutableStateFlow<TextMeasurer?>,
     val getTileStream: suspend (url: String, row: Int, col: Int, zoomLvl: Int) -> RawSource?,
 ) {
-    // Decoded protobuf Tile objects are large (up to several MB each in dense areas).
-    // Keep size modest; raw bytes remain available in byteCache for cheap re-decoding.
-    private val tileCache = LruCache<String, Tile>(maxSize = 30)
-    /* Encoded tile bytes. Sized well above the decoded-tile cache on purpose: a `tileCache` miss
+    /**
+     * How many bytes the tile caches below may hold between them, split by [CacheBudget]'s shares.
+     * Internal so tests can shrink it.
+     */
+    internal val cacheBudget = CacheBudget(defaultCacheBudgetBytes())
+
+    // Decoded protobuf Tile objects are large (up to several MB each in dense areas), so they are
+    // weighed rather than counted; raw bytes remain available in byteCache for cheap re-decoding.
+    private val tileCache = LruCache<String, Tile>(
+        maxSize = 64,
+        maxWeight = cacheBudget.decodedTiles,
+        weigher = ::estimatedTileBytes,
+    )
+    /* Encoded tile bytes. Kept for longer than the decoded tiles on purpose: a `tileCache` miss
      * must cost a re-decode and not a network round trip, because a fetch that fails is what makes
-     * `layoutBuckets` unable to publish a bucket for a tile that is on screen. */
-    private val byteCache = LruCache<String, ByteArray>(maxSize = 256)
+     * `layoutBuckets` unable to publish a bucket for a tile that is on screen. Weighed, because a
+     * dense tile is a hundred times an empty one. */
+    private val byteCache = LruCache<String, ByteArray>(
+        maxSize = 1024,
+        maxWeight = cacheBudget.encodedTiles,
+        weigher = { it.size.toLong() },
+    )
     private val pathCache = LruCache<String, Any>(maxSize = PATH_CACHE_SIZE)
     // Separate mutexes per cache eliminate cross-cache contention when tiles render concurrently.
     private val byteCacheMutex = Mutex()
@@ -81,19 +97,31 @@ class VectorRasterizer(
 
     // Decoded raster tiles. Small: an image tile is megabytes once decoded, and the encoded bytes
     // stay in byteCache for a cheap re-decode.
-    private val rasterImageCache = LruCache<String, ImageBitmap>(maxSize = 30)
+    private val rasterImageCache = LruCache<String, ImageBitmap>(
+        maxSize = 64,
+        maxWeight = cacheBudget.images,
+        weigher = { it.width.toLong() * it.height * 4 },
+    )
     private val rasterImageCacheMutex = Mutex()
 
     /* Tiles cut out of a geojson document. `GeoJsonTiler.tile` clips and simplifies every feature
      * of the document per call, and nothing else memoizes it -- which the neighbour gathering a
      * `circle` layer needs would multiply by nine, over tiles the map is drawing anyway. */
-    private val geoJsonTileCache = LruCache<String, Tile>(maxSize = 30)
+    private val geoJsonTileCache = LruCache<String, Tile>(
+        maxSize = 64,
+        maxWeight = cacheBudget.geoJsonTiles,
+        weigher = ::estimatedTileBytes,
+    )
     private val geoJsonTileCacheMutex = Mutex()
 
     // Decoded elevation tiles, keyed by the tile actually fetched. Building one costs its 8
     // neighbours' bytes too (see buildDem), so this cache is what keeps the border backfill to
     // roughly one extra fetch per DEM tile rather than nine per map tile.
-    private val demCache = LruCache<String, DemData>(maxSize = 30)
+    private val demCache = LruCache<String, DemData>(
+        maxSize = 64,
+        maxWeight = cacheBudget.elevation,
+        weigher = { (it.dim + 2L) * (it.dim + 2L) * 4 },
+    )
     private val demCacheMutex = Mutex()
 
     // Precomputed source names referenced by style layers (constant after init), split by what the
@@ -707,6 +735,9 @@ class VectorRasterizer(
     private val symbolBucketCache = LruCache<String, SymbolBucket>(maxSize = SYMBOL_BUCKET_CACHE_SIZE)
     private val symbolBucketCacheMutex = Mutex()
 
+    /** Consecutive layout passes whose live set was well under the bucket cache's size. */
+    private var smallLayoutPasses = 0
+
     /**
      * What the last layout pass published, keyed as [symbolBucketCache] is.
      *
@@ -716,6 +747,7 @@ class VectorRasterizer(
      * missed. Written and read by the layout pass alone, which is a single consumer coroutine
      * (`VectorLayer.startSymbolsProcessing`).
      */
+    @Volatile
     private var lastPublished: Map<String, SymbolBucket> = emptyMap()
 
     /** Stable symbol identities across tiles and zooms; see [CrossTileSymbolIndex]. */
@@ -961,7 +993,46 @@ class VectorRasterizer(
         }
         lastPublished = published
 
+        /* `growTo` above never gives back what a large viewport once needed, and every bucket holds
+         * its labels' bitmaps. Once the live set has been well under the cache's size for several
+         * passes in a row -- not one, since a zoom keeps two levels live and the passes between them
+         * can be short -- the cache shrinks back to it. The live buckets were touched last, so they
+         * are the ones that survive. */
+        symbolBucketCacheMutex.withLock {
+            val wanted = (requested.size * 2).coerceAtLeast(SYMBOL_BUCKET_CACHE_SIZE)
+            smallLayoutPasses = if (wanted * 2 <= symbolBucketCache.maxSize) smallLayoutPasses + 1 else 0
+            if (smallLayoutPasses >= SYMBOL_BUCKET_SHRINK_AFTER_PASSES) {
+                symbolBucketCache.shrinkTo(wanted)
+                smallLayoutPasses = 0
+            }
+        }
+
         Result.success(LayoutOutcome(buckets = buckets, unresolved = unresolved))
+    }
+
+    /**
+     * Gives memory back when the platform is short of it.
+     *
+     * Everything here can be rebuilt: decoded tiles and built geometry from the encoded bytes, and
+     * the encoded bytes -- dropped only when the pressure is [critical] -- from the network. Symbol
+     * buckets are cleared except for the set the last layout pass published, which is on screen and
+     * whose identities a rebuild would cost: a fresh bucket restarts every label's fade.
+     */
+    internal suspend fun trimMemory(critical: Boolean) {
+        tileCacheMutex.withLock { tileCache.clear() }
+        geoJsonTileCacheMutex.withLock { geoJsonTileCache.clear() }
+        rasterImageCacheMutex.withLock { rasterImageCache.clear() }
+        demCacheMutex.withLock { demCache.clear() }
+        pathCacheMutex.withLock { pathCache.clear() }
+        if (critical) byteCacheMutex.withLock { byteCache.clear() }
+
+        val live = lastPublished
+        symbolBucketCacheMutex.withLock {
+            symbolBucketCache.clear()
+            symbolBucketCache.shrinkTo(SYMBOL_BUCKET_CACHE_SIZE)
+            symbolBucketCache.growTo(live.size)
+            for ((key, bucket) in live) symbolBucketCache.put(key, bucket)
+        }
     }
 
     /** One style layer over one canonical tile, before its bucket exists. */
@@ -1068,6 +1139,9 @@ class VectorRasterizer(
  */
 private const val SYMBOL_BUCKET_CACHE_SIZE = 512
 
+/** How many consecutive small layout passes it takes before the bucket cache gives memory back. */
+private const val SYMBOL_BUCKET_SHRINK_AFTER_PASSES = 4
+
 /**
  * How long a bucket that has left the layout set keeps its cross-tile identities.
  *
@@ -1157,3 +1231,37 @@ data class ViewportInfo(
 )
 
 class LoadTileException(msg: String) : Exception(msg)
+
+/**
+ * How [VectorRasterizer]'s tile caches split one byte budget.
+ *
+ * Decoded tiles get the largest share because they are the expensive thing to rebuild -- a decode
+ * costs tens of milliseconds -- and the encoded bytes get enough to cover the live tile set several
+ * times over, so that losing a decoded tile never costs a network round trip.
+ */
+internal class CacheBudget(total: Long) {
+    val encodedTiles: Long = total / 4
+    val decodedTiles: Long = total * 2 / 5
+    val geoJsonTiles: Long = total / 10
+    val images: Long = total / 8
+    val elevation: Long = total / 8
+}
+
+/**
+ * Roughly how many bytes a decoded [Tile] keeps alive.
+ *
+ * pbandk boxes every geometry and tag integer, so a decoded tile is mostly `Integer` objects and the
+ * lists holding them. Measured on swisstopo tiles: ~28 bytes per integer, all overheads included.
+ */
+internal fun estimatedTileBytes(tile: Tile): Long {
+    var ints = 0L
+    var features = 0L
+    for (layer in tile.layers) {
+        features += layer.features.size
+        for (feature in layer.features) ints += feature.geometry.size + feature.tags.size
+    }
+    return ints * BYTES_PER_DECODED_INT + features * BYTES_PER_DECODED_FEATURE
+}
+
+private const val BYTES_PER_DECODED_INT = 28L
+private const val BYTES_PER_DECODED_FEATURE = 64L

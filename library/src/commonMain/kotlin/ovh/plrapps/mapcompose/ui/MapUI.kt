@@ -41,6 +41,7 @@ fun MapUI(
     remember(textMeasurer) {
         state.textMeasurerState.value = textMeasurer
     }
+    MemoryPressureEffect { critical -> state.onMemoryPressure(critical) }
 
     key(state) {
         ZoomPanRotate(

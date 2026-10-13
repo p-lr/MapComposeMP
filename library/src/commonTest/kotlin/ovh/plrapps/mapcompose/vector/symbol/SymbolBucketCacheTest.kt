@@ -93,4 +93,41 @@ class SymbolBucketCacheTest {
 
         kotlin.test.assertTrue(source.fetches() > afterFirst, "the new zoom's buckets are built")
     }
+
+    @Test
+    fun `trimming memory keeps the buckets on screen`() = runTest {
+        /* A rebuilt bucket restarts every label's fade, so a memory warning must not cost the
+         * visible map its identities -- only what is off screen. */
+        val source = FetchCounter()
+        val rasterizer = SymbolFixtures.rasterizer(onFetch = source::record)
+        val first = rasterizer.layoutBuckets(SymbolFixtures.mvtViewport(6f), z = 6.0).getOrThrow().buckets
+
+        rasterizer.trimMemory(critical = true)
+        val afterTrim = source.fetches()
+        val second = rasterizer.layoutBuckets(SymbolFixtures.mvtViewport(6f), z = 6.0).getOrThrow().buckets
+
+        assertEquals(afterTrim, source.fetches(), "the published buckets survived the trim")
+        for (i in first.indices) kotlin.test.assertSame(first[i], second[i])
+    }
+
+    @Test
+    fun `shrinking the cache after a large viewport never evicts the live set`() = runTest {
+        val source = FetchCounter()
+        val rasterizer = SymbolFixtures.rasterizer(onFetch = source::record)
+        val wide = MVTViewport(
+            width = 512f,
+            height = 512f,
+            bearing = 0f,
+            pitch = 0f,
+            zoom = 6f,
+            tileMatrix = (0..22).associateWith { 0..22 },
+        )
+        rasterizer.layoutBuckets(wide, z = 6.0).getOrThrow()
+        val afterWide = source.fetches()
+
+        // Enough small passes in a row for the cache to shrink back to the small working set.
+        repeat(6) { rasterizer.layoutBuckets(SymbolFixtures.mvtViewport(6f), z = 6.0).getOrThrow() }
+
+        assertEquals(afterWide, source.fetches(), "the small viewport's buckets stayed cached throughout")
+    }
 }

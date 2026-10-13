@@ -158,6 +158,9 @@ internal class VectorLayer(
         )
 
         startSymbolsProcessing(rasterizer)
+        mapState.addMemoryTrimListener { critical ->
+            scope.launch { rasterizer.trimMemory(critical) }
+        }
 
         return TileStreamProvider { row, col, zoomLvl ->
             val density = mapState.densityState.value ?: return@TileStreamProvider null
