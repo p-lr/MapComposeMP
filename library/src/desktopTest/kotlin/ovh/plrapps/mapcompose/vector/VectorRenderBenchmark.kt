@@ -146,11 +146,21 @@ class VectorRenderBenchmark {
         VectorStats.enabled = false
         val count = tiles.size * PASSES
 
+        /* A first visit: everything but the encoded bytes is rebuilt -- the decode, the geometry, the
+         * evaluated features -- which is what panning onto new ground costs. */
+        val coldStart = TimeSource.Monotonic.markNow()
+        for ((x, y) in tiles) {
+            rasterizer.trimMemory(critical = false)
+            render(rasterizer, x, y, scenario.z, bitmapPx, superSampling)
+        }
+        val coldMs = coldStart.elapsedNow().inWholeMicroseconds / 1000.0 / tiles.size
+
         val layoutMs = measureLayout(rasterizer, scenario.z, cx, cy)
 
         log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
         log("  per tile: ${fmt(elapsedMs / count)} ms total; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
+        log("  cold per tile (caches trimmed, bytes kept): ${fmt(coldMs)} ms")
         log("  first layout pass (3x3 + ring): ${fmt(layoutMs)} ms")
         VectorStats.report().lines().forEach { if (it.isNotBlank()) log("  $it") }
         log()
