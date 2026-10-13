@@ -42,7 +42,7 @@ class GeometryDecoders {
      * omits the final ClosePath does not silently lose its last ring.
      */
     fun decodePolygon(
-        geometry: List<Int>,
+        geometry: IntArray,
         extent: Int,
         canvasSize: Int
     ): List<List<Pair<Float, Float>>> {
@@ -58,7 +58,7 @@ class GeometryDecoders {
      * Kept unscaled because [classifyRings] groups by signed area sign, and scaling first would
      * only add float error to that test.
      */
-    private fun decodePolygonRings(geometry: List<Int>): List<List<Point2D>> {
+    private fun decodePolygonRings(geometry: IntArray): List<List<Point2D>> {
         val rings = mutableListOf<List<Point2D>>()
         var x = 0
         var y = 0
@@ -110,7 +110,7 @@ class GeometryDecoders {
     }
 
     fun decodeLine(
-        geometry: List<Int>,
+        geometry: IntArray,
         extent: Int,
         canvasSize: Int
     ): List<List<Pair<Float, Float>>> {
@@ -218,7 +218,7 @@ class GeometryDecoders {
     }
 
     fun decodePoint(
-        geometry: List<Int>,
+        geometry: IntArray,
         extent: Int = 4096,
         canvasSize: Int = 256
     ): List<Point> {
@@ -258,7 +258,7 @@ class GeometryDecoders {
      * the first vertex of anything else.
      */
     fun decodeVertices(
-        geometry: List<Int>,
+        geometry: IntArray,
         extent: Int = 4096,
         canvasSize: Int = 256
     ): List<Point> {
@@ -297,7 +297,7 @@ class GeometryDecoders {
      * degenerate cases (zero-area rings, a leading hole).
      */
     fun decodePolygons(
-        geometry: List<Int>,
+        geometry: IntArray,
         extent: Int,
         canvasSize: Int
     ): List<List<List<Pair<Float, Float>>>> {

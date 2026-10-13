@@ -96,8 +96,8 @@ suspend fun getMapLibreConfiguration(
             } else null
             /* A vector source may declare its wire format, and MapLibre Tiles is not one this port
              * decodes -- see [VectorEncoding]. Refuse the source here rather than register it: an
-             * MLT tile fed to the protobuf decoder does not fail, pbandk collects the bytes into
-             * `Tile.unknownFields` and the tile comes back empty, so the map would simply be blank
+             * MLT tile fed to the protobuf decoder need not fail -- unknown fields are skipped -- and
+             * the tile can come back empty, so the map would simply be blank
              * with nothing said. Not registering it also means the fetch loop never sees the source
              * and no round trip is spent on bytes that cannot be read.
              *

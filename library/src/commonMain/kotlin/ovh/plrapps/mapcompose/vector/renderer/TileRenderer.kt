@@ -615,8 +615,8 @@ class TileRenderer(
         val EMPTY_FEATURE = Tile.Feature(
             id = -1,
             type = Tile.GeomType.POINT,
-            geometry = emptyList(),
-            tags = emptyList(),
+            geometry = IntArray(0),
+            tags = IntArray(0),
         )
     }
 }
