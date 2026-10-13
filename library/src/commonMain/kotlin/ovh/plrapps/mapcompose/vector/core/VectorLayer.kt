@@ -132,7 +132,7 @@ internal class VectorLayer(
 
     suspend fun makeTileStreamProvider(): TileStreamProvider {
         val style = withContext(IODispatcher) {
-            vectorTileStreamProvider.loadResources(vectorTileStreamProvider.styleUrl)?.buffered()?.readString()
+            vectorTileStreamProvider.loadResources(vectorTileStreamProvider.styleUrl)?.buffered()?.use { it.readString() }
         }
 
         val configuration = getMapLibreConfiguration(

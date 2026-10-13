@@ -99,7 +99,7 @@ class GeoJsonSource(
             val data = source.data ?: return null
             val document: JsonElement = if (data is JsonPrimitive && data.isString) {
                 val text = runCatching {
-                    withContext(IODispatcher) { loadResource(data.content)?.buffered()?.readString() }
+                    withContext(IODispatcher) { loadResource(data.content)?.buffered()?.use { it.readString() } }
                 }.getOrNull() ?: return null
                 runCatching { json.parseToJsonElement(text) }.getOrNull() ?: return null
             } else {

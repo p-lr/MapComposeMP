@@ -80,7 +80,7 @@ class FontFaceManager(
         mutex.withLock { loaded[face.identity] }?.let { return it.family }
 
         val bytes = runCatching {
-            withContext(IODispatcher) { loadResource(face.url)?.buffered()?.readByteArray() }
+            withContext(IODispatcher) { loadResource(face.url)?.buffered()?.use { it.readByteArray() } }
         }.getOrNull()
         val family = bytes
             ?.takeIf { it.isNotEmpty() }
