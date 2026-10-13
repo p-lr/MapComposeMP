@@ -179,6 +179,17 @@ class MapState(
         }
     }
 
+    private val memoryTrimListeners = mutableListOf<(critical: Boolean) -> Unit>()
+
+    /** Called on the main thread when the platform reports memory pressure; see [ovh.plrapps.mapcompose.ui.MemoryPressureEffect]. */
+    internal fun addMemoryTrimListener(listener: (critical: Boolean) -> Unit) {
+        memoryTrimListeners.add(listener)
+    }
+
+    internal fun onMemoryPressure(critical: Boolean) {
+        for (listener in memoryTrimListeners) listener(critical)
+    }
+
     private var viewportListeners = mutableListOf<ViewportListener>()
     internal fun addViewportChangeListener(listener: ViewportListener) {
         viewportListeners.add(listener)
