@@ -144,11 +144,14 @@ internal class VectorLayer(
                 superSampling = superSamplingFactor,
             )
 
-            val bytes = imageBitmap.toBytes()
-                ?: return@TileStreamProvider null
+            VectorStats.measure(VectorStats.Phase.HANDOVER) {
+                val bytes = imageBitmap.toBytes()
+                VectorStats.bitmapReleased(imageBitmap.width.toLong() * imageBitmap.height * 4)
+                bytes ?: return@TileStreamProvider null
 
-            Buffer().apply {
-                write(bytes)
+                Buffer().apply {
+                    write(bytes)
+                }
             }
         }
     }
@@ -277,10 +280,12 @@ internal class VectorLayer(
         rasterizer: VectorRasterizer,
         viewportInfo: ViewportInfo,
     ): LayoutOutcome? {
-        val outcome = rasterizer.layoutBuckets(
-            viewport = viewportInfo.toMVTViewport(),
-            z = viewportInfo.zoom.toDouble(),
-        ).getOrElse { e ->
+        val outcome = VectorStats.measure(VectorStats.Phase.LAYOUT) {
+            rasterizer.layoutBuckets(
+                viewport = viewportInfo.toMVTViewport(),
+                z = viewportInfo.zoom.toDouble(),
+            )
+        }.getOrElse { e ->
             println("[ERROR] layoutBuckets(): ${e.message}")
             return null
         }

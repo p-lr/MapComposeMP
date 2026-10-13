@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import kotlinx.coroutines.sync.Mutex
+import ovh.plrapps.mapcompose.vector.core.VectorStats
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate
@@ -127,6 +128,34 @@ class TileRenderer(
             density = canvas.density,
         )
 
+        // Symbols are laid out elsewhere; fill-extrusion and sky are not implemented.
+        val phase = statsPhaseOf(styleLayer) ?: return
+        VectorStats.measure(phase) {
+            renderLayer(
+                canvas, tile, styleLayer, zoom, canvasSize, actualZoom, tileKey, rasterImage, demTile,
+                tileY, tileX, neighbours, tileRef, span, geometrySize, canonical,
+            )
+        }
+    }
+
+    private suspend fun renderLayer(
+        canvas: DrawScope,
+        tile: Tile?,
+        styleLayer: Layer,
+        zoom: Double,
+        canvasSize: Int,
+        actualZoom: Double,
+        tileKey: String?,
+        rasterImage: RasterTileImage?,
+        demTile: DemTile?,
+        tileY: Int,
+        tileX: Int,
+        neighbours: List<NeighbourTile>,
+        tileRef: TileRef,
+        span: Int,
+        geometrySize: Int,
+        canonical: CanonicalTileId,
+    ) {
         when (styleLayer) {
             // Drawn elsewhere or not implemented; see the class KDoc.
             is SymbolLayer,
@@ -516,6 +545,18 @@ class TileRenderer(
                 into.add(HeatmapPoint(point.x + offsetX, point.y + offsetY, properties))
             }
         }
+    }
+
+    private fun statsPhaseOf(styleLayer: Layer): VectorStats.Phase? = when (styleLayer) {
+        is FillLayer -> VectorStats.Phase.LAYER_FILL
+        is LineLayer -> VectorStats.Phase.LAYER_LINE
+        is CircleLayer -> VectorStats.Phase.LAYER_CIRCLE
+        is RasterLayer -> VectorStats.Phase.LAYER_RASTER
+        is HillshadeLayer -> VectorStats.Phase.LAYER_HILLSHADE
+        is ColorReliefLayer -> VectorStats.Phase.LAYER_COLOR_RELIEF
+        is HeatmapLayer -> VectorStats.Phase.LAYER_HEATMAP
+        is BackgroundLayer -> VectorStats.Phase.LAYER_BACKGROUND
+        else -> null
     }
 
     @Suppress("UNCHECKED_CAST")
