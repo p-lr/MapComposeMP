@@ -7,3 +7,8 @@ internal actual fun defaultRenderBudgetBytes(): Long =
 /** Decoded tiles live on the JVM heap here, so this too is a quarter of the heap limit. */
 internal actual fun defaultCacheBudgetBytes(): Long =
     (Runtime.getRuntime().maxMemory() / 4).coerceIn(32 * MB, 128 * MB)
+
+/** One render per 64 MB of heap limit: four on a common 256 MB device, never fewer than two. */
+internal actual fun defaultMaxConcurrentRenders(): Int =
+    (Runtime.getRuntime().maxMemory() / (64 * MB)).toInt()
+        .coerceIn(2, (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(2))
