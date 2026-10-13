@@ -30,7 +30,7 @@ import ovh.plrapps.mapcompose.vector.spec.tilejson.TileJson
 import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
-import pbandk.encodeToByteArray
+import ovh.plrapps.mapcompose.vector.spec.encodeToByteArray
 
 /**
  * Buckets, instances and viewports built from plain numbers, for the tests of the two symbol passes.

@@ -65,8 +65,8 @@ internal object Mvt {
     ): Tile.Feature = Tile.Feature(
         id = id,
         type = Tile.GeomType.POLYGON,
-        geometry = encode(rings.toList(), closeRings = true),
-        tags = tags,
+        geometry = encode(rings.toList(), closeRings = true).toIntArray(),
+        tags = tags.toIntArray(),
     )
 
     /** A line feature; several parts make it a MultiLineString. */
@@ -77,8 +77,8 @@ internal object Mvt {
     ): Tile.Feature = Tile.Feature(
         id = id,
         type = Tile.GeomType.LINESTRING,
-        geometry = encode(lines.toList(), closeRings = false),
-        tags = tags,
+        geometry = encode(lines.toList(), closeRings = false).toIntArray(),
+        tags = tags.toIntArray(),
     )
 
     /** A point feature; several points make it a MultiPoint, encoded as one repeated MoveTo. */
@@ -96,7 +96,7 @@ internal object Mvt {
             cursorX = x
             cursorY = y
         }
-        return Tile.Feature(id = id, type = Tile.GeomType.POINT, geometry = out, tags = tags)
+        return Tile.Feature(id = id, type = Tile.GeomType.POINT, geometry = out.toIntArray(), tags = tags.toIntArray())
     }
 
     /** A square ring wound clockwise -- an exterior ring in MVT terms. */

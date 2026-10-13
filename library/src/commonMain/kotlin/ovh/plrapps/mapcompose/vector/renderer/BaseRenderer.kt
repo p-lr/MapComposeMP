@@ -251,7 +251,7 @@ abstract class BaseRenderer(
      * Upstream's clamp to a signed 15-bit range is kept too: a coordinate outside it cannot be
      * expressed by the vertex buffers it eventually feeds.
      */
-    private fun decodeRawGeometry(geometry: List<Int>, extent: Int): List<List<Point2D>> {
+    private fun decodeRawGeometry(geometry: IntArray, extent: Int): List<List<Point2D>> {
         val scale = EXTENT.toDouble() / extent
         val rings = mutableListOf<List<Point2D>>()
         var current = mutableListOf<Point2D>()

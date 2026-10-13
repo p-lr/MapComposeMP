@@ -53,7 +53,7 @@ class LineBatchTest {
     }
 
     @Test
-    fun `meshes keep their own colour, opacity and translation in one batch`() {
+    fun `meshes keep their own colour and opacity and translation in one batch`() {
         val bitmap = renderToBitmap(size = 64) {
             val batch = LineBatch()
             batch.add(this, square(0f, 0f, 16f), 1f, Color.Red, null, 0f, 0f)

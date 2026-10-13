@@ -50,7 +50,7 @@ class GeometryDecodersTest {
     fun `a ring left open by a missing ClosePath is still decoded`() {
         // Same command stream as a polygon, minus the trailing ClosePath.
         val closed = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 1024, 1024))
-        val open = closed.geometry.dropLast(1)
+        val open = closed.geometry.toList().dropLast(1).toIntArray()
 
         val rings = decoders.decodePolygon(open, extent = 4096, canvasSize = 256)
 
@@ -63,7 +63,7 @@ class GeometryDecodersTest {
         val outer = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048))
         val inner = Mvt.polygonFeature(Mvt.clockwiseRing(2048, 2048, 4096, 4096))
         // Two rings, with the ClosePath of the first removed so only a MoveTo separates them.
-        val geometry = outer.geometry.dropLast(1) + inner.geometry
+        val geometry = (outer.geometry.toList().dropLast(1) + inner.geometry.toList()).toIntArray()
 
         val rings = decoders.decodePolygon(geometry, extent = 4096, canvasSize = 256)
 
@@ -101,7 +101,7 @@ class GeometryDecodersTest {
     fun `a truncated command stream decodes what it can`() {
         val feature = Mvt.lineFeature(listOf(0 to 0, 1024 to 0, 1024 to 1024))
         // Drop the last parameter pair, leaving a LineTo that promises more than it delivers.
-        val truncated = feature.geometry.dropLast(2)
+        val truncated = feature.geometry.toList().dropLast(2).toIntArray()
 
         val lines = decoders.decodeLine(truncated, extent = 4096, canvasSize = 256)
 

@@ -55,7 +55,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.CircleLayer
 import ovh.plrapps.mapcompose.vector.spec.style.HeatmapLayer
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.SymbolLayer
-import pbandk.decodeFromByteArray
 import kotlin.collections.component1
 import kotlin.concurrent.Volatile
 import kotlin.collections.component2
@@ -1272,10 +1271,8 @@ internal class CacheBudget(total: Long) {
 }
 
 /**
- * Roughly how many bytes a decoded [Tile] keeps alive.
- *
- * pbandk boxes every geometry and tag integer, so a decoded tile is mostly `Integer` objects and the
- * lists holding them. Measured on swisstopo tiles: ~28 bytes per integer, all overheads included.
+ * Roughly how many bytes a decoded [Tile] keeps alive: its geometry and tag integers, which are
+ * `IntArray`s, plus a feature object and two array headers per feature.
  */
 internal fun estimatedTileBytes(tile: Tile): Long {
     var ints = 0L
@@ -1287,5 +1284,5 @@ internal fun estimatedTileBytes(tile: Tile): Long {
     return ints * BYTES_PER_DECODED_INT + features * BYTES_PER_DECODED_FEATURE
 }
 
-private const val BYTES_PER_DECODED_INT = 28L
-private const val BYTES_PER_DECODED_FEATURE = 64L
+private const val BYTES_PER_DECODED_INT = 4L
+private const val BYTES_PER_DECODED_FEATURE = 80L

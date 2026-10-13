@@ -44,7 +44,7 @@ class GeoJsonTilerTest {
     // region feature ids
 
     /**
-     * `Tile.Feature.id` is a protobuf `uint64` and `spec/vector_tile.kt` is pbandk-generated, so a
+     * `Tile.Feature.id` is a protobuf `uint64`, as the MVT spec defines it, so a
      * string id -- which RFC 7946 allows and MapLibre keeps -- rides the layer's own tag table
      * instead. `BaseRenderer.buildEvalFeature` lifts it back out and removes it, so it never
      * reaches `["get"]`; here the tile is inspected directly.
@@ -134,7 +134,7 @@ class GeoJsonTilerTest {
         assertEquals("here", layer.values[0].stringValue)
         assertEquals(3.0, layer.values[1].doubleValue)
         // Tags index into those tables pairwise.
-        assertEquals(listOf(0, 0, 1, 1), layer.features.single().tags)
+        assertEquals(listOf(0, 0, 1, 1), layer.features.single().tags.toList())
     }
 
     @Test
@@ -183,7 +183,7 @@ class GeoJsonTilerTest {
         )
         val geometry = tile.layer().features.single().geometry
         // Two MoveTo commands, i.e. two separate pieces.
-        val moveTos = countMoveTo(geometry)
+        val moveTos = countMoveTo(geometry.toList())
         assertEquals(2, moveTos, "expected the line to be cut in two, got $moveTos pieces")
     }
 

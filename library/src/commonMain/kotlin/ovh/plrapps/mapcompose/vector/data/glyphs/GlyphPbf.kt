@@ -23,7 +23,7 @@ package ovh.plrapps.mapcompose.vector.data.glyphs
  * message glyphs { repeated fontstack stacks = 1; }
  * ```
  *
- * Unlike `spec/vector_tile.kt`, this is not pbandk-generated. Three messages of seven scalar fields
+ * Hand-rolled, as `spec/MvtReader.kt` is. Three messages of seven scalar fields
  * do not justify adding a protobuf toolchain to the build, and the wire format they use is a
  * fraction of what a generated decoder handles -- so the schema is quoted above and read directly,
  * the way `MvtFixtures` builds an MVT command stream by hand rather than shipping a binary fixture.
