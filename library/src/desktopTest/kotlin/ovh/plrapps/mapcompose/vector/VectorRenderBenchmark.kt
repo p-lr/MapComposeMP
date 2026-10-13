@@ -173,7 +173,9 @@ class VectorRenderBenchmark {
         bitmapPx: Int,
         superSampling: Int,
     ): Pair<Double, Double> {
-        val bitmap = rasterizer.getTile(x = x, y = y, zoom = z.toDouble(), tileSize = bitmapPx, superSampling = superSampling)
+        val bitmap = checkNotNull(
+            rasterizer.getTile(x = x, y = y, zoom = z.toDouble(), tileSize = bitmapPx, superSampling = superSampling)
+        )
         val handoverStart = TimeSource.Monotonic.markNow()
         val bytes = VectorStats.measure(VectorStats.Phase.HANDOVER) {
             val bytes = bitmap.toBytes() ?: return 0.0 to 0.0
