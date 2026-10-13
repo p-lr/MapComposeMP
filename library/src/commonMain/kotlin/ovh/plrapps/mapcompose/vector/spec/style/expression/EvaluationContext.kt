@@ -3,6 +3,7 @@ package ovh.plrapps.mapcompose.vector.spec.style.expression
 import androidx.compose.ui.graphics.Color
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.FormattedSection
 import ovh.plrapps.mapcompose.vector.spec.style.utils.ColorParser
+import kotlin.concurrent.Volatile
 
 /** A point in MVT tile-local coordinates (0..extent). */
 data class Point2D(val x: Double, val y: Double)
@@ -55,7 +56,16 @@ class EvalFeature(
      */
     val filterFeature: EvalFeature? = null,
 ) {
-    val geometry: List<List<Point2D>> by lazy { geometryProvider?.invoke() ?: emptyList() }
+    /* Decoded on first read and kept. A field rather than `by lazy`: one feature view is built per
+     * feature per tile, most are never asked for their geometry, and the lazy's own object plus its
+     * initializer lambda were two allocations per feature for nothing. Volatile so a list decoded on
+     * one thread is published whole; two first reads racing both decode, to equal lists. */
+    @Volatile
+    private var decodedGeometry: List<List<Point2D>>? = null
+
+    val geometry: List<List<Point2D>>
+        get() = decodedGeometry
+            ?: (geometryProvider?.invoke() ?: emptyList()).also { decodedGeometry = it }
 
     companion object {
         val GEOMETRY_TYPES = listOf("Unknown", "Point", "LineString", "Polygon")
