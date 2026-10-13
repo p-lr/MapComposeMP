@@ -57,7 +57,7 @@ BMP that `TileCollector` decoded straight back. See [Tile handover](#tile-handov
 
 | Piece | State |
 |---|---|
-| MVT protobuf decode (`spec/vector_tile.kt`, pbandk) | ✅ |
+| MVT protobuf decode (`spec/MvtReader.kt` into `spec/VectorTile.kt`, hand-rolled) | ✅ |
 | MLT decode (`vector` source with `encoding: "mlt"`) | ❌ — recognised, source refused at load |
 | MVT geometry command stream (`renderer/GeometryDecoders.kt`) | ✅ |
 | Style JSON, incl. legacy v7 functions and filters | ✅ |
@@ -467,9 +467,9 @@ TileJSON, as `DemUnpack` reads its own, because upstream's `params.encoding` als
 `StyleDiagnostic` under `sources.<name>` and does not register it, so it is never fetched and never
 reaches `decodePBFFromByteArray`. Layers reading it draw nothing.
 
-Refusing is the point. pbandk does not reliably throw on foreign bytes: it collects them into
-`Tile.unknownFields`, so an MLT tile handed to the protobuf decoder comes back as an empty or
-garbage `Tile` and not even the `catch` in `decodePBFFromByteArray` fires. The map was simply blank
+Refusing is the point. A protobuf reader does not reliably fail on foreign bytes -- it skips the
+fields it does not know -- so an MLT tile handed to the decoder can come back as an empty or garbage
+`Tile` without the `catch` in `decodePBFFromByteArray` ever firing. The map was simply blank
 with nothing said, which is the same failure `SourceType.UNKNOWN` was introduced to avoid.
 
 Porting a decoder is deliberately out of scope. Upstream delegates to the npm package
@@ -527,7 +527,7 @@ against `filterFeature ?: this`. `renderer/PromoteIdWiringTest.kt` pins both hal
 
 **A GeoJSON feature's own id may be a string, and the synthetic tile smuggles it.** RFC 7946 types
 an id as a string or a number and MapLibre keeps either, but `Tile.Feature.id` is a protobuf
-`uint64` and `spec/vector_tile.kt` is pbandk-generated. `GeoJsonTiler` therefore writes the id into
+`uint64`, as the MVT spec defines it. `GeoJsonTiler` therefore writes the id into
 the layer's own tag table under `SYNTHETIC_ID_KEY` -- a NUL-prefixed key no document writes -- and
 `buildEvalFeature` lifts it back out and removes it before the properties reach `["get"]` or
 `["properties"]`. It rides inside the `Tile`, so it survives the overzoom crop, the neighbour gather
@@ -1287,8 +1287,8 @@ result, recomputed. `cluster` and `lineMetrics` are not supported, and are repor
 decoders on `params.encoding` (`src/source/vector_tile_worker_source.ts`) and delegates the latter
 to the npm package `@maplibre/mlt`; there is no Kotlin or Kotlin Multiplatform decoder to delegate
 to, and the format is still experimental. A vector source declaring it is refused at load with a
-`StyleDiagnostic` and draws nothing, rather than being fed to the protobuf decoder -- which does not
-fail on foreign bytes, it collects them into `Tile.unknownFields`. See **Sources** above.
+`StyleDiagnostic` and draws nothing, rather than being fed to the protobuf decoder -- which need not
+fail on foreign bytes, since it skips fields it does not know. See **Sources** above.
 
 ## Tile resolution
 
