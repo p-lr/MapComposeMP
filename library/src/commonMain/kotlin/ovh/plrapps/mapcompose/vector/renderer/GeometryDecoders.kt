@@ -254,29 +254,24 @@ class GeometryDecoders {
     }
 
     /**
-     * The fillable [Path] [createPolygonPath] builds from [decodePolygon], without the intermediate
-     * lists. Null for a feature with no ring.
+     * Every ring of a polygon feature in tile order -- what [decodePolygon] returns -- as `x, y`
+     * interleaved arrays with the same arithmetic. What a fill is built from: the non-zero rule cuts
+     * the holes, so the rings need no grouping.
      */
-    fun decodePolygonPath(
+    fun decodePolygonRingArraysUnclassified(
         geometry: IntArray,
         extent: Int,
         canvasSize: Int
-    ): Path? {
-        val rings = decodePolygonRings(geometry)
-        if (rings.isEmpty()) return null
+    ): List<FloatArray> {
         val scale = canvasSize.toFloat() / extent
-        val path = Path()
-        path.fillType = PathFillType.NonZero
-        for (ring in rings) {
-            if (ring.isEmpty()) continue
-            for ((index, point) in ring.withIndex()) {
-                val px = (point.x * scale).toFloat()
-                val py = (point.y * scale).toFloat()
-                if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        return decodePolygonRings(geometry).map { ring ->
+            FloatArray(ring.size * 2).also { array ->
+                for ((index, point) in ring.withIndex()) {
+                    array[2 * index] = (point.x * scale).toFloat()
+                    array[2 * index + 1] = (point.y * scale).toFloat()
+                }
             }
-            path.close()
         }
-        return path
     }
 
     fun createLineStringPath(points: List<Pair<Float, Float>>): Path {
