@@ -29,6 +29,7 @@ import kotlinx.io.buffered
 import kotlinx.io.readByteArray
 import ovh.plrapps.mapcompose.core.TileMatrix
 import ovh.plrapps.mapcompose.utils.AngleRad
+import ovh.plrapps.mapcompose.ui.state.getProcessorCount
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.DemUnpack
@@ -595,13 +596,25 @@ class VectorRasterizer(
     }
 
     /**
+     * Bounds how many tiles rasterize at once, and how many bytes of bitmap they hold between them.
+     * See [RenderBudget]. Internal and replaceable so tests can drive it.
+     */
+    internal var renderBudget = RenderBudget(
+        budgetBytes = defaultRenderBudgetBytes(),
+        maxConcurrent = (getProcessorCount() - 1).coerceAtLeast(1),
+    )
+
+    /**
      * Rasterizes one tile into a [tileSize] x [tileSize] bitmap.
      *
      * With [superSampling] > 1 the tile is drawn that many times larger and filtered back down to
-     * [tileSize] before returning, so the caller always gets the size it asked for. That trades
-     * `superSampling²` fill rate for cleaner hairlines and text: the tile is minified again when it
-     * is drawn (a tile covers `tileSize * relativeScale` device pixels, `relativeScale` in
-     * `(0.5, 1.0]`), and that second minification is a plain bilinear sample.
+     * `tileSize / superSampling` before returning. That trades `superSampling²` fill rate for cleaner
+     * hairlines and text: the tile is minified again when it is drawn, and that second minification
+     * is a plain bilinear sample.
+     *
+     * The fetch runs freely; the rasterization waits for [renderBudget]. Returns null when
+     * [isWanted] says the tile is no longer needed -- checked once the bytes are in and again once
+     * the budget is granted, which is where a tile spends its time while the map moves on.
      */
     suspend fun getTile(
         x: Int,
@@ -609,7 +622,8 @@ class VectorRasterizer(
         zoom: Double,
         tileSize: Int,
         superSampling: Int = 1,
-    ): ImageBitmap {
+        isWanted: () -> Boolean = { true },
+    ): ImageBitmap? {
         val z = zoom.toInt()
         val refs = resolveRefs(z = z, x = x, y = y)
         val fetched = fetch(refs = refs, types = TILE_SOURCE_TYPES).getOrElse { e ->
@@ -617,27 +631,34 @@ class VectorRasterizer(
             VectorStats.bitmapAllocated(bitmapBytes(tileSize))
             return emptyBitmap(tileSize)
         }
+        if (!isWanted()) return null.also { VectorStats.tileSkipped() }
 
         val renderBytes = bitmapBytes(tileSize)
-        VectorStats.bitmapAllocated(renderBytes)
-        val rendered = VectorStats.measure(VectorStats.Phase.RENDER) {
-            renderTile(
-                fetched = fetched,
-                refs = refs,
-                zoom = zoom,
-                tileSize = tileSize,
-                actualZoom = zoom,
-                x = x,
-                y = y,
-                superSampling = superSampling,
-            )
-        }
+        val targetSize = tileSize / superSampling.coerceAtLeast(1)
+        val budget = renderBytes + if (superSampling > 1) bitmapBytes(targetSize) else 0L
 
-        if (superSampling <= 1) return rendered
-        val targetSize = tileSize / superSampling
-        VectorStats.bitmapAllocated(bitmapBytes(targetSize))
-        return VectorStats.measure(VectorStats.Phase.DOWNSAMPLE) { downsample(rendered, targetSize) }
-            .also { VectorStats.bitmapReleased(renderBytes) }
+        return renderBudget.withBudget(budget) {
+            if (!isWanted()) return@withBudget null.also { VectorStats.tileSkipped() }
+
+            VectorStats.bitmapAllocated(renderBytes)
+            val rendered = VectorStats.measure(VectorStats.Phase.RENDER) {
+                renderTile(
+                    fetched = fetched,
+                    refs = refs,
+                    zoom = zoom,
+                    tileSize = tileSize,
+                    actualZoom = zoom,
+                    x = x,
+                    y = y,
+                    superSampling = superSampling,
+                )
+            }
+
+            if (superSampling <= 1) return@withBudget rendered
+            VectorStats.bitmapAllocated(bitmapBytes(targetSize))
+            VectorStats.measure(VectorStats.Phase.DOWNSAMPLE) { downsample(rendered, targetSize) }
+                .also { VectorStats.bitmapReleased(renderBytes) }
+        }
     }
 
     private fun bitmapBytes(size: Int): Long = size.toLong() * size * 4

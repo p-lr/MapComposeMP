@@ -174,7 +174,7 @@ internal class VectorLayer(
                 zoom = zoomLvl.toDouble(),
                 tileSize = raster.renderPx,
                 superSampling = raster.superSampling,
-            )
+            ) ?: return@TileStreamProvider null
 
             VectorStats.measure(VectorStats.Phase.HANDOVER) {
                 val bytes = imageBitmap.toBytes()
