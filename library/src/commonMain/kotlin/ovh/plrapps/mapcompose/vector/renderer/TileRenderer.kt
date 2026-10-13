@@ -8,6 +8,7 @@ import ovh.plrapps.mapcompose.vector.core.VectorStats
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.utils.CircleVertexGate
+import ovh.plrapps.mapcompose.vector.renderer.utils.LineBatch
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.evaluateSortKey
 import ovh.plrapps.mapcompose.vector.renderer.utils.isInsideTile
@@ -64,6 +65,9 @@ class TileRenderer(
      * A renderer serves one tile, so this lives exactly as long as that tile's render.
      */
     private val evalFeatures = HashMap<Tile.Layer, Array<EvalFeature?>>()
+
+    /** One set of line mesh arrays for every line layer of the tile; see [LineLayerPainter]. */
+    private val lineBatch = LineBatch()
 
     /** The geometry of a tile no caller handed one for, decoded for this render only. */
     private val localGeometry = HashMap<Pair<Tile, Int>, TileGeometry>()
@@ -594,7 +598,7 @@ class TileRenderer(
                 is BackgroundLayer -> BackgroundLayerPainter(configuration.spriteManager, patternBrushes)
                 is CircleLayer -> circlePainter
                 is FillLayer -> FillLayerPainter(configuration.spriteManager, patternBrushes)
-                is LineLayer -> LineLayerPainter(configuration.spriteManager, patternBrushes)
+                is LineLayer -> LineLayerPainter(configuration.spriteManager, patternBrushes, lineBatch)
                 else -> throw IllegalStateException("no painter for layer type '${styleLayer.type}'")
             }
         } as BaseLayerPainter<T>
