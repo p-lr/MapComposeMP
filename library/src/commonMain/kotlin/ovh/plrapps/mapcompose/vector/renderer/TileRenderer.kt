@@ -4,7 +4,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.core.VectorStats
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
@@ -18,7 +17,6 @@ import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.*
 import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
-import ovh.plrapps.mapcompose.vector.utils.LruCache
 
 /**
  * Rasterizes one style layer into one tile bitmap.
@@ -59,10 +57,17 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  */
 class TileRenderer(
     configuration: MapLibreConfiguration,
-    private val pathCache: LruCache<String, Any>,
-    private val pathCacheMutex: Mutex,
-    private val localPropCache: MutableMap<String, EvalFeature>
 ) : BaseRenderer(configuration = configuration) {
+    /**
+     * Every feature's evaluation view, built once per tile layer and shared by the style layers that
+     * read it. Indexed like `layer.features`; see [visibleFeatures] for why the index is the key.
+     * A renderer serves one tile, so this lives exactly as long as that tile's render.
+     */
+    private val evalFeatures = HashMap<Tile.Layer, Array<EvalFeature?>>()
+
+    /** The geometry of a tile no caller handed one for, decoded for this render only. */
+    private val localGeometry = HashMap<Pair<Tile, Int>, TileGeometry>()
+
     private val painters = mutableMapOf<Layer, BaseLayerPainter<*>>()
     private val patternBrushes = PatternBrushCache()
 
@@ -98,6 +103,7 @@ class TileRenderer(
         tileX: Int = 0,
         neighbours: List<NeighbourTile> = emptyList(),
         tileRef: TileRef = TileRef.whole(z = zoom.toInt(), x = tileX, y = tileY),
+        geometry: TileGeometry? = null,
     ) {
         if (!isLayerVisible(styleLayer)) return
         if (!isZoomInRange(styleLayer, zoom)) return
@@ -133,7 +139,7 @@ class TileRenderer(
         VectorStats.measure(phase) {
             renderLayer(
                 canvas, tile, styleLayer, zoom, canvasSize, actualZoom, tileKey, rasterImage, demTile,
-                tileY, tileX, neighbours, tileRef, span, geometrySize, canonical,
+                tileY, tileX, neighbours, tileRef, span, geometrySize, canonical, geometry,
             )
         }
     }
@@ -155,6 +161,7 @@ class TileRenderer(
         span: Int,
         geometrySize: Int,
         canonical: CanonicalTileId,
+        geometry: TileGeometry?,
     ) {
         when (styleLayer) {
             // Drawn elsewhere or not implemented; see the class KDoc.
@@ -279,15 +286,16 @@ class TileRenderer(
                         -tileRef.subY.toFloat() * canvasSize,
                     )
                 }
+                val tileGeometry = geometry?.takeIf { it.geometrySize == geometrySize }
+                    ?: localGeometry.getOrPut(tile to geometrySize) { TileGeometry(geometrySize) }
                 try {
                     when (styleLayer) {
                         is FillLayer -> {
-                            val painter = painterFor(styleLayer)
+                            val painter = painterFor(styleLayer) as FillLayerPainter
+                            val paths = tileGeometry.fillPaths(tileLayer, extent)
                             for (entry in visible) {
-                                painter.paint(
-                                    canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                    entry.properties, actualZoom, entry.cacheKey
-                                )
+                                val path = paths[entry.index] ?: continue
+                                painter.paintPath(canvas, path, styleLayer, entry.properties, actualZoom)
                             }
                         }
 
@@ -296,11 +304,12 @@ class TileRenderer(
                              * is inside the span translate and the layer-opacity offscreen, so the
                              * meshes land exactly where per-feature draws did. */
                             val painter = painterFor(styleLayer) as LineLayerPainter
+                            val polylines = tileGeometry.polylines(tileLayer, extent)
                             try {
                                 for (entry in visible) {
                                     painter.append(
                                         canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                        entry.properties, actualZoom, entry.cacheKey
+                                        entry.properties, actualZoom, polylines[entry.index],
                                     )
                                 }
                             } finally {
@@ -388,7 +397,7 @@ class TileRenderer(
             for (candidate in ordered) {
                 circlePainter.paint(
                     canvas, candidate.entry.feature, styleLayer, geometrySize, candidate.extent,
-                    zoom, candidate.entry.properties, actualZoom, candidate.entry.cacheKey,
+                    zoom, candidate.entry.properties, actualZoom, null,
                     candidate.gate
                 )
             }
@@ -445,20 +454,21 @@ class TileRenderer(
         /* A function of the source and the source layer alone, so hoisting it out of the loop is
          * safe and so is caching the features it builds. See `promoteIdPropertyFor`. */
         val promoteIdProperty = promoteIdPropertyFor(styleLayer.source, tileLayer)
+        /* Keyed by the feature's position in the tile layer, not its `id` or its `hashCode`.
+         * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
+         * features in one layer collides often enough to matter -- two features sharing
+         * a key share both the cached `EvalFeature` and the cached geometry, so one is
+         * drawn with the other's properties and the other's shape. The decode order is
+         * deterministic, so the index is stable exactly where the caches need it to be. */
+        val cached = if (tileKey != null) {
+            evalFeatures.getOrPut(tileLayer) { arrayOfNulls(tileLayer.features.size) }
+        } else {
+            null
+        }
         tileLayer.features.forEachIndexed { index, feature ->
-            /* The feature's position in the tile layer, not its `id` or its `hashCode`.
-             * An MVT feature usually carries no `id`, and a 32-bit hash over a few thousand
-             * features in one layer collides often enough to matter -- two features sharing
-             * a key share both the cached `EvalFeature` and the cached geometry, so one is
-             * drawn with the other's properties and the other's shape. The decode order is
-             * deterministic and the decoded ancestor tile is shared by every sub-square, so
-             * the index is stable exactly where the caches need it to be. */
-            val featureIdKey = "f$index"
-            val propertyKey = if (tileKey != null) "$tileKey-${tileLayer.name}-$featureIdKey" else null
-            val featureProperties = if (propertyKey != null) {
-                localPropCache.getOrPut(propertyKey) {
-                    buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
-                }
+            val featureProperties = if (cached != null) {
+                cached[index] ?: buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
+                    .also { cached[index] = it }
             } else {
                 buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
             }
@@ -466,16 +476,7 @@ class TileRenderer(
             if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
                 return@forEachIndexed
             }
-
-            /* [geometrySize] is what the polylines the key caches are measured in. It is a
-             * pure function of the span today, which the tile key already carries, but
-             * nothing in the key said so. */
-            val featureKey = if (tileKey != null) {
-                "$tileKey-$geometrySize-${styleLayer.id}-$featureIdKey"
-            } else {
-                null
-            }
-            visible.add(VisibleFeature(feature, featureProperties, featureKey))
+            visible.add(VisibleFeature(feature, featureProperties, index))
         }
 
         if (sorted) {
@@ -580,12 +581,8 @@ class TileRenderer(
             when (styleLayer) {
                 is BackgroundLayer -> BackgroundLayerPainter(configuration.spriteManager, patternBrushes)
                 is CircleLayer -> circlePainter
-                is FillLayer -> FillLayerPainter(
-                    pathCache, pathCacheMutex, configuration.spriteManager, patternBrushes
-                )
-                is LineLayer -> LineLayerPainter(
-                    pathCache, pathCacheMutex, configuration.spriteManager, patternBrushes
-                )
+                is FillLayer -> FillLayerPainter(configuration.spriteManager, patternBrushes)
+                is LineLayer -> LineLayerPainter(configuration.spriteManager, patternBrushes)
                 else -> throw IllegalStateException("no painter for layer type '${styleLayer.type}'")
             }
         } as BaseLayerPainter<T>
@@ -605,7 +602,8 @@ class TileRenderer(
     private class VisibleFeature(
         val feature: Tile.Feature,
         val properties: EvalFeature?,
-        val cacheKey: String?,
+        /** The feature's position in its tile layer, which is what the per-tile caches index by. */
+        val index: Int,
     )
 
     private companion object {

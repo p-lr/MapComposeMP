@@ -40,6 +40,7 @@ import ovh.plrapps.mapcompose.vector.data.byteArrayToImageBitmap
 import ovh.plrapps.mapcompose.vector.renderer.DemTile
 import ovh.plrapps.mapcompose.vector.renderer.NeighbourTile
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
+import ovh.plrapps.mapcompose.vector.renderer.TileGeometry
 import ovh.plrapps.mapcompose.vector.renderer.TileRenderer
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
@@ -89,6 +90,15 @@ class VectorRasterizer(
         weigher = { it.size.toLong() },
     )
     private val pathCache = LruCache<String, Any>(maxSize = PATH_CACHE_SIZE)
+
+    /* What a decoded tile becomes once a painter has drawn it, keyed by the render key and the size it
+     * is decoded at. Its weight is estimated when it is created, before anything is decoded into it. */
+    private val geometryCache = LruCache<String, TileGeometry>(
+        maxSize = 64,
+        maxWeight = cacheBudget.geometry,
+        weigher = { it.estimatedBytes },
+    )
+    private val geometryCacheMutex = Mutex()
     // Separate mutexes per cache eliminate cross-cache contention when tiles render concurrently.
     private val byteCacheMutex = Mutex()
     private val tileCacheMutex = Mutex()
@@ -303,13 +313,17 @@ class VectorRasterizer(
             buildDem(sourceName, tile.ref)?.let { DemTile(dem = it, ref = tile.ref) }
         }
 
-        val localPropCache = HashMap<String, EvalFeature>()
-        val tileRenderer = TileRenderer(
-            configuration = configuration,
-            pathCache = pathCache,
-            pathCacheMutex = pathCacheMutex,
-            localPropCache = localPropCache
-        )
+        val tileRenderer = TileRenderer(configuration = configuration)
+
+        /* Every vector and geojson tile's geometry at the size this render decodes it at -- shared
+         * through [geometryCache] with the other map tiles an overzoomed ancestor covers. */
+        val geometryForSource: Map<String, TileGeometry> = buildMap {
+            for ((sourceName, tile) in tileForSource + geoJsonForSource) {
+                tile ?: continue
+                val ref = refs[sourceName] ?: continue
+                put(sourceName, tileGeometry(getRenderKey(sourceName, ref), tile, tileSize * ref.span.coerceAtLeast(1)))
+            }
+        }
 
         /* Gated on a layer that needs them actually drawing at this zoom, because the neighbours
          * cost 8 fetches per source -- a heatmap is commonly bounded to a narrow zoom range, and a
@@ -377,10 +391,25 @@ class VectorRasterizer(
                         ?.let { neighboursForSource[it] }
                         ?: emptyList(),
                     tileRef = ref,
+                    geometry = sourceName?.let { geometryForSource[it] },
                 )
             }
         }
         return if (abandoned) null else imageBitmap
+    }
+
+    /**
+     * The decoded geometry of [tile] at [geometrySize], shared by every render that asks for the same
+     * tile at the same size. See [TileGeometry].
+     */
+    private suspend fun tileGeometry(renderKey: String, tile: Tile, geometrySize: Int): TileGeometry {
+        val key = "$renderKey-g$geometrySize"
+        return geometryCacheMutex.withLock {
+            geometryCache.get(key) ?: TileGeometry(
+                geometrySize = geometrySize,
+                estimatedBytes = estimatedTileBytes(tile) * GEOMETRY_BYTES_PER_TILE_BYTE,
+            ).also { geometryCache.put(key, it) }
+        }
     }
 
     /**
@@ -1044,6 +1073,7 @@ class VectorRasterizer(
         rasterImageCacheMutex.withLock { rasterImageCache.clear() }
         demCacheMutex.withLock { demCache.clear() }
         pathCacheMutex.withLock { pathCache.clear() }
+        geometryCacheMutex.withLock { geometryCache.clear() }
         if (critical) byteCacheMutex.withLock { byteCache.clear() }
 
         val live = lastPublished
@@ -1263,12 +1293,16 @@ class LoadTileException(msg: String) : Exception(msg)
  * times over, so that losing a decoded tile never costs a network round trip.
  */
 internal class CacheBudget(total: Long) {
-    val encodedTiles: Long = total / 4
-    val decodedTiles: Long = total * 2 / 5
+    val encodedTiles: Long = total / 5
+    val decodedTiles: Long = total * 3 / 10
+    val geometry: Long = total / 5
     val geoJsonTiles: Long = total / 10
-    val images: Long = total / 8
-    val elevation: Long = total / 8
+    val images: Long = total / 10
+    val elevation: Long = total / 10
 }
+
+/** Decoded canvas-space geometry -- float pairs and Skia paths -- against the integers it came from. */
+private const val GEOMETRY_BYTES_PER_TILE_BYTE = 2L
 
 /**
  * Roughly how many bytes a decoded [Tile] keeps alive: its geometry and tag integers, which are

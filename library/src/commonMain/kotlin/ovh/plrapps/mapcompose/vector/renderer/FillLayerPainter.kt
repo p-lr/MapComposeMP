@@ -6,8 +6,6 @@ import androidx.compose.ui.graphics.PaintingStyle
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
@@ -20,7 +18,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
-import ovh.plrapps.mapcompose.vector.utils.LruCache
 
 /**
  * Draws `fill` layers.
@@ -40,8 +37,6 @@ import ovh.plrapps.mapcompose.vector.utils.LruCache
  * when the style actually asks for a distinct `fill-outline-color`.
  */
 class FillLayerPainter(
-    private val pathCache: LruCache<String, Any>? = null,
-    private val mutex: Mutex? = null,
     private val spriteManager: SpriteManager? = null,
     private val patternBrushes: PatternBrushCache = PatternBrushCache(),
 ) : BaseLayerPainter<FillLayer>() {
@@ -57,22 +52,22 @@ class FillLayerPainter(
         featureKey: String?
     ) {
         if (feature.type != Tile.GeomType.POLYGON) return
+        val path = createPath(feature, canvasSize, extent) ?: return
+        paintPath(canvas, path, style, featureProperties, actualZoom)
+    }
 
+    /**
+     * Fills one feature already decoded into [path] -- by `TileGeometry`, which decodes a tile layer
+     * once for every style layer that draws it.
+     */
+    fun paintPath(
+        canvas: DrawScope,
+        path: Path,
+        style: FillLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+    ) {
         val paint = style.paint
-
-        val path: Path? = if (featureKey != null && pathCache != null && mutex != null) {
-            mutex.withLock {
-                pathCache.get(featureKey) as? Path
-            } ?: createPath(feature, canvasSize, extent)?.also {
-                mutex.withLock {
-                    pathCache.put(featureKey, it)
-                }
-            }
-        } else {
-            createPath(feature, canvasSize, extent)
-        }
-
-        if (path == null) return
 
         val fillColor = paint.fillColor?.processAsColor(featureProperties, actualZoom)
             ?: StyleSpecDefaults.FILL_COLOR

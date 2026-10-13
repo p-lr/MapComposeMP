@@ -2,7 +2,6 @@ package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.test.runTest
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import kotlinx.serialization.json.Json
@@ -14,8 +13,6 @@ import ovh.plrapps.mapcompose.vector.data.json
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.MapLibreStyle
-import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
-import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -36,9 +33,6 @@ class TileRendererTest {
             tileSources = emptyMap(),
             spriteManager = null,
         ),
-        pathCache = LruCache(16),
-        pathCacheMutex = Mutex(),
-        localPropCache = HashMap<String, EvalFeature>(),
     )
 
     private fun layer(styleJson: String): Layer = json.decodeFromString(Layer.serializer(), styleJson)

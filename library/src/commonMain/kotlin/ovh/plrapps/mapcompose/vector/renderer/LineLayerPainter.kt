@@ -7,8 +7,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.SHARP_CORNER_OFFSET
@@ -29,7 +27,6 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsGradientColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
-import ovh.plrapps.mapcompose.vector.utils.LruCache
 import kotlin.math.hypot
 
 /**
@@ -60,8 +57,6 @@ import kotlin.math.hypot
  *   the vertex shader does. Very sharp inner corners still fold over -- upstream folds too.
  */
 class LineLayerPainter(
-    private val pathCache: LruCache<String, Any>? = null,
-    private val mutex: Mutex? = null,
     private val spriteManager: SpriteManager? = null,
     private val patternBrushes: PatternBrushCache = PatternBrushCache(),
 ) : BaseLayerPainter<LineLayer>() {
@@ -93,7 +88,7 @@ class LineLayerPainter(
         actualZoom: Double,
         featureKey: String?
     ) {
-        append(canvas, feature, style, canvasSize, extent, zoom, featureProperties, actualZoom, featureKey)
+        append(canvas, feature, style, canvasSize, extent, zoom, featureProperties, actualZoom)
         flush(canvas)
     }
 
@@ -105,6 +100,9 @@ class LineLayerPainter(
     /**
      * Tessellates one feature into the layer's batch, without drawing it yet -- see [flush]. A
      * patterned line, which cannot be batched, flushes what is queued and is drawn at once.
+     *
+     * [decoded] is the feature's geometry when the caller already has it -- `TileGeometry` decodes
+     * a tile layer once for every style layer that draws it.
      */
     suspend fun append(
         canvas: DrawScope,
@@ -115,7 +113,7 @@ class LineLayerPainter(
         zoom: Double,
         featureProperties: EvalFeature?,
         actualZoom: Double,
-        featureKey: String?
+        decoded: List<FloatArray>? = null,
     ) {
         if (feature.type != Tile.GeomType.LINESTRING && feature.type != Tile.GeomType.POLYGON) return
 
@@ -123,7 +121,7 @@ class LineLayerPainter(
         val layout = style.layout
         val density = canvas.density
 
-        val polylines = cachedPolylines(feature, canvasSize, extent, featureKey)
+        val polylines = decoded ?: decodePolylines(feature, canvasSize, extent)
         if (polylines.isEmpty()) return
 
         val lineColor = paint.lineColor?.processAsColor(featureProperties, actualZoom)
@@ -234,48 +232,19 @@ class LineLayerPainter(
         sinkScope = null
     }
 
-    /**
-     * Decoded polylines for a feature, memoised in the renderer's shared path cache.
-     *
-     * Every visible tile re-renders its features on each zoom step, and command-stream decoding is
-     * the expensive half of that; the cache is keyed by tile, layer and feature id so a feature that
-     * spans several style layers is decoded once per layer, as before. Each polyline is `x, y`
-     * interleaved in canvas pixels, which is what the tessellator reads.
-     */
-    private suspend fun cachedPolylines(
-        feature: Tile.Feature,
-        canvasSize: Int,
-        extent: Int,
-        featureKey: String?,
-    ): List<FloatArray> {
-        if (featureKey == null || pathCache == null || mutex == null) {
-            return decodePolylines(feature, canvasSize, extent)
-        }
-        @Suppress("UNCHECKED_CAST")
-        mutex.withLock { pathCache.get(featureKey) as? List<FloatArray> }?.let { return it }
-        val decoded = decodePolylines(feature, canvasSize, extent)
-        mutex.withLock { pathCache.put(featureKey, decoded) }
-        return decoded
-    }
-
     private fun decodePolylines(
         feature: Tile.Feature,
         canvasSize: Int,
         extent: Int,
     ): List<FloatArray> = when (feature.type) {
         Tile.GeomType.LINESTRING ->
-            geometryDecoders.decodeLine(feature.geometry, canvasSize = canvasSize, extent = extent)
+            geometryDecoders.decodeLineArrays(feature.geometry, canvasSize = canvasSize, extent = extent)
 
         Tile.GeomType.POLYGON ->
-            geometryDecoders.decodePolygons(feature.geometry, canvasSize = canvasSize, extent = extent)
-                .flatten()
+            geometryDecoders.decodePolygonRingArrays(feature.geometry, canvasSize = canvasSize, extent = extent)
 
         else -> emptyList()
-    }.filter { it.size >= 2 }.map { points ->
-        FloatArray(points.size * 2) { i ->
-            if (i % 2 == 0) points[i / 2].first else points[i / 2].second
-        }
-    }
+    }.filter { it.size >= 4 }
 
     private fun polylineLength(points: FloatArray): Float {
         var total = 0f
