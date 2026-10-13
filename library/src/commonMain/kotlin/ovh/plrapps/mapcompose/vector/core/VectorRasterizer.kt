@@ -249,7 +249,8 @@ class VectorRasterizer(
         x: Int,
         y: Int,
         superSampling: Int = 1,
-    ): ImageBitmap {
+        isWanted: () -> Boolean = { true },
+    ): ImageBitmap? {
         val z = zoom.toInt()
         val screenDensity = densityState.value ?: return emptyBitmap(tileSize)
         /* Every style width a painter draws goes through `canvas.density`, and the whole tile is
@@ -341,6 +342,7 @@ class VectorRasterizer(
         val imageBitmap = ImageBitmap(tileSize, tileSize)
         val canvas = Canvas(imageBitmap)
         val drawScope = CanvasDrawScope()
+        var abandoned = false
 
         drawScope.draw(
             density = density,
@@ -348,7 +350,13 @@ class VectorRasterizer(
             canvas = canvas,
             size = Size(tileSize.toFloat(), tileSize.toFloat())
         ) {
-            for (styleLayer in configuration.style.layers) {
+            for ((index, styleLayer) in configuration.style.layers.withIndex()) {
+                /* A tile takes tens of milliseconds over a style's hundred-odd layers, which is long
+                 * enough for a pinch to make it obsolete half way through. */
+                if (index % WANTED_CHECK_EVERY_LAYERS == 0 && index > 0 && !isWanted()) {
+                    abandoned = true
+                    break
+                }
                 val sourceName = styleLayer.source.takeIf { !it.isNullOrBlank() }
                 val ref = sourceName?.let { refs[it] } ?: TileRef.whole(z = z, x = x, y = y)
                 val tileKey = sourceName?.let { getRenderKey(it, ref) }
@@ -373,7 +381,7 @@ class VectorRasterizer(
                 )
             }
         }
-        return imageBitmap
+        return if (abandoned) null else imageBitmap
     }
 
     /**
@@ -636,9 +644,9 @@ class VectorRasterizer(
      * Rasterizes one tile into a [tileSize] x [tileSize] bitmap.
      *
      * With [superSampling] > 1 the tile is drawn that many times larger and filtered back down to
-     * `tileSize / superSampling` before returning. That trades `superSampling²` fill rate for cleaner
-     * hairlines and text: the tile is minified again when it is drawn, and that second minification
-     * is a plain bilinear sample.
+     * [outputSize] -- `tileSize / superSampling` unless the caller wants it smaller still -- before
+     * returning. That trades `superSampling²` fill rate for cleaner hairlines and text: the tile is
+     * minified again when it is drawn, and that second minification is a plain bilinear sample.
      *
      * The fetch runs freely; the rasterization waits for [renderBudget]. Returns null when
      * [isWanted] says the tile is no longer needed -- checked once the bytes are in and again once
@@ -650,6 +658,7 @@ class VectorRasterizer(
         zoom: Double,
         tileSize: Int,
         superSampling: Int = 1,
+        outputSize: Int = tileSize / superSampling.coerceAtLeast(1),
         isWanted: () -> Boolean = { true },
     ): ImageBitmap? {
         val z = zoom.toInt()
@@ -662,8 +671,8 @@ class VectorRasterizer(
         if (!isWanted()) return null.also { VectorStats.tileSkipped() }
 
         val renderBytes = bitmapBytes(tileSize)
-        val targetSize = tileSize / superSampling.coerceAtLeast(1)
-        val budget = renderBytes + if (superSampling > 1) bitmapBytes(targetSize) else 0L
+        val targetSize = outputSize.coerceIn(1, tileSize)
+        val budget = renderBytes + if (targetSize < tileSize) bitmapBytes(targetSize) else 0L
 
         return renderBudget.withBudget(budget) {
             if (!isWanted()) return@withBudget null.also { VectorStats.tileSkipped() }
@@ -679,10 +688,16 @@ class VectorRasterizer(
                     x = x,
                     y = y,
                     superSampling = superSampling,
+                    isWanted = isWanted,
                 )
             }
+            if (rendered == null) {
+                VectorStats.bitmapReleased(renderBytes)
+                VectorStats.tileSkipped()
+                return@withBudget null
+            }
 
-            if (superSampling <= 1) return@withBudget rendered
+            if (targetSize >= tileSize) return@withBudget rendered
             VectorStats.bitmapAllocated(bitmapBytes(targetSize))
             VectorStats.measure(VectorStats.Phase.DOWNSAMPLE) { downsample(rendered, targetSize) }
                 .also { VectorStats.bitmapReleased(renderBytes) }
@@ -1138,6 +1153,9 @@ class VectorRasterizer(
  * pass; this is only what an empty or tiny viewport falls back to.
  */
 private const val SYMBOL_BUCKET_CACHE_SIZE = 512
+
+/** How many style layers a tile rasterizes between two checks that it is still wanted. */
+private const val WANTED_CHECK_EVERY_LAYERS = 16
 
 /** How many consecutive small layout passes it takes before the bucket cache gives memory back. */
 private const val SYMBOL_BUCKET_SHRINK_AFTER_PASSES = 4

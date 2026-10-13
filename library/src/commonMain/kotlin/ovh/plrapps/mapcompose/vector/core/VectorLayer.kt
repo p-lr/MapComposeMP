@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.io.Buffer
 import kotlinx.io.buffered
 import kotlinx.io.readString
 import ovh.plrapps.mapcompose.api.centroidX
@@ -19,6 +18,8 @@ import ovh.plrapps.mapcompose.api.centroidY
 import ovh.plrapps.mapcompose.api.fullSize
 import ovh.plrapps.mapcompose.api.scale
 import ovh.plrapps.mapcompose.core.TileMatrix
+import ovh.plrapps.mapcompose.core.BitmapTileProvider
+import ovh.plrapps.mapcompose.core.BitmapTileResult
 import ovh.plrapps.mapcompose.core.TileStreamProvider
 import ovh.plrapps.mapcompose.core.Viewport
 import ovh.plrapps.mapcompose.core.VisibleTiles
@@ -26,7 +27,6 @@ import ovh.plrapps.mapcompose.core.VisibleWindow
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.utils.throttle
-import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.extension.toMVTViewport
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.glyphs.ComposeGlyphRasterizer
@@ -162,31 +162,43 @@ internal class VectorLayer(
             scope.launch { rasterizer.trimMemory(critical) }
         }
 
-        return TileStreamProvider { row, col, zoomLvl ->
-            val density = mapState.densityState.value ?: return@TileStreamProvider null
-            val raster = vectorTileRaster(
-                tileSize = mapState.tileSize,
-                density = density.density,
-                superSampling = superSamplingFactor,
-                magnifyingFactor = mapState.visibleTilesResolver.magnifyingFactor,
-            )
+        return object : BitmapTileProvider {
+            /* The rasterized bitmap is handed to core as is. It used to cross the
+             * `TileStreamProvider` boundary as an uncompressed BMP that core decoded straight back --
+             * four to six full-size copies of every tile, on the JVM heap on Android. */
+            override suspend fun getTileBitmap(
+                row: Int,
+                col: Int,
+                zoomLvl: Int,
+                subSample: Int,
+                isWanted: () -> Boolean,
+            ): BitmapTileResult {
+                val density = mapState.densityState.value ?: return BitmapTileResult.Empty
+                val raster = vectorTileRaster(
+                    tileSize = mapState.tileSize,
+                    density = density.density,
+                    superSampling = superSamplingFactor,
+                    magnifyingFactor = mapState.visibleTilesResolver.magnifyingFactor,
+                )
 
-            val imageBitmap = rasterizer.getTile(
-                x = col,
-                y = row,
-                zoom = zoomLvl.toDouble(),
-                tileSize = raster.renderPx,
-                superSampling = raster.superSampling,
-            ) ?: return@TileStreamProvider null
+                /* A sub-sampled tile -- the map zoomed out past its first level -- is the same tile
+                 * shown smaller, so it is filtered down further rather than drawn at another density,
+                 * which would thicken every line relative to the map. Core used to do this when it
+                 * decoded the bytes. */
+                val outputPx = (raster.outputPx shr subSample.coerceAtLeast(0)).coerceAtLeast(1)
 
-            VectorStats.measure(VectorStats.Phase.HANDOVER) {
-                val bytes = imageBitmap.toBytes()
+                val imageBitmap = rasterizer.getTile(
+                    x = col,
+                    y = row,
+                    zoom = zoomLvl.toDouble(),
+                    tileSize = raster.renderPx,
+                    superSampling = raster.superSampling,
+                    outputSize = outputPx,
+                    isWanted = isWanted,
+                ) ?: return BitmapTileResult.Skipped
+
                 VectorStats.bitmapReleased(imageBitmap.width.toLong() * imageBitmap.height * 4)
-                bytes ?: return@TileStreamProvider null
-
-                Buffer().apply {
-                    write(bytes)
-                }
+                return BitmapTileResult.Rendered(imageBitmap)
             }
         }
     }
