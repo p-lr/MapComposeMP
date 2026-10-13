@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import kotlinx.io.Source
 import kotlinx.io.readByteArray
 import org.jetbrains.skia.Bitmap
@@ -108,3 +109,9 @@ private fun decodeViaSurface(bytes: ByteArray, ratio: Int): ImageBitmap? = runCa
         img.close()
     }
 }.getOrNull()
+internal actual fun adoptRenderedBitmap(bitmap: ImageBitmap, hasLayers: Boolean): ImageBitmap = bitmap
+
+/** Frees the pixels now rather than whenever the collector gets to them: a tile is megabytes. */
+internal actual fun releaseRenderedBitmap(bitmap: ImageBitmap) {
+    bitmap.asSkiaBitmap().close()
+}

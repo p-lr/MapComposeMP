@@ -54,8 +54,8 @@ class RasterTileImage(
  * Known divergences, both consequences of rasterizing tiles to bitmaps rather than sampling textures
  * on the GPU:
  * - **`raster-fade-duration` is inert.** Upstream cross-fades a tile against its parent over that
- *   many milliseconds as it loads. A tile here is rasterized once and handed to the tile pipeline as
- *   bytes; there is no frame loop, and no per-tile load timeline to fade against.
+ *   many milliseconds as it loads. A tile here is rasterized once and handed to the tile pipeline
+ *   as a finished bitmap; there is no frame loop, and no per-tile load timeline to fade against.
  * - **The image is resampled twice**, once into the tile bitmap and again when that bitmap is drawn
  *   (see `vectorTileRaster`). Drawing into the tile bitmap is what keeps a raster layer in style
  *   order relative to the vector layers around it.

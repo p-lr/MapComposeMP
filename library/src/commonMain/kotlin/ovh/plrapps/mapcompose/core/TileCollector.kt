@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -51,7 +52,13 @@ import kotlin.math.pow
 internal class TileCollector(
     private val workerCount: Int,
     private val optimizeForLowEndDevices: Boolean,
-    private val tileSize: Int
+    private val tileSize: Int,
+    /**
+     * Whether a spec is still worth producing. A [BitmapTileProvider] renders for a long time, and a
+     * pinch across a level makes every tile it was asked for obsolete before it is done; such a tile
+     * is dropped without an output [Tile], so that it is simply requested again if it reappears.
+     */
+    private val isWanted: (TileSpec) -> Boolean = { true },
 ) {
     @Volatile
     var isIdle: Boolean = true
@@ -97,25 +104,28 @@ internal class TileCollector(
         val workerData = makeWorkerData()
 
         for (spec in tilesToDownload) {
-            if (layers.isEmpty()) {
+            if (layers.isEmpty() || !isWanted(spec)) {
                 tilesDownloaded.send(spec)
                 continue
             }
 
             val subSamplingRatio = 2.0.pow(spec.subSample).toInt()
-            val bitmapForLayers = layers.map { layer ->
-                async {
-                    val source = layer.tileStreamProvider.getTileStream(spec.row, spec.col, spec.zoom)
-                    BitmapForLayer(source?.buffered(), layer)
-                }
-            }.awaitAll()
+            val bitmapForLayers = fetchLayers(spec, layers) ?: run {
+                /* Abandoned because the tile stopped being visible: no output, so that the actor
+                 * which submits specs does not record it as processed. */
+                tilesDownloaded.send(spec)
+                null
+            } ?: continue
 
-            val firstLayerImage = bitmapForLayers.firstOrNull()?.source?.decodeFirstLayer(
-                hasLayers = layers.size > 1,
-                optimizeForLowEndDevices = optimizeForLowEndDevices,
-                subSamplingRatio = subSamplingRatio,
-                workerData = workerData
-            ) ?: run {
+            val firstLayerImage = bitmapForLayers.first().let { first ->
+                first.bitmap?.let { adoptRenderedBitmap(it, hasLayers = layers.size > 1) }
+                    ?: first.source?.decodeFirstLayer(
+                        hasLayers = layers.size > 1,
+                        optimizeForLowEndDevices = optimizeForLowEndDevices,
+                        subSamplingRatio = subSamplingRatio,
+                        workerData = workerData
+                    )
+            } ?: run {
                 tilesDownloaded.send(spec)
                 /* When the decoding failed or if there's nothing to decode, then send back the Tile
                  * just as in normal processing, so that the actor which submits tiles specs to the
@@ -131,6 +141,7 @@ internal class TileCollector(
                         layers.map { it.alpha }
                     )
                 )
+                bitmapForLayers.drop(1).forEach { it.bitmap?.let(::releaseRenderedBitmap) }
                 null
             } ?: continue // If the decoding of the first layer failed, skip the rest
 
@@ -140,6 +151,17 @@ internal class TileCollector(
                 var previousLayer: ImageBitmap? = null
                 for (result in bitmapForLayers.drop(1)) {
                     paint.alpha = result.layer.alpha
+                    if (result.bitmap != null) {
+                        /* A rendered layer may be of another resolution than the first one; it is
+                         * drawn over the same area. */
+                        canvas.drawImageRect(
+                            image = result.bitmap,
+                            dstSize = IntSize(firstLayerImage.width, firstLayerImage.height),
+                            paint = paint,
+                        )
+                        releaseRenderedBitmap(result.bitmap)
+                        continue
+                    }
                     if (result.source == null) continue
                     previousLayer = result.source.decodeOverlay(
                         previousLayer = previousLayer,
@@ -171,6 +193,41 @@ internal class TileCollector(
             tilesOutput.send(tile)
             tilesDownloaded.send(spec)
         }
+    }
+
+    /**
+     * Every layer's contribution to [spec], fetched concurrently, or null when a [BitmapTileProvider]
+     * gave up on it because it stopped being wanted.
+     *
+     * A provider that skipped a tile which is wanted again by the time every layer answered -- the map
+     * went away and came straight back -- is asked once more rather than leaving a hole.
+     */
+    private suspend fun fetchLayers(spec: TileSpec, layers: List<Layer>): List<LayerResult>? = coroutineScope {
+        val wanted = { isWanted(spec) }
+        repeat(2) {
+            val results = layers.map { layer ->
+                async {
+                    when (val provider = layer.tileStreamProvider) {
+                        is BitmapTileProvider ->
+                            when (val result = provider.getTileBitmap(spec.row, spec.col, spec.zoom, spec.subSample, wanted)) {
+                                is BitmapTileResult.Rendered -> LayerResult(layer, bitmap = result.bitmap)
+                                BitmapTileResult.Empty -> LayerResult(layer)
+                                BitmapTileResult.Skipped -> null
+                            }
+
+                        else -> LayerResult(
+                            layer,
+                            source = provider.getTileStream(spec.row, spec.col, spec.zoom)?.buffered(),
+                        )
+                    }
+                }
+            }.awaitAll()
+
+            if (results.all { it != null }) return@coroutineScope results.filterNotNull()
+            results.forEach { it?.bitmap?.let(::releaseRenderedBitmap) }
+            if (!isWanted(spec)) return@coroutineScope null
+        }
+        null
     }
 
     private fun CoroutineScope.tileCollectorKernel(
@@ -227,4 +284,16 @@ internal expect fun processFinalImage(
     previousLayer: ImageBitmap?
 ): ImageBitmap
 
-private class BitmapForLayer(val source: Source?, val layer: Layer)
+/** One layer's answer for a tile: bytes to decode, or a bitmap a [BitmapTileProvider] rendered. */
+private class LayerResult(val layer: Layer, val source: Source? = null, val bitmap: ImageBitmap? = null)
+
+/**
+ * Takes ownership of a bitmap a [BitmapTileProvider] rendered, as the first layer of a tile.
+ *
+ * On Android a single-layer tile is moved to a hardware bitmap, as a decoded one would have been
+ * decoded straight into one, and the software original is recycled. Elsewhere it is used as is.
+ */
+internal expect fun adoptRenderedBitmap(bitmap: ImageBitmap, hasLayers: Boolean): ImageBitmap
+
+/** Frees a rendered bitmap that was drawn onto another layer, or never used. */
+internal expect fun releaseRenderedBitmap(bitmap: ImageBitmap)

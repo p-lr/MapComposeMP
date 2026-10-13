@@ -47,12 +47,11 @@ VectorTileStreamProvider (interface)
         ├─ CrossTileSymbolIndex  one identity per label, across tiles and zooms
         └─ Placement             placement: project, collide, fade — held, at most one per 300 ms
               → CollisionDetector  R-tree over oriented boxes / circle chains, viewport-bounded
-  → ImageBitmap.toBytes()  uncompressed BMP, handed to MapCompose's ordinary tile pipeline
+  → BitmapTileProvider     the rasterized ImageBitmap, handed to MapCompose's tile pipeline as is
 ```
 
-The last step is not decoration. `addVectorLayer` builds a plain `TileStreamProvider`, so a
-rasterized tile has to cross a **byte** boundary and be decoded again by `TileCollector` even though
-both ends hold an `ImageBitmap`. See [Tile encoding](#tile-encoding).
+The last step is not decoration. A tile used to leave this package as **bytes** -- an uncompressed
+BMP that `TileCollector` decoded straight back. See [Tile handover](#tile-handover).
 
 ## Decoders
 
@@ -1314,32 +1313,27 @@ Symbols are sized in none of those spaces. They are a viewport overlay, laid out
 on-screen size (`fullWidth * scale / 2^zoom`) is not a layout space any more but the map's
 *fractional* zoom, which is the zoom `text-size` and `icon-size` are evaluated at.
 
-## Tile encoding
+## Tile handover
 
-`addVectorLayer` returns an ordinary `TileStreamProvider`, so a rasterized tile leaves this package
-as **bytes** and MapCompose's `TileCollector` decodes it back into an `ImageBitmap`. Nothing in the
-vector package controls that boundary; the only thing it controls is the format.
+`addVectorLayer` registers a `BitmapTileProvider` (`core/TileStreamProvider.kt`), an internal
+extension of `TileStreamProvider` that core's `TileCollector` checks for: it asks for the tile as an
+`ImageBitmap` and takes the rasterized bitmap as is, instead of reading bytes and decoding them.
 
-That format is an **uncompressed 32-bit BMP** (`data/extension/BmpEncoder.kt`), not PNG. Deflating a
-tile and inflating it again is by far the most expensive thing that happens to it: on a synthetic
-map-like tile, a 1024×1024 PNG round trip measures ~600 ms against ~13 ms for BMP, almost all of it
-in the encoder. BMP costs bytes instead — 4 MB for that tile against ~1.2 MB — but they live only
-between the encode and the decode. Both decoders on the other side read BMP natively: Android's
-`BitmapFactory` lists it among the supported formats, and Skia has `SkBmpCodec`.
+It used to be the other way round. Core only knew bytes, so every tile was encoded -- latterly as an
+uncompressed 32-bit BMP, which beat PNG's ~600 ms per 1024 px tile by an order of magnitude -- and
+decoded straight back. That was still four to six full-size copies of every tile: the unpremultiplied
+pixel read, the encoded file, the `Buffer` copy, core's read of it and the decoded bitmap, all but the
+last on the JVM heap on Android, where they were what ran the app out of memory.
 
-Two things about the encoder are load-bearing:
+On Android a single-layer tile is then copied to a `HARDWARE` bitmap and the software one recycled
+(`adoptRenderedBitmap`), as a decoded tile would have been decoded straight into one. A tile drawn
+over another layer is scaled onto it, whatever its own resolution.
 
-- **The pixel data is straight alpha.** A tile `ImageBitmap` is `PREMUL`, so both actuals ask for
-  unpremultiplied pixels explicitly — a Skia `readPixels` into `BGRA_8888` / `UNPREMUL`,
-  `Bitmap.getPixels` on Android. Writing the bitmap's own bytes out as if they were straight alpha
-  passes every opaque assertion and saturates every translucent one, which is the same trap
-  `imageBitmapFromArgb` records.
-- **Rows are top-down**, via BMP's negative-height convention, and the alpha channel needs a
-  `BITMAPV4HEADER` with `BI_BITFIELDS` — the older `BITMAPINFOHEADER` has no way to declare an alpha
-  mask at all.
-
-Skia has no BMP *encoder* (`Image.encodeToData` honours only JPEG, PNG and WEBP), which is why this
-one is hand-rolled. It is a 122-byte header plus one pixel copy.
+The provider is also handed an `isWanted` predicate, read off `TileCanvasState`'s current visible
+tiles. `VectorRasterizer.getTile` checks it after the fetch, once the render budget is granted, and
+every 16 style layers, and a tile abandoned that way produces no output `Tile` at all -- an empty one
+would sit on the canvas as a blank until the next eviction -- so it is simply requested again if it
+comes back into view. A pinch across a level used to render every tile it had asked for to the end.
 
 ## Testing
 
@@ -1357,13 +1351,10 @@ Two source sets, split by what needs a graphics backend:
   `runComposeUiTest`, which fails on androidHostTest and times out on wasm. Support is in
   `skiaTest/.../renderer/PainterTestSupport.kt`.
 
-`BmpRoundTripTest` (in `skiaTest`) is what decides the tile encoding, and it is deliberately
-written against **core's own `decodeFirstLayer`** rather than a re-implementation of it: nothing in
-this package decodes what `toBytes()` writes. Because it runs on all three skia targets it is also
-the answer to "does skiko's wasm build ship a BMP codec" — if it ever fails there alone, the actual
-moves out of `skiaMain` into `desktopMain` + `iosMain` and wasm goes back to PNG. Android has no
-unit-test route at all (androidHostTest cannot allocate an `ImageBitmap`), so its decode is checked
-by running the demo APK.
+`TileCollectorBitmapTest` (in `skiaTest`) drives core's own `TileCollector` through the
+`BitmapTileProvider` path, including the rule that an abandoned tile outputs nothing. Android's
+hardware copy has no unit-test route (androidHostTest cannot allocate an `ImageBitmap`), so it is
+checked by running the demo APK.
 
 `*UpstreamTest.kt` files are transcriptions of MapLibre's own unit tests, each naming its upstream
 path and keeping upstream's wording, so a failure can be traced back to a `describe`/`test` block by
