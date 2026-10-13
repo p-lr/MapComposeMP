@@ -50,12 +50,20 @@ class RenderedLabel(
  * [left] / [top] place the bitmap relative to that glyph centre. All in layout pixels.
  */
 class RenderedGlyph(
+    /**
+     * The label's glyph strip: every glyph of the label in its own cell, side by side, so a line
+     * label is one bitmap -- one texture to upload -- rather than one per glyph. This glyph's cell is
+     * [width] x [height] at ([srcX], [srcY]). Cells are padded apart, so filtering at a cell's edge
+     * only ever reads transparency.
+     */
     val bitmap: ImageBitmap,
     val alongOffset: Float,
     val left: Float,
     val top: Float,
     val width: Float,
     val height: Float,
+    val srcX: Int = 0,
+    val srcY: Int = 0,
 )
 
 /**
@@ -90,6 +98,9 @@ object GlyphRasterizer {
      * to fit on.
      */
     const val MAX_LABEL_BITMAP_DIMENSION = 8192
+
+    /** Transparent pixels between two cells of a glyph strip, wider than any filter's reach. */
+    private const val STRIP_PADDING = 2
 
     /** The most pixels a composited label may cover -- 4 M, i.e. 16 MB as an `IntArray`. */
     const val MAX_LABEL_BITMAP_PIXELS = 4_194_304
@@ -245,7 +256,7 @@ object GlyphRasterizer {
     }
 
     /**
-     * The label's glyphs, each rasterized into its own bitmap.
+     * The label's glyphs, each rasterized into its own cell of one strip bitmap.
      *
      * The per-glyph counterpart of [render], for a label that follows a line. Everything about a
      * glyph's shading is identical -- the same [SdfShade] with the same arguments -- so a
@@ -268,7 +279,7 @@ object GlyphRasterizer {
 
         val centreX = label.width / 2f
         val centreY = label.height / 2f
-        val out = ArrayList<RenderedGlyph>(items.size)
+        val cells = ArrayList<GlyphCell>(items.size)
 
         for (item in items) {
             if (item is ShapedImage) {
@@ -290,13 +301,13 @@ object GlyphRasterizer {
                 )
                 if (!inked) continue
                 val imageCentreX = item.x + item.advance / 2f
-                out += RenderedGlyph(
-                    bitmap = imageBitmapFromArgb(imagePixels, imageWidth, imageHeight),
+                cells += GlyphCell(
+                    pixels = imagePixels,
+                    width = imageWidth,
+                    height = imageHeight,
                     alongOffset = imageCentreX - centreX,
                     left = item.x - imageCentreX,
                     top = item.y - centreY,
-                    width = imageWidth.toFloat(),
-                    height = imageHeight.toFloat(),
                 )
                 continue
             }
@@ -342,17 +353,56 @@ object GlyphRasterizer {
             }
             if (!hasInk) continue
 
-            out += RenderedGlyph(
-                bitmap = imageBitmapFromArgb(pixels, width, height),
+            cells += GlyphCell(
+                pixels = pixels,
+                width = width,
+                height = height,
                 alongOffset = glyphCentreX - centreX,
                 left = originX - glyphCentreX,
                 top = originY - centreY,
-                width = width.toFloat(),
-                height = height.toFloat(),
             )
         }
 
-        return out.takeIf { it.isNotEmpty() }
+        return packStrip(cells)
+    }
+
+    private class GlyphCell(
+        val pixels: IntArray,
+        val width: Int,
+        val height: Int,
+        val alongOffset: Float,
+        val left: Float,
+        val top: Float,
+    )
+
+    /** Lays [cells] side by side, [STRIP_PADDING] apart, in one bitmap. */
+    private fun packStrip(cells: List<GlyphCell>): List<RenderedGlyph>? {
+        if (cells.isEmpty()) return null
+        val stripWidth = cells.sumOf { it.width } + STRIP_PADDING * (cells.size - 1)
+        val stripHeight = cells.maxOf { it.height }
+        val strip = IntArray(stripWidth * stripHeight)
+        val origins = IntArray(cells.size)
+        var x = 0
+        for ((index, cell) in cells.withIndex()) {
+            origins[index] = x
+            for (row in 0 until cell.height) {
+                cell.pixels.copyInto(strip, row * stripWidth + x, row * cell.width, (row + 1) * cell.width)
+            }
+            x += cell.width + STRIP_PADDING
+        }
+        val bitmap = imageBitmapFromArgb(strip, stripWidth, stripHeight)
+        return cells.mapIndexed { index, cell ->
+            RenderedGlyph(
+                bitmap = bitmap,
+                alongOffset = cell.alongOffset,
+                left = cell.left,
+                top = cell.top,
+                width = cell.width.toFloat(),
+                height = cell.height.toFloat(),
+                srcX = origins[index],
+                srcY = 0,
+            )
+        }
     }
 
     /**
