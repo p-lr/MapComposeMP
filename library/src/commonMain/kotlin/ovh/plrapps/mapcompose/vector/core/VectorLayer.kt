@@ -36,32 +36,64 @@ import kotlin.math.log2
 import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.round
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 /**
- * The pixel size of the bitmap a vector tile is rasterized into.
+ * The size a vector tile is rasterized at, and the super-sampling it can afford.
+ *
+ * [renderPx] is the bitmap actually drawn into; it is filtered down by [superSampling] to
+ * [outputPx] before it leaves the rasterizer.
+ */
+internal class VectorTileRaster(val renderPx: Int, val superSampling: Int) {
+    val outputPx: Int get() = renderPx / superSampling
+}
+
+/**
+ * The largest bitmap one tile is ever rasterized into, super-sampling included: 16 MB of ARGB.
+ *
+ * Without a cap the size is a product of four factors an app picks separately -- tile size, screen
+ * density, magnifying factor and super-sampling -- and on a 3x phone with 512 px tiles and
+ * super-sampling 2 that product was 4096 px, 64 MB per tile with a whole worker pool rasterizing at
+ * once, which is what crashed the app.
+ */
+internal const val MAX_RENDER_PX = 2048
+
+/**
+ * How large a vector tile is rasterized.
  *
  * A tile is drawn into `mapState.tileSize * relativeScale` device pixels (see `TileCanvas`, where
  * `dstSize` is `tileSize / scaleForLevel` inside a `scale(scale)` transform), and `relativeScale` is
  * in `(2^(magnifyingFactor - 1), 2^magnifyingFactor]` because `VisibleTilesResolver.getLevel` rounds
- * the level up after subtracting the factor. Sizing against the larger of [density] and
- * `2^magnifyingFactor` is what guarantees the bitmap is never smaller than the area it covers, so a
- * tile is always minified, never stretched.
+ * the level up after subtracting the factor. A bitmap of `2^magnifyingFactor` times the tile size
+ * would always be minified -- and is a lot of pixels: up to four times the screen's worth, which
+ * on a phone is what runs out of memory.
  *
- * Neither factor changes the *apparent* size of what is drawn -- the destination above is fixed by
- * the map's geometry. [density] only adds resolution, and [superSampling] adds more still, to be
- * filtered back down before the bitmap leaves the rasterizer. It is [magnifyingFactorForDensity],
- * applied to the map itself, that puts a style pixel on a density-independent pixel.
+ * So the resolution is the larger of [density] and the *geometric middle* of that range,
+ * `2^(magnifyingFactor - 1/2)`. A tile is then never magnified by more than `sqrt(2)` at the top of
+ * a level nor minified by more than that at the bottom, whatever magnifying factor an app chose.
+ * With the factor [magnifyingFactorForDensity] derives, the resolution is simply the density: a 3x
+ * screen rasterizes at 3x, not at 4x, which is 44% fewer pixels for at most a 1.33x stretch.
+ *
+ * [superSampling] is then reduced until the render fits [maxRenderPx], and only after that is the
+ * resolution itself clamped. Neither factor changes the *apparent* size of what is drawn -- the
+ * destination above is fixed by the map's geometry. It is [magnifyingFactorForDensity], applied to
+ * the map itself, that puts a style pixel on a density-independent pixel.
  */
-internal fun vectorTileBitmapSize(
+internal fun vectorTileRaster(
     tileSize: Int,
     density: Float,
     superSampling: Int,
     magnifyingFactor: Int,
-): Int {
-    val resolution = max(density, 2f.pow(magnifyingFactor.coerceAtLeast(0))).coerceAtLeast(1f)
-    return (tileSize * resolution).toInt() * superSampling.coerceAtLeast(1)
+    maxRenderPx: Int = MAX_RENDER_PX,
+): VectorTileRaster {
+    val middleOfLevel = 2.0.pow(magnifyingFactor.coerceAtLeast(0) - 0.5).toFloat()
+    val resolution = max(density, middleOfLevel).coerceAtLeast(1f)
+    val px = (tileSize * resolution).roundToInt().coerceIn(1, maxRenderPx)
+    var factor = superSampling.coerceAtLeast(1)
+    while (factor > 1 && px * factor > maxRenderPx) factor -= 1
+    return VectorTileRaster(renderPx = px * factor, superSampling = factor)
 }
 
 /**
@@ -129,7 +161,7 @@ internal class VectorLayer(
 
         return TileStreamProvider { row, col, zoomLvl ->
             val density = mapState.densityState.value ?: return@TileStreamProvider null
-            val bitmapPx = vectorTileBitmapSize(
+            val raster = vectorTileRaster(
                 tileSize = mapState.tileSize,
                 density = density.density,
                 superSampling = superSamplingFactor,
@@ -140,8 +172,8 @@ internal class VectorLayer(
                 x = col,
                 y = row,
                 zoom = zoomLvl.toDouble(),
-                tileSize = bitmapPx,
-                superSampling = superSamplingFactor,
+                tileSize = raster.renderPx,
+                superSampling = raster.superSampling,
             )
 
             VectorStats.measure(VectorStats.Phase.HANDOVER) {

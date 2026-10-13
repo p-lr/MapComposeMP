@@ -11,7 +11,7 @@ import ovh.plrapps.mapcompose.core.decodeFirstLayer
 import ovh.plrapps.mapcompose.core.makeWorkerData
 import ovh.plrapps.mapcompose.vector.core.VectorRasterizer
 import ovh.plrapps.mapcompose.vector.core.VectorStats
-import ovh.plrapps.mapcompose.vector.core.vectorTileBitmapSize
+import ovh.plrapps.mapcompose.vector.core.vectorTileRaster
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.extension.toBytes
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
@@ -96,7 +96,7 @@ class VectorRenderBenchmark {
         measureDecodedTiles(configuration)
 
         for (profile in profiles) {
-            val bitmapPx = vectorTileBitmapSize(
+            val raster = vectorTileRaster(
                 tileSize = TILE_SIZE,
                 density = profile.density,
                 superSampling = profile.superSampling,
@@ -104,7 +104,7 @@ class VectorRenderBenchmark {
             )
             for (scenario in scenarios) {
                 if (only != null && only !in "${profile.name}/${scenario.name}") continue
-                runScenario(configuration, profile, scenario, bitmapPx)
+                runScenario(configuration, profile, scenario, raster.renderPx, raster.superSampling)
             }
         }
 
@@ -119,6 +119,7 @@ class VectorRenderBenchmark {
         profile: Profile,
         scenario: Scenario,
         bitmapPx: Int,
+        superSampling: Int,
     ) {
         val rasterizer = VectorRasterizer(
             configuration = configuration,
@@ -131,7 +132,7 @@ class VectorRenderBenchmark {
         val tiles = (-1..1).flatMap { dy -> (-1..1).map { dx -> (cx + dx) to (cy + dy) } }
 
         // Warm-up: fills the caches the app would have filled too, and lets the JIT settle.
-        for ((x, y) in tiles) render(rasterizer, x, y, scenario.z, bitmapPx, profile.superSampling)
+        for ((x, y) in tiles) render(rasterizer, x, y, scenario.z, bitmapPx, superSampling)
 
         VectorStats.reset()
         VectorStats.enabled = true
@@ -142,7 +143,7 @@ class VectorRenderBenchmark {
         var decodeMs = 0.0
         for (pass in 0 until PASSES) {
             for ((x, y) in tiles) {
-                val (h, d) = render(rasterizer, x, y, scenario.z, bitmapPx, profile.superSampling)
+                val (h, d) = render(rasterizer, x, y, scenario.z, bitmapPx, superSampling)
                 handoverMs += h
                 decodeMs += d
             }
@@ -154,7 +155,7 @@ class VectorRenderBenchmark {
 
         val layoutMs = measureLayout(rasterizer, scenario.z, cx, cy)
 
-        log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss ${profile.superSampling}")
+        log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
         log("  per tile: ${fmt(elapsedMs / count)} ms total, of which core decode ${fmt(decodeMs / count)} ms; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
         log("  first layout pass (3x3 + ring): ${fmt(layoutMs)} ms")

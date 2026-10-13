@@ -79,9 +79,9 @@ fun MapState.addLayer(
  * a vector style wants.
  *
  * @param superSamplingFactor Renders each tile this many times larger and filters it back down,
- * trading `factor²` rasterization cost for cleaner hairlines and text. Tiles are already rasterized
- * at the size they are drawn at, so `1` — the default — is never stretched; raising it only refines
- * the minification that happens between pyramid levels.
+ * trading `factor²` rasterization cost for cleaner hairlines and text. It is an upper bound: the
+ * whole render is capped at 2048 px, and the factor is lowered first when a tile would exceed it --
+ * on a high-density phone with 512 px tiles it is usually lowered to `1`.
  * @param adaptTileScaleToDensity Sets the map's magnifying factor from the screen density, so that
  * one style pixel lands on one density-independent pixel. A vector style is authored in CSS pixels,
  * which is the unit a path's `width` and a marker's offset already use here; tile content, though,
