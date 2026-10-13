@@ -77,6 +77,23 @@ internal class SymbolLayerLayout(
 ) {
     private val geometryDecoders = GeometryDecoders()
 
+    /**
+     * One copy of each identity string, however many symbols carry it.
+     *
+     * Every instance built its own `"i:dot_green"` and `"sprite_dot_green"`; on a style drawing every
+     * tree as a symbol that was a hundred thousand copies of two strings. Bounded by clearing rather
+     * than evicting -- a string already handed out stays valid, it is only no longer shared with the
+     * next one. Unsynchronized: layout runs one pass at a time.
+     */
+    private val interned = HashMap<String, String>()
+
+    private fun intern(value: String): String {
+        interned[value]?.let { return it }
+        if (interned.size >= INTERN_LIMIT) interned.clear()
+        interned[value] = value
+        return value
+    }
+
     /** Shapes and rasterizes labels, from the style's glyph server where it has one. */
     private val labelBuilder = TextLabelBuilder(
         glyphManager = configuration.glyphManager,
@@ -735,7 +752,7 @@ internal class SymbolLayerLayout(
         val spriteAngle = baseAngle + iconRotateDeg
 
         val labelPlacement = labelPlacementOf(
-            text = "sprite_$spriteId",
+            text = intern("sprite_$spriteId"),
             center = spritePosition,
             width = size.width.toFloat(),
             height = size.height.toFloat(),
@@ -761,7 +778,7 @@ internal class SymbolLayerLayout(
         )
         return SymbolInstance.Sprite(
             id = id,
-            key = iconKey(spriteId),
+            key = intern(iconKey(spriteId)),
             global = Point(normalizedPoint.x, normalizedPoint.y),
             tileAnchor = Offset(spritePosition.x, spritePosition.y),
             placement = CompoundLabelPlacement(labelPlacement, null),
@@ -903,7 +920,7 @@ internal class SymbolLayerLayout(
         val plainText = textArt.text
 
         val spriteLabelPlacement = labelPlacementOf(
-            text = "sprite_$spriteId",
+            text = intern("sprite_$spriteId"),
             center = spritePosition,
             width = spriteSize.width.toFloat(),
             height = spriteSize.height.toFloat(),
@@ -1020,7 +1037,7 @@ internal class SymbolLayerLayout(
 
         return SymbolInstance.SpriteWithText(
             id = id,
-            key = "${textKey(plainText)}|${iconKey(spriteId)}",
+            key = intern("${textKey(plainText)}|${iconKey(spriteId)}"),
             global = Point(normalizedPoint.x, normalizedPoint.y),
             tileAnchor = Offset(spritePosition.x, spritePosition.y),
             placement = CompoundLabelPlacement(
@@ -1338,7 +1355,7 @@ internal class SymbolLayerLayout(
         val coordHash = "${x.toInt()}_${y.toInt()}_${displayAngle.toInt()}"
         return SymbolInstance.Text(
             id = "${id}_$coordHash",
-            key = textKey(plainText),
+            key = intern(textKey(plainText)),
             global = Point(normalizedPoint.x, normalizedPoint.y),
             tileAnchor = Offset(x, y),
             placement = CompoundLabelPlacement(labelPlacement, labelPlacement),
@@ -1506,7 +1523,7 @@ internal class SymbolLayerLayout(
         )
         return SymbolInstance.Text(
             id = "P${tileX}_${tileY}_${id}_$coordHash",
-            key = textKey(art.text),
+            key = intern(textKey(art.text)),
             global = Point(normalizedPoint.x, normalizedPoint.y),
             tileAnchor = Offset(textPosition.x, textPosition.y),
             placement = CompoundLabelPlacement(
@@ -1698,6 +1715,9 @@ internal class SymbolLayerLayout(
  * tiles carrying the same road name recognise it as one symbol rather than two.
  */
 internal fun textKey(text: String): String = "t:$text"
+
+/** How many distinct identity strings [SymbolLayerLayout] shares before it starts over. */
+private const val INTERN_LIMIT = 8192
 
 /** The cross-tile identity of an icon; see [textKey]. */
 internal fun iconKey(spriteId: String): String = "i:$spriteId"
