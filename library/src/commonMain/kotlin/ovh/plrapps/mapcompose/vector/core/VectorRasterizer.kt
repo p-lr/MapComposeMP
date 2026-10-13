@@ -188,7 +188,7 @@ class VectorRasterizer(
 
     fun decodePBFFromByteArray(bytes: ByteArray): Tile? {
         return try {
-            Tile.decodeFromByteArray(bytes)
+            VectorStats.measure(VectorStats.Phase.DECODE) { Tile.decodeFromByteArray(bytes) }
         } catch (e: Exception) {
             println("Error decoding PBF: ${e.message}")
             null
@@ -508,10 +508,12 @@ class VectorRasterizer(
             currentCoroutineContext().ensureActive()
 
 //            println("fetch the tile $url")
-            val result = withContext(IODispatcher) {
-                val response = getTileStream(url, ref.y, ref.x, ref.z)
-                response?.buffered()?.use { bufferedSource ->
-                    bufferedSource.readByteArray()
+            val result = VectorStats.measure(VectorStats.Phase.FETCH) {
+                withContext(IODispatcher) {
+                    val response = getTileStream(url, ref.y, ref.x, ref.z)
+                    response?.buffered()?.use { bufferedSource ->
+                        bufferedSource.readByteArray()
+                    }
                 }
             } ?: return Result.failure(LoadTileException("fetch error"))
             byteCacheMutex.withLock {
@@ -612,22 +614,33 @@ class VectorRasterizer(
         val refs = resolveRefs(z = z, x = x, y = y)
         val fetched = fetch(refs = refs, types = TILE_SOURCE_TYPES).getOrElse { e ->
             println("ERROR: ${e.message}")
+            VectorStats.bitmapAllocated(bitmapBytes(tileSize))
             return emptyBitmap(tileSize)
         }
 
-        val rendered = renderTile(
-            fetched = fetched,
-            refs = refs,
-            zoom = zoom,
-            tileSize = tileSize,
-            actualZoom = zoom,
-            x = x,
-            y = y,
-            superSampling = superSampling,
-        )
+        val renderBytes = bitmapBytes(tileSize)
+        VectorStats.bitmapAllocated(renderBytes)
+        val rendered = VectorStats.measure(VectorStats.Phase.RENDER) {
+            renderTile(
+                fetched = fetched,
+                refs = refs,
+                zoom = zoom,
+                tileSize = tileSize,
+                actualZoom = zoom,
+                x = x,
+                y = y,
+                superSampling = superSampling,
+            )
+        }
 
-        return if (superSampling > 1) downsample(rendered, tileSize / superSampling) else rendered
+        if (superSampling <= 1) return rendered
+        val targetSize = tileSize / superSampling
+        VectorStats.bitmapAllocated(bitmapBytes(targetSize))
+        return VectorStats.measure(VectorStats.Phase.DOWNSAMPLE) { downsample(rendered, targetSize) }
+            .also { VectorStats.bitmapReleased(renderBytes) }
     }
+
+    private fun bitmapBytes(size: Int): Long = size.toLong() * size * 4
 
     /**
      * Filters [source] down to [targetSize], with the bicubic sampling of [FilterQuality.High] —
@@ -996,10 +1009,13 @@ class VectorRasterizer(
                 zoom = viewportInfo.fractionalZoom,
                 collisionDetectionEnabled = configuration.collisionDetectionEnabled,
             )
-            placement.placeBuckets(order, previous)
-            placement.commit(previous, now)
+            val result = VectorStats.measure(VectorStats.Phase.PLACEMENT) {
+                placement.placeBuckets(order, previous)
+                placement.commit(previous, now)
+                placement.result(previous)
+            }
             previousPlacement = placement
-            PlacementOutcome(result = placement.result(previous), retryInMs = 0L)
+            PlacementOutcome(result = result, retryInMs = 0L)
         } else {
             /* Upstream's "mark it stale to ensure that we request another render frame"; if nothing
              * changed it stays clean and the map can go idle. */
