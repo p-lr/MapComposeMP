@@ -288,14 +288,25 @@ class TileRenderer(
                 }
                 val tileGeometry = geometry?.takeIf { it.geometrySize == geometrySize }
                     ?: localGeometry.getOrPut(tile to geometrySize) { TileGeometry(geometrySize) }
+                /* The tile bitmap in geometry space: the sub-square this map tile is of its
+                 * ancestor, or the whole canvas when the source is not overzoomed. */
+                val cull = FeatureCull(
+                    windowLeft = tileRef.subX.toFloat() * canvasSize,
+                    windowTop = tileRef.subY.toFloat() * canvasSize,
+                    windowRight = (tileRef.subX + 1f) * canvasSize,
+                    windowBottom = (tileRef.subY + 1f) * canvasSize,
+                )
                 try {
                     when (styleLayer) {
                         is FillLayer -> {
                             val painter = painterFor(styleLayer) as FillLayerPainter
-                            val paths = tileGeometry.fillPaths(tileLayer, extent)
+                            val fills = tileGeometry.fills(tileLayer, extent)
                             for (entry in visible) {
-                                val path = paths[entry.index] ?: continue
-                                painter.paintPath(canvas, path, styleLayer, entry.properties, actualZoom)
+                                val path = fills.paths[entry.index] ?: continue
+                                painter.paintPath(
+                                    canvas, path, styleLayer, entry.properties, actualZoom,
+                                    cull.select(fills.bounds, entry.index),
+                                )
                             }
                         }
 
@@ -304,12 +315,13 @@ class TileRenderer(
                              * is inside the span translate and the layer-opacity offscreen, so the
                              * meshes land exactly where per-feature draws did. */
                             val painter = painterFor(styleLayer) as LineLayerPainter
-                            val polylines = tileGeometry.polylines(tileLayer, extent)
+                            val lines = tileGeometry.lines(tileLayer, extent)
                             try {
                                 for (entry in visible) {
                                     painter.append(
                                         canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                        entry.properties, actualZoom, polylines[entry.index],
+                                        entry.properties, actualZoom, lines.polylines[entry.index],
+                                        cull.select(lines.bounds, entry.index),
                                     )
                                 }
                             } finally {

@@ -27,7 +27,9 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsGradientColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
+import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.max
 
 /**
  * Draws `line` layers.
@@ -102,7 +104,8 @@ class LineLayerPainter(
      * patterned line, which cannot be batched, flushes what is queued and is drawn at once.
      *
      * [decoded] is the feature's geometry when the caller already has it -- `TileGeometry` decodes
-     * a tile layer once for every style layer that draws it.
+     * a tile layer once for every style layer that draws it -- and [cull], when given, skips a
+     * feature whose ribbon cannot reach the part of the canvas being drawn.
      */
     suspend fun append(
         canvas: DrawScope,
@@ -114,6 +117,7 @@ class LineLayerPainter(
         featureProperties: EvalFeature?,
         actualZoom: Double,
         decoded: List<FloatArray>? = null,
+        cull: FeatureCull? = null,
     ) {
         if (feature.type != Tile.GeomType.LINESTRING && feature.type != Tile.GeomType.POLYGON) return
 
@@ -151,6 +155,15 @@ class LineLayerPainter(
             ?: StyleSpecDefaults.LINE_ROUND_LIMIT.toFloat()
 
         if (lineWidth <= 0f && lineGapWidth <= 0f) return
+
+        if (cull != null) {
+            /* How far the ribbon can reach past the geometry: its outer edge, pushed sideways by the
+             * offset, stretched at a miter by at most the miter limit, and moved by the translate.
+             * Every term is an upper bound, so a feature skipped here would have drawn nothing. */
+            val outer = lineOutset(lineGapWidth, lineWidth, density) + abs(lineOffset)
+            val shift = translate.sumOf { abs(it) }.toFloat() * density
+            if (!cull.reaches(outer * max(miterLimit, 2f) + shift + 1f)) return
+        }
 
         val dash = paint.lineDasharray
             .processAsDoubleList(featureProperties, actualZoom)
