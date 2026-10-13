@@ -21,6 +21,7 @@ import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphLayout
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphManager
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphSet
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphRasterizer
+import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedGlyph
 import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_BEGIN
 import ovh.plrapps.mapcompose.vector.data.glyphs.PUA_END
 import ovh.plrapps.mapcompose.vector.data.glyphs.SectionImage
@@ -267,30 +268,44 @@ internal class TextLabelBuilder(
         )
         if (shaped.isEmpty) return null
 
-        val rendered = GlyphRasterizer.render(
-            label = shaped,
-            fillColor = style.color,
-            haloColor = style.haloColor,
-            haloWidth = style.haloWidth,
-            haloBlur = style.haloBlur,
-            opacity = style.opacity,
-        ) ?: return null
+        /* Only the box now: the pixels are rasterized the first time the label is drawn -- in
+         * practice by the placement pass, for the labels it keeps. See [LabelArt.Glyphs.rendered]. */
+        val box = GlyphRasterizer.measure(shaped) ?: return null
 
         /* A vertical or wrapped label has no per-glyph placement along a line: the walk is
          * one-dimensional, so only a single horizontal run can follow the path. A vertical variant
          * is only ever asked for by a point label, so in practice this is the wrapped case. */
-        val quads = if (perGlyph && !shaped.vertical && shaped.lines.size == 1) {
-            GlyphRasterizer.renderGlyphs(
-                label = shaped,
-                fillColor = style.color,
-                haloColor = style.haloColor,
-                haloWidth = style.haloWidth,
-                haloBlur = style.haloBlur,
-                opacity = style.opacity,
-            )
+        val quads: (() -> List<RenderedGlyph>?)? = if (perGlyph && !shaped.vertical && shaped.lines.size == 1) {
+            {
+                GlyphRasterizer.renderGlyphs(
+                    label = shaped,
+                    fillColor = style.color,
+                    haloColor = style.haloColor,
+                    haloWidth = style.haloWidth,
+                    haloBlur = style.haloBlur,
+                    opacity = style.opacity,
+                )
+            }
         } else null
 
-        return LabelArt.Glyphs(rendered, shapingText, quads)
+        return LabelArt.Glyphs.deferred(
+            text = shapingText,
+            box = box,
+            rasterize = {
+                // Not null: `measure` answered for the same label, and `render` fails only where it does.
+                checkNotNull(
+                    GlyphRasterizer.render(
+                        label = shaped,
+                        fillColor = style.color,
+                        haloColor = style.haloColor,
+                        haloWidth = style.haloWidth,
+                        haloBlur = style.haloBlur,
+                        opacity = style.opacity,
+                    )
+                )
+            },
+            rasterizeQuads = quads,
+        )
     }
 
     /**

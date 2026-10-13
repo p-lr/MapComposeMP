@@ -1154,7 +1154,11 @@ class VectorRasterizer(
             val result = VectorStats.measure(VectorStats.Phase.PLACEMENT) {
                 placement.placeBuckets(order, previous)
                 placement.commit(previous, now)
-                placement.result(previous)
+                placement.result(previous).also { result ->
+                    /* Labels are rasterized on first use. These are the ones about to be drawn, and
+                     * this is not the thread that draws them. */
+                    for (symbol in result.symbols) symbol.instance.prepareForDraw()
+                }
             }
             previousPlacement = placement
             PlacementOutcome(result = result, retryInMs = 0L)

@@ -352,4 +352,20 @@ class TextLabelBuilderTest {
         assertEquals(length, art.text.length)
         assertEquals(length * ADVANCE.toFloat(), art.width)
     }
+
+    @Test
+    fun `the box known before rasterizing is the box the rasterized label has`() = runTest {
+        /* Layout and collision use the box; the pixels come later, and only for a placed label. The
+         * two have to agree, or a label is drawn somewhere other than where it collided. */
+        val art = assertNotNull(
+            builder(sprites = spriteManager())
+                .build(Formatted(listOf(FormattedSection(text = "ab"), image("marker"))), style(), Density(1f))
+        )
+        assertTrue(art is LabelArt.Glyphs)
+        val width = art.width
+        val height = art.height
+        val rendered = art.rendered
+        assertEquals(rendered.boxWidth, width)
+        assertEquals(rendered.boxHeight, height)
+    }
 }
