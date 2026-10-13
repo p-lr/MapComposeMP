@@ -31,7 +31,6 @@ import kotlinx.io.buffered
 import kotlinx.io.readByteArray
 import ovh.plrapps.mapcompose.core.TileMatrix
 import ovh.plrapps.mapcompose.utils.AngleRad
-import ovh.plrapps.mapcompose.ui.state.getProcessorCount
 import ovh.plrapps.mapcompose.utils.IODispatcher
 import ovh.plrapps.mapcompose.vector.data.DemData
 import ovh.plrapps.mapcompose.vector.data.DemUnpack
@@ -673,7 +672,7 @@ class VectorRasterizer(
      */
     internal var renderBudget = RenderBudget(
         budgetBytes = defaultRenderBudgetBytes(),
-        maxConcurrent = (getProcessorCount() - 1).coerceAtLeast(1),
+        maxConcurrent = defaultMaxConcurrentRenders(),
     )
 
     /**
@@ -982,65 +981,85 @@ class VectorRasterizer(
         /* Fetched concurrently, as the per-tile fetch used to be: the bucket loop below is
          * sequential, and awaiting one source's tile before starting the next would serialize a
          * multi-source style's requests. */
-        val tiles: Map<String, Tile> = if (missing.isEmpty()) emptyMap() else supervisorScope {
-            missing.map { it.sourceName to it.ref }.distinct()
-                .map { (sourceName, ref) ->
-                    getTileKey(sourceName, ref) to async {
-                        when (sourceName) {
-                            in geoJsonSourceNames -> geoJsonTile(sourceName, ref)
-                            // Symbols only come from vector sources; image tiles are never fetched here.
-                            in vectorSourceNames -> decodeVectorTile(sourceName, ref)
-                            else -> null
-                        }
-                    }
-                }
-                .mapNotNull { (key, deferred) ->
-                    val tile = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
-                    key to tile
-                }
-                .toMap()
-        }
-
+        /* Tile by tile, in chunks: a chunk's bytes are fetched concurrently -- one tile after another
+         * would serialize a multi-source style's requests -- and then each of its tiles is decoded,
+         * every style layer's bucket is built from it, and it is let go before the next is decoded.
+         *
+         * This used to decode every tile of the pass up front and keep them all until the last bucket
+         * was built: the whole ring decoded at once -- 35 to 45 tiles, 1-3 MB each at mid zoom where
+         * relief contours are dense -- together with every one of their features' `EvalFeature`s,
+         * and on a 256 MB phone heap that was the spike every zoom step ran into. Holding a whole
+         * ring's *bytes* instead is still ~20 MB there, hence the chunks. */
+        val missingByTile = missing.groupBy { getTileKey(it.sourceName, it.ref) }
         val retained = lastPublished
         var unresolved = 0
-        val propCaches = mutableMapOf<String, HashMap<Tile.Layer, Array<EvalFeature?>>>()
-        for (request in missing) {
-            val ref = request.ref
-            val key = bucketKey(request, zoomLevel)
-            val tile = tiles[getTileKey(request.sourceName, ref)]
-            /* A tile that did not arrive contributes no *new* bucket -- and above all not an
-             * instance-less one. A placeholder bucket is not "this tile has no symbols", it is "we do
-             * not know yet", and handing one to `CrossTileSymbolIndex` installs an *empty*
-             * `TileLayerIndex` at that tile's slot: it releases the ids of the bucket that was there
-             * and matches nothing when the real tile lands, so every label on the tile is handed a
-             * fresh identity and fades in over its own dying copy.
-             *
-             * What it publishes instead is [lastPublished]'s bucket for the same slot, when there is
-             * one. Omitting it altogether leaves a *hole*, and a hole is a fade: every label on that
-             * tile is unplaced from the next cycle on, so it fades out -- and since the layout pass
-             * only re-runs when the tile set or the integer zoom changes, it stays gone until the map
-             * moves and then fades back in. That is the blink. The retained bucket is the same
-             * canonical tile at the same integer zoom, which is exactly the answer the fetch owed.
-             *
-             * A tile that *did* load and simply has no symbols for this layer still yields a real,
-             * cached, instance-less bucket -- that one is an answer, and it must stay in the list. */
-            if (tile == null) {
-                unresolved += 1
-                retained[key]?.let { cached[key] = it }
-                continue
+        for (chunk in missingByTile.entries.chunked(LAYOUT_FETCH_CHUNK)) {
+            val bytesByTile: Map<String, ByteArray> = supervisorScope {
+                chunk.map { it.value.first() }
+                    .filter { it.sourceName in vectorSourceNames }
+                    .map { request ->
+                        getTileKey(request.sourceName, request.ref) to async {
+                            configuration.tileSources[request.sourceName]?.let { source ->
+                                fetchTile(source.getTileUrl(request.ref), ref = request.ref, sourceName = request.sourceName)
+                                    .getOrNull()
+                            }
+                        }
+                    }
+                    .mapNotNull { (key, deferred) ->
+                        val bytes = runCatching { deferred.await() }.getOrNull() ?: return@mapNotNull null
+                        key to bytes
+                    }
+                    .toMap()
             }
-            val bucket = symbolBucketBuilder.build(
-                tile = tile,
-                styleLayer = request.styleLayer,
-                layerIndex = request.layerIndex,
-                sourceName = request.sourceName,
-                ref = ref,
-                bucketZoom = zoomLevel,
-                density = density,
-                localPropCache = propCaches.getOrPut(getTileKey(request.sourceName, ref)) { HashMap() },
-            )
-            cached[key] = bucket
-            symbolBucketCacheMutex.withLock { symbolBucketCache.put(key, bucket) }
+
+            for ((tileKey, requests) in chunk) {
+                val first = requests.first()
+                val tile: Tile? = when (first.sourceName) {
+                    in geoJsonSourceNames -> geoJsonTile(first.sourceName, first.ref)
+                    // Symbols only come from vector sources; image tiles are never fetched here.
+                    in vectorSourceNames -> tileCacheMutex.withLock { tileCache.get(tileKey) }
+                        ?: bytesByTile[tileKey]?.let { decodeShared(tileKey, it) }
+                    else -> null
+                }
+                val propCache = HashMap<Tile.Layer, Array<EvalFeature?>>()
+                for (request in requests) {
+                    val ref = request.ref
+                    val key = bucketKey(request, zoomLevel)
+                    /* A tile that did not arrive contributes no *new* bucket -- and above all not an
+                     * instance-less one. A placeholder bucket is not "this tile has no symbols", it is "we do
+                     * not know yet", and handing one to `CrossTileSymbolIndex` installs an *empty*
+                     * `TileLayerIndex` at that tile's slot: it releases the ids of the bucket that was there
+                     * and matches nothing when the real tile lands, so every label on the tile is handed a
+                     * fresh identity and fades in over its own dying copy.
+                     *
+                     * What it publishes instead is [lastPublished]'s bucket for the same slot, when there is
+                     * one. Omitting it altogether leaves a *hole*, and a hole is a fade: every label on that
+                     * tile is unplaced from the next cycle on, so it fades out -- and since the layout pass
+                     * only re-runs when the tile set or the integer zoom changes, it stays gone until the map
+                     * moves and then fades back in. That is the blink. The retained bucket is the same
+                     * canonical tile at the same integer zoom, which is exactly the answer the fetch owed.
+                     *
+                     * A tile that *did* load and simply has no symbols for this layer still yields a real,
+                     * cached, instance-less bucket -- that one is an answer, and it must stay in the list. */
+                    if (tile == null) {
+                        unresolved += 1
+                        retained[key]?.let { cached[key] = it }
+                        continue
+                    }
+                    val bucket = symbolBucketBuilder.build(
+                        tile = tile,
+                        styleLayer = request.styleLayer,
+                        layerIndex = request.layerIndex,
+                        sourceName = request.sourceName,
+                        ref = ref,
+                        bucketZoom = zoomLevel,
+                        density = density,
+                        localPropCache = propCache,
+                    )
+                    cached[key] = bucket
+                    symbolBucketCacheMutex.withLock { symbolBucketCache.put(key, bucket) }
+                }
+            }
         }
 
         val published = mutableMapOf<String, SymbolBucket>()
@@ -1200,6 +1219,13 @@ class VectorRasterizer(
  * pass; this is only what an empty or tiny viewport falls back to.
  */
 private const val SYMBOL_BUCKET_CACHE_SIZE = 512
+
+/**
+ * How many tiles the layout pass fetches at once. Their bytes are held until each is laid out, and
+ * a relief tile at mid zoom is a megabyte of them; a few at a time keeps the requests concurrent
+ * without holding a whole ring.
+ */
+private const val LAYOUT_FETCH_CHUNK = 4
 
 /** How many style layers a tile rasterizes between two checks that it is still wanted. */
 private const val WANTED_CHECK_EVERY_LAYERS = 16
