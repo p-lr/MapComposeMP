@@ -15,7 +15,6 @@ import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
-import pbandk.decodeFromByteArray
 import java.io.File
 import java.lang.management.ManagementFactory
 import java.net.URI

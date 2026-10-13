@@ -93,7 +93,6 @@ kotlin {
             implementation(libs.components.resources)
             implementation(libs.kotlinx.coroutines)
             api(libs.kotlinx.io.core)
-            implementation(libs.pbandk.runtime)
             implementation(libs.kotlinx.serialization.json)
         }
         named("skiaMain").configure {
