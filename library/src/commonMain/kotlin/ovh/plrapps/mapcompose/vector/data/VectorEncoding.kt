@@ -20,9 +20,9 @@ package ovh.plrapps.mapcompose.vector.data
  * ```
  *
  * [MLT] -- MapLibre Tiles -- is **not decoded here**, and a source declaring it is refused at load
- * by `getMapLibreConfiguration` rather than fetched: pbandk does not reliably throw on foreign
- * bytes, it collects them into `Tile.unknownFields`, so feeding an MLT tile to
- * `VectorRasterizer.decodePBFFromByteArray` yields an empty or garbage tile and no error at all.
+ * by `getMapLibreConfiguration` rather than fetched: a protobuf reader does not reliably fail on
+ * foreign bytes -- it skips fields it does not know -- so feeding an MLT tile to
+ * `VectorRasterizer.decodePBFFromByteArray` can yield an empty or garbage tile and no error at all.
  * That is the same reasoning as [SourceType.UNKNOWN]'s.
  *
  * Porting a decoder is a project of its own and deliberately not attempted: upstream delegates to

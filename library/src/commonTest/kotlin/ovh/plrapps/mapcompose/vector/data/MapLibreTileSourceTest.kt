@@ -539,8 +539,8 @@ class MapLibreTileSourceTest {
     @Test
     fun `a vector source declaring the mlt encoding is refused rather than decoded as MVT`() = runTest {
         /* Upstream picks its decoder off `params.encoding` (`vector_tile_worker_source.ts`); this
-         * port has no MLT decoder, and pbandk does not throw on foreign bytes -- it collects them
-         * into `Tile.unknownFields` -- so an unrecognised source would have rendered a blank map
+         * port has no MLT decoder, and a protobuf reader need not fail on foreign bytes -- it skips
+         * fields it does not know -- so an unrecognised source would have rendered a blank map
          * with nothing said. */
         val style = """
             {

@@ -356,7 +356,7 @@ class GeoJsonTiler(
         /**
          * The tag key a feature's id rides under when the MVT wire format cannot carry it.
          *
-         * `Tile.Feature.id` is a protobuf `uint64` and `spec/vector_tile.kt` is pbandk-generated,
+         * `Tile.Feature.id` is a protobuf `uint64`, as the MVT spec defines it,
          * so a string id -- which RFC 7946 allows and upstream keeps -- has nowhere else to go. A
          * geojson tile is synthesized by this tiler rather than fetched, so smuggling the id
          * through the layer's own tag table costs nothing and means it survives every path a tile
@@ -397,9 +397,9 @@ class GeoJsonTiler(
         private val values = mutableListOf<Tile.Value>()
 
         /*
-         * Keyed on the raw property value, not on the `Tile.Value` built from it: pbandk messages
-         * carry an extension-field set that compares by identity, so two structurally identical
-         * values would never be recognised as the same entry.
+         * Keyed on the raw property value, not on the `Tile.Value` built from it: that is the value
+         * the feature carries, and building a `Tile.Value` just to look one up would allocate per
+         * property.
          */
         private val valueIndex = mutableMapOf<Any, Int>()
         private val features = mutableListOf<Tile.Feature>()
@@ -440,8 +440,8 @@ class GeoJsonTiler(
             features += Tile.Feature(
                 id = integralId(feature.id),
                 type = feature.type,
-                geometry = encode(feature.type, rings),
-                tags = tags,
+                geometry = encode(feature.type, rings).toIntArray(),
+                tags = tags.toIntArray(),
             )
         }
 
