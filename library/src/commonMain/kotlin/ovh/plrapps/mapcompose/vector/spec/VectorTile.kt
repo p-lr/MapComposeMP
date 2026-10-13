@@ -68,7 +68,28 @@ class Tile(
         val keys: List<String> = emptyList(),
         val values: List<Value> = emptyList(),
         val extent: Int? = null,
-    )
+    ) {
+        /**
+         * Each key's position in [keys], built once per layer rather than per feature. A key table
+         * the encoder repeated a key in has fewer entries here than [keys] has -- see
+         * [hasDuplicateKeys].
+         */
+        internal val keyIndex: Map<String, Int> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            HashMap<String, Int>(keys.size * 2).also { index ->
+                for ((i, key) in keys.withIndex()) if (key !in index) index[key] = i
+            }
+        }
+
+        internal val hasDuplicateKeys: Boolean get() = keyIndex.size != keys.size
+
+        /**
+         * Each entry of [values] as the expression engine reads it -- a string, a boolean or a
+         * `Double`, see `normalizeNumbers` -- converted once per layer rather than per feature.
+         */
+        internal val engineValues: Array<Any?> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            Array(values.size) { i -> values[i].engineValue() }
+        }
+    }
 
     companion object {
         /** Decodes an MVT protobuf. Throws on bytes that are not one; see [MvtReader]. */
@@ -77,3 +98,9 @@ class Tile(
 }
 
 private val EMPTY_INTS = IntArray(0)
+
+/** The one field that is set, as the expression engine models numbers: always a `Double`. */
+internal fun Tile.Value.engineValue(): Any? {
+    val raw: Any? = stringValue ?: floatValue ?: doubleValue ?: intValue ?: uintValue ?: sintValue ?: boolValue
+    return ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers(raw)
+}

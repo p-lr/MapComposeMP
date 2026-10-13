@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.vector.spec.style.props
 
 import androidx.compose.ui.graphics.Color
 import kotlinx.serialization.Serializable
+import kotlin.concurrent.Volatile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -319,11 +320,30 @@ private fun ExpressionOrValue<*>.processUntyped(
         is ExpressionOrValue.Value -> value
         is ExpressionOrValue.Invalid -> null
         is ExpressionOrValue.Expression -> expression.styleExpression.evaluate(
-            globals = GlobalProperties(zoom = zoom ?: 0.0),
+            globals = globalsAt(zoom ?: 0.0),
             feature = feature,
             canonical = feature?.canonical,
             availableImages = availableImages,
         )
     }
+
+/**
+ * The [GlobalProperties] of a bare zoom, the last one built reused.
+ *
+ * A painter evaluates a dozen properties per feature at one zoom, and each evaluation built its own
+ * copy of the same immutable value. Sharing the last one is safe from any thread for that reason --
+ * a reader sees either the previous instance or the new one, both complete -- and the expression
+ * engine still builds its own `EvaluationContext` per evaluation, as it must.
+ */
+internal fun globalsAt(zoom: Double): GlobalProperties {
+    val last = ZoomGlobals.last
+    if (last.zoom == zoom) return last
+    return GlobalProperties(zoom = zoom).also { ZoomGlobals.last = it }
+}
+
+private object ZoomGlobals {
+    @Volatile
+    var last: GlobalProperties = GlobalProperties(zoom = 0.0)
+}
 
 // endregion
