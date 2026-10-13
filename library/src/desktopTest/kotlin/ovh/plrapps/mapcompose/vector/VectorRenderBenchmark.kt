@@ -66,9 +66,16 @@ class VectorRenderBenchmark {
     )
 
     private val scenarios = listOf(
+        Scenario("z10 span1", 10),
+        Scenario("z11 span1", 11),
+        Scenario("z12 span1", 12),
+        Scenario("z13 span1", 13),
         Scenario("z14 span1", 14),
         Scenario("z16 span4", 16),
         Scenario("z17 span8", 17),
+        Scenario("z18 span16", 18),
+        Scenario("z19 span32", 19),
+        Scenario("z20 span64", 20),
     )
 
     /** `MAPCOMPOSE_BENCH_ONLY=desktop-2x/z14` runs only the scenarios whose name contains it. */
@@ -161,14 +168,15 @@ class VectorRenderBenchmark {
         /* The layout pass on a rasterizer of its own, so its label and bucket caches are cold, as on
          * a first visit -- after one pass on another, so the JIT and the glyph ranges are not. */
         measureLayout(newRasterizer(), scenario.z, cx, cy, profile)
-        val (layoutMs, placementMs, placed) = measureLayout(newRasterizer(), scenario.z, cx, cy, profile)
+        val symbols = measureLayout(newRasterizer(), scenario.z, cx, cy, profile)
 
         log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
         log("  per tile: ${fmt(elapsedMs / count)} ms total; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
         log("  cold per tile (caches trimmed, bytes kept): ${fmt(coldMs)} ms")
-        log("  layout pass, cold caches (3x3 + ring): ${fmt(layoutMs)} ms")
-        log("  first placement, rasterizing what it places: ${fmt(placementMs)} ms, $placed symbols")
+        log("  layout pass, cold caches (3x3 + ring): ${fmt(symbols.layoutMs)} ms, ${symbols.buckets} buckets, " +
+            "${symbols.instances} instances, ~${fmt(symbols.retainedBytes / 1e6)} MB retained")
+        log("  first placement, rasterizing what it places: ${fmt(symbols.placementMs)} ms, ${symbols.placed} symbols")
         VectorStats.report().lines().forEach { if (it.isNotBlank()) log("  $it") }
         log()
     }
@@ -198,7 +206,7 @@ class VectorRenderBenchmark {
         cx: Int,
         cy: Int,
         profile: Profile,
-    ): Triple<Double, Double, Int> {
+    ): SymbolMeasure {
         val matrix = (cy - 1..cy + 1).associateWith { cx - 1..cx + 1 }
         val viewport = MVTViewport(
             width = 1080f,
@@ -208,9 +216,12 @@ class VectorRenderBenchmark {
             zoom = z.toFloat(),
             tileMatrix = matrix,
         )
+        val heapBefore = usedHeap()
         val start = TimeSource.Monotonic.markNow()
         val buckets = rasterizer.layoutBuckets(viewport, z.toDouble()).getOrThrow().buckets
         val layoutMs = start.elapsedNow().inWholeMicroseconds / 1000.0
+        // Everything the pass leaves alive -- buckets, label cache, and the tile caches, which dominate.
+        val retained = usedHeap() - heapBefore
 
         // The map at integer zoom [z], centred on the middle tile, one tile pixel per screen pixel.
         val worldPx = (TILE_SIZE * profile.density).toInt() * (1 shl z)
@@ -230,8 +241,24 @@ class VectorRenderBenchmark {
         val placementStart = TimeSource.Monotonic.markNow()
         val result = rasterizer.place(buckets, info, now = 0L).result
         val placementMs = placementStart.elapsedNow().inWholeMicroseconds / 1000.0
-        return Triple(layoutMs, placementMs, result?.symbols?.size ?: 0)
+        return SymbolMeasure(
+            layoutMs = layoutMs,
+            placementMs = placementMs,
+            placed = result?.symbols?.size ?: 0,
+            buckets = buckets.size,
+            instances = buckets.sumOf { it.instances.size },
+            retainedBytes = retained,
+        )
     }
+
+    private class SymbolMeasure(
+        val layoutMs: Double,
+        val placementMs: Double,
+        val placed: Int,
+        val buckets: Int,
+        val instances: Int,
+        val retainedBytes: Long,
+    )
 
     /** How big a decoded tile is next to its bytes. */
     private suspend fun measureDecodedTiles(configuration: ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration) {
