@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -11,14 +12,13 @@ import kotlinx.coroutines.sync.withLock
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.SHARP_CORNER_OFFSET
-import ovh.plrapps.mapcompose.vector.renderer.utils.DashRun
 import ovh.plrapps.mapcompose.vector.renderer.utils.blur2
 import ovh.plrapps.mapcompose.vector.renderer.utils.dashPattern
 import ovh.plrapps.mapcompose.vector.renderer.utils.dashRuns
-import ovh.plrapps.mapcompose.vector.renderer.utils.drawLineMesh
+import ovh.plrapps.mapcompose.vector.renderer.utils.LineBatch
+import ovh.plrapps.mapcompose.vector.renderer.utils.LineMeshBuilder
 import ovh.plrapps.mapcompose.vector.renderer.utils.lineInset
 import ovh.plrapps.mapcompose.vector.renderer.utils.lineOutset
-import ovh.plrapps.mapcompose.vector.renderer.utils.tessellateLine
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.LineLayer
@@ -36,9 +36,9 @@ import kotlin.math.hypot
  * Draws `line` layers.
  *
  * Follows maplibre-gl-js `src/render/draw_line.ts`: the feature is tessellated into the same
- * triangle ribbon upstream's `line_bucket.ts` builds ([tessellateLine]) and drawn with
- * `Canvas.drawVertices`, each vertex carrying the alpha `line.fragment.glsl` would have computed
- * there ([ovh.plrapps.mapcompose.vector.renderer.utils.lineAlpha]). That is what makes `line-blur`,
+ * triangle ribbon upstream's `line_bucket.ts` builds ([LineMeshBuilder]) and drawn with
+ * `Canvas.drawVertices` -- a whole layer per call where it fits, see [LineBatch] -- each vertex
+ * carrying the alpha `line.fragment.glsl` would have computed there ([ovh.plrapps.mapcompose.vector.renderer.utils.lineAlpha]). That is what makes `line-blur`,
  * `line-gradient`, `line-offset` and `line-round-limit` behave as upstream does rather than as a
  * Compose `Stroke` can express -- see `renderer/utils/LineShading.kt` for why a mesh reproduces the
  * fragment shader exactly rather than approximating it.
@@ -51,7 +51,7 @@ import kotlin.math.hypot
  * - **`line-pattern` and `line-dasharray`** keep the old `Stroke` path. Both need the paint to carry
  *   a shader or a path effect, and a shader in the paint is exactly what would make `drawVertices`
  *   behave differently on Android, whose Compose actual drops the blend mode -- see
- *   `renderer/utils/LineMeshDraw.kt`. A patterned line is therefore still wallpapered in canvas
+ *   `renderer/utils/LineBatch.kt`. A patterned line is therefore still wallpapered in canvas
  *   space rather than mapped along the line, and a dashed one still gets Compose's dash effect.
  * - **A round cap or round join** is real fan geometry rather than upstream's per-fragment radial
  *   distance; the chord error is bounded at a quarter pixel. See
@@ -66,7 +66,47 @@ class LineLayerPainter(
     private val patternBrushes: PatternBrushCache = PatternBrushCache(),
 ) : BaseLayerPainter<LineLayer>() {
 
+    /** Every mesh of the layer, drawn in as few calls as possible. See [LineBatch]. */
+    private val batch = LineBatch()
+
+    /* What the builder's sink colours the chunk it is handed with: the feature being tessellated.
+     * The builder is finished at the end of every feature, so a chunk never spans two of them. */
+    private var sinkScope: DrawScope? = null
+    private var sinkOpacity = 1f
+    private var sinkColor: Color? = null
+    private var sinkColorAt: ((Float) -> Color)? = null
+    private var sinkDx = 0f
+    private var sinkDy = 0f
+
+    private val builder = LineMeshBuilder { mesh ->
+        batch.add(sinkScope!!, mesh, sinkOpacity, sinkColor, sinkColorAt, sinkDx, sinkDy)
+    }
+
     override suspend fun paint(
+        canvas: DrawScope,
+        feature: Tile.Feature,
+        style: LineLayer,
+        canvasSize: Int,
+        extent: Int,
+        zoom: Double,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        featureKey: String?
+    ) {
+        append(canvas, feature, style, canvasSize, extent, zoom, featureProperties, actualZoom, featureKey)
+        flush(canvas)
+    }
+
+    /** Draws every mesh [append] has queued. The layer must call it before it ends. */
+    fun flush(canvas: DrawScope) {
+        batch.flush(canvas)
+    }
+
+    /**
+     * Tessellates one feature into the layer's batch, without drawing it yet -- see [flush]. A
+     * patterned line, which cannot be batched, flushes what is queued and is drawn at once.
+     */
+    suspend fun append(
         canvas: DrawScope,
         feature: Tile.Feature,
         style: LineLayer,
@@ -129,11 +169,12 @@ class LineLayerPainter(
         // Upstream states its sharp-corner offset in pixels of a 512 px tile.
         val sharpCornerOffset = SHARP_CORNER_OFFSET * canvasSize / 512f
 
-        canvas.withTranslate(translate, translateAnchor) {
-            for (polyline in polylines) {
-                if (polyline.size < 4) continue
-
-                if (patternBrush != null) {
+        if (patternBrush != null) {
+            // Drawn now, so whatever the batch holds has to be drawn first to keep the order.
+            batch.flush(canvas)
+            canvas.withTranslate(translate, translateAnchor) {
+                for (polyline in polylines) {
+                    if (polyline.size < 4) continue
                     strokeLegacy(
                         points = polyline,
                         brush = patternBrush,
@@ -145,52 +186,52 @@ class LineLayerPainter(
                         join = strokeJoinOf(join),
                         miterLimit = miterLimit,
                     )
-                    continue
-                }
-
-                val totalLength = polylineLength(polyline)
-                val points = if (gradient != null) resampleForGradient(polyline, totalLength) else polyline
-
-                // A dashed line is cut into its painted runs before tessellation, so every run is an
-                // ordinary line with the layer's own cap at each end.
-                val runs = if (dash != null) {
-                    dashRuns(points, dash)
-                } else {
-                    listOf(DashRun(points, 0f))
-                }
-
-                for (run in runs) {
-                    val meshes = tessellateLine(
-                        points = run.points,
-                        pointCount = run.points.size / 2,
-                        // A cut run is an open line even when the feature is a polygon ring.
-                        isPolygon = isPolygon && dash == null,
-                        join = join,
-                        cap = cap,
-                        miterLimit = miterLimit,
-                        roundLimit = roundLimit,
-                        outset = outset,
-                        inset = inset,
-                        blur2 = blur2,
-                        offset = lineOffset,
-                        sharpCornerOffset = sharpCornerOffset,
-                        startDistance = run.startDistance,
-                        totalLength = totalLength,
-                    )
-
-                    for (mesh in meshes) {
-                        if (gradient != null) {
-                            drawLineMesh(mesh, lineOpacity) { progress ->
-                                gradient.processAsGradientColor(progress.toDouble(), actualZoom)
-                                    ?: StyleSpecDefaults.LINE_COLOR
-                            }
-                        } else {
-                            drawLineMesh(mesh, lineColor, lineOpacity)
-                        }
-                    }
                 }
             }
+            return
         }
+        if (lineOpacity <= 0f) return
+
+        sinkScope = canvas
+        sinkOpacity = lineOpacity
+        sinkColor = if (gradient != null) null else lineColor
+        sinkColorAt = if (gradient != null) {
+            { progress ->
+                gradient.processAsGradientColor(progress.toDouble(), actualZoom) ?: StyleSpecDefaults.LINE_COLOR
+            }
+        } else {
+            null
+        }
+        sinkDx = (translate.getOrNull(0) ?: 0.0).toFloat() * density
+        sinkDy = (translate.getOrNull(1) ?: 0.0).toFloat() * density
+
+        for (polyline in polylines) {
+            if (polyline.size < 4) continue
+
+            val totalLength = polylineLength(polyline)
+            val points = if (gradient != null) resampleForGradient(polyline, totalLength) else polyline
+
+            // A dashed line is cut into its painted runs before tessellation, so every run is an
+            // ordinary line with the layer's own cap at each end.
+            if (dash != null) {
+                for (run in dashRuns(points, dash)) {
+                    builder.configure(outset, inset, blur2, lineOffset, run.startDistance, totalLength)
+                    // A cut run is an open line even when the feature is a polygon ring.
+                    builder.addLine(
+                        run.points, run.points.size / 2, false, join, cap, miterLimit, roundLimit,
+                        sharpCornerOffset,
+                    )
+                }
+            } else {
+                builder.configure(outset, inset, blur2, lineOffset, 0f, totalLength)
+                builder.addLine(
+                    points, points.size / 2, isPolygon, join, cap, miterLimit, roundLimit, sharpCornerOffset,
+                )
+            }
+        }
+        // The chunk is coloured by this feature's sink state, so it must not outlive the feature.
+        builder.finish()
+        sinkScope = null
     }
 
     /**
