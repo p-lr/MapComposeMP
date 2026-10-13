@@ -58,13 +58,22 @@ import kotlin.math.max
  * - **`line-offset`** now moves the cross-section along the join normal, miter length included, as
  *   the vertex shader does. Very sharp inner corners still fold over -- upstream folds too.
  */
-class LineLayerPainter(
-    private val spriteManager: SpriteManager? = null,
-    private val patternBrushes: PatternBrushCache = PatternBrushCache(),
+class LineLayerPainter internal constructor(
+    private val spriteManager: SpriteManager?,
+    private val patternBrushes: PatternBrushCache,
+    /**
+     * Every mesh of the layer, drawn in as few calls as possible. See [LineBatch]. A renderer hands
+     * all its line painters one batch: each flushes before the next layer starts, and the arrays
+     * then stay allocated for the tile instead of per style layer.
+     */
+    private val batch: LineBatch,
 ) : BaseLayerPainter<LineLayer>() {
 
-    /** Every mesh of the layer, drawn in as few calls as possible. See [LineBatch]. */
-    private val batch = LineBatch()
+    constructor(
+        spriteManager: SpriteManager? = null,
+        patternBrushes: PatternBrushCache = PatternBrushCache(),
+    ) : this(spriteManager, patternBrushes, LineBatch())
+
 
     /* What the builder's sink colours the chunk it is handed with: the feature being tessellated.
      * The builder is finished at the end of every feature, so a chunk never spans two of them. */
