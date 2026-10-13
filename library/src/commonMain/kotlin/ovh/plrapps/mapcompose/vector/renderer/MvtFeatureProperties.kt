@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.renderer
 
 import ovh.plrapps.mapcompose.vector.spec.Tile
+import kotlin.concurrent.Volatile
 
 /**
  * An MVT feature's properties, read straight off its tags rather than copied into a map.
@@ -26,17 +27,23 @@ internal class MvtFeatureProperties(
 
     override fun containsKey(key: String): Boolean = indexOfLast(key) >= 0
 
-    override val entries: Set<Map.Entry<String, Any?>> by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        val copy = LinkedHashMap<String, Any?>()
-        val keys = layer.keys
-        val values = layer.engineValues
-        for (i in 0 until tags.size - 1 step 2) {
-            val keyIdx = tags[i]
-            val valueIdx = tags[i + 1]
-            if (keyIdx < keys.size && valueIdx < values.size) copy[keys[keyIdx]] = values[valueIdx]
+    /* Built on first iteration -- rare: `["properties"]`, a token substitution walk -- and kept. A
+     * field rather than `by lazy`, which cost two allocations on every feature of every tile. */
+    @Volatile
+    private var copiedEntries: Set<Map.Entry<String, Any?>>? = null
+
+    override val entries: Set<Map.Entry<String, Any?>>
+        get() = copiedEntries ?: run {
+            val copy = LinkedHashMap<String, Any?>()
+            val keys = layer.keys
+            val values = layer.engineValues
+            for (i in 0 until tags.size - 1 step 2) {
+                val keyIdx = tags[i]
+                val valueIdx = tags[i + 1]
+                if (keyIdx < keys.size && valueIdx < values.size) copy[keys[keyIdx]] = values[valueIdx]
+            }
+            copy.entries.also { copiedEntries = it }
         }
-        copy.entries
-    }
 
     /** The position in [tags] of the last valid pair naming [key], or -1. */
     private fun indexOfLast(key: String): Int {
