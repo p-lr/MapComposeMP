@@ -1003,7 +1003,7 @@ class VectorRasterizer(
 
         val retained = lastPublished
         var unresolved = 0
-        val propCaches = mutableMapOf<String, HashMap<String, EvalFeature>>()
+        val propCaches = mutableMapOf<String, HashMap<Tile.Layer, Array<EvalFeature?>>>()
         for (request in missing) {
             val ref = request.ref
             val key = bucketKey(request, zoomLevel)
