@@ -80,4 +80,13 @@ internal expect fun defaultRenderBudgetBytes(): Long
  */
 internal expect fun defaultCacheBudgetBytes(): Long
 
+/**
+ * How many tiles may rasterize at once on this platform.
+ *
+ * Bitmap bytes are not the whole cost of a render: each one also holds its decoded tiles, every
+ * feature's evaluation view and its decoded geometry on the heap for as long as it runs. Where the
+ * heap is small -- Android -- that, not the bitmaps, is what runs out first, so it bounds the count.
+ */
+internal expect fun defaultMaxConcurrentRenders(): Int
+
 internal const val MB = 1024L * 1024L
