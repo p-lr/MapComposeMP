@@ -280,17 +280,32 @@ class TileRenderer(
                     )
                 }
                 try {
-                    for (entry in visible) {
-                        when (styleLayer) {
-                            is FillLayer -> painterFor(styleLayer).paint(
-                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                entry.properties, actualZoom, entry.cacheKey
-                            )
+                    when (styleLayer) {
+                        is FillLayer -> {
+                            val painter = painterFor(styleLayer)
+                            for (entry in visible) {
+                                painter.paint(
+                                    canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
+                                    entry.properties, actualZoom, entry.cacheKey
+                                )
+                            }
+                        }
 
-                            is LineLayer -> painterFor(styleLayer).paint(
-                                canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                entry.properties, actualZoom, entry.cacheKey
-                            )
+                        is LineLayer -> {
+                            /* Queued and drawn in as few calls as fit -- see `LineBatch`. The flush
+                             * is inside the span translate and the layer-opacity offscreen, so the
+                             * meshes land exactly where per-feature draws did. */
+                            val painter = painterFor(styleLayer) as LineLayerPainter
+                            try {
+                                for (entry in visible) {
+                                    painter.append(
+                                        canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
+                                        entry.properties, actualZoom, entry.cacheKey
+                                    )
+                                }
+                            } finally {
+                                painter.flush(canvas)
+                            }
                         }
                     }
                 } finally {

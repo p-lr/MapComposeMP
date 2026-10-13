@@ -80,7 +80,17 @@ internal class LineMesh(
     val indices: IntArray,
     val vertexCount: Int,
     val indexCount: Int,
-)
+) {
+    /** A mesh that owns exactly its own data, for a caller that keeps it past a builder's sink. */
+    fun copy(): LineMesh = LineMesh(
+        positions = positions.copyOf(vertexCount * 2),
+        alphas = alphas.copyOf(vertexCount),
+        progress = progress.copyOf(vertexCount),
+        indices = indices.copyOf(indexCount),
+        vertexCount = vertexCount,
+        indexCount = indexCount,
+    )
+}
 
 /**
  * Tessellates one polyline.
@@ -105,9 +115,12 @@ internal fun tessellateLine(
     startDistance: Float = 0f,
     totalLength: Float = 0f,
 ): List<LineMesh> {
-    val builder = LineMeshBuilder(outset, inset, blur2, offset, startDistance, totalLength)
+    val meshes = ArrayList<LineMesh>()
+    val builder = LineMeshBuilder { meshes += it.copy() }
+    builder.configure(outset, inset, blur2, offset, startDistance, totalLength)
     builder.addLine(points, pointCount, isPolygon, join, cap, miterLimit, roundLimit, sharpCornerOffset)
-    return builder.finish()
+    builder.finish()
+    return meshes
 }
 
 /**
@@ -124,19 +137,59 @@ internal fun roundStepCount(radius: Float, sag: Float = 0.25f, sweep: Float = PI
     return ceil(sweep / step).toInt().coerceIn(2, 64)
 }
 
-private class LineMeshBuilder(
-    private val outset: Float,
-    private val inset: Float,
-    private val blur2: Float,
-    private val offset: Float,
-    private val startDistance: Float,
-    private val totalLength: Float,
-) {
-    private val rings = alphaRings(outset, inset, blur2)
-    private val ringAlphas = FloatArray(rings.size) { alphaAt(abs(rings[it])) }
+/**
+ * Tessellates line after line into one set of growable arrays, handing each finished chunk to
+ * [sink].
+ *
+ * Reusable: [configure] sets one feature's cross-section, [addLine] appends a polyline, and the
+ * arrays are only ever grown, never reallocated per line. A chunk is handed over when the next column
+ * would not fit [MAX_VERTEX_ARRAY_LENGTH], and by [finish]. The [LineMesh] handed to [sink] is a
+ * *view* of the builder's own arrays and is only valid during the call -- copy what is kept.
+ *
+ * It used to be built per polyline, allocating four arrays up front and four more on every flush,
+ * which on a dense tile was 60% of everything the tile renderer allocated.
+ */
+internal class LineMeshBuilder(private val sink: (LineMesh) -> Unit) {
+    private var outset = 0f
+    private var inset = 0f
+    private var blur2 = 0f
+    private var offset = 0f
+    private var startDistance = 0f
+    private var totalLength = 0f
+
+    private var rings = FloatArray(0)
+    private var ringAlphas = FloatArray(0)
     /** The positive half of [rings], for the radial spokes of a round cap. */
-    private val spokes = rings.filter { it >= 0f }.toFloatArray()
-    private val spokeAlphas = FloatArray(spokes.size) { alphaAt(spokes[it]) }
+    private var spokes = FloatArray(0)
+    private var spokeAlphas = FloatArray(0)
+
+    /**
+     * Sets the cross-section and progress range the following [addLine] calls tessellate with.
+     *
+     * The rings are a function of the first three arguments alone, and a layer's features usually
+     * share them, so they are only recomputed when one of those changes.
+     */
+    fun configure(
+        outset: Float,
+        inset: Float,
+        blur2: Float,
+        offset: Float,
+        startDistance: Float,
+        totalLength: Float,
+    ) {
+        if (rings.isEmpty() || outset != this.outset || inset != this.inset || blur2 != this.blur2) {
+            this.outset = outset
+            this.inset = inset
+            this.blur2 = blur2
+            rings = alphaRings(outset, inset, blur2)
+            ringAlphas = FloatArray(rings.size) { alphaAt(abs(rings[it])) }
+            spokes = rings.filter { it >= 0f }.toFloatArray()
+            spokeAlphas = FloatArray(spokes.size) { alphaAt(spokes[it]) }
+        }
+        this.offset = offset
+        this.startDistance = startDistance
+        this.totalLength = totalLength
+    }
 
     /**
      * The shader's alpha at a ring, snapped to zero when it rounds to nothing.
@@ -149,7 +202,6 @@ private class LineMeshBuilder(
         return if (alpha < ALPHA_EPSILON) 0f else alpha
     }
 
-    private val meshes = ArrayList<LineMesh>()
     private var positions = FloatArray(512)
     private var alphas = FloatArray(256)
     private var progress = FloatArray(256)
@@ -169,9 +221,9 @@ private class LineMeshBuilder(
     private var lastRightX = 0f
     private var lastRightY = 0f
 
-    fun finish(): List<LineMesh> {
+    /** Hands the chunk in progress to the sink. The builder can be used again afterwards. */
+    fun finish() {
         flush()
-        return meshes
     }
 
     fun addLine(
@@ -214,9 +266,9 @@ private class LineMeshBuilder(
             currentX = points[2 * (len - 2)]
             currentY = points[2 * (len - 2) + 1]
             hasCurrent = true
-            val n = unitPerp(points[2 * first] - currentX, points[2 * first + 1] - currentY)
-            nextNormalX = n.first
-            nextNormalY = n.second
+            unitPerp(points[2 * first] - currentX, points[2 * first + 1] - currentY)
+            nextNormalX = perpX
+            nextNormalY = perpY
             hasNextNormal = true
         }
 
@@ -255,9 +307,9 @@ private class LineMeshBuilder(
             hasCurrent = true
 
             if (hasNext) {
-                val n = unitPerp(nextX - currentX, nextY - currentY)
-                nextNormalX = n.first
-                nextNormalY = n.second
+                unitPerp(nextX - currentX, nextY - currentY)
+                nextNormalX = perpX
+                nextNormalY = perpY
             } else {
                 nextNormalX = prevNormalX
                 nextNormalY = prevNormalY
@@ -425,9 +477,19 @@ private class LineMeshBuilder(
     private fun samePoint(points: FloatArray, a: Int, b: Int): Boolean =
         points[2 * a] == points[2 * b] && points[2 * a + 1] == points[2 * b + 1]
 
-    private fun unitPerp(dx: Float, dy: Float): Pair<Float, Float> {
+    // The result of [unitPerp]: two fields rather than a `Pair`, which boxed both floats per vertex.
+    private var perpX = 0f
+    private var perpY = 0f
+
+    private fun unitPerp(dx: Float, dy: Float) {
         val length = hypot(dx, dy)
-        return if (length > 0f) Pair(-dy / length, dx / length) else Pair(0f, 0f)
+        if (length > 0f) {
+            perpX = -dy / length
+            perpY = dx / length
+        } else {
+            perpX = 0f
+            perpY = 0f
+        }
     }
 
     private fun advance(fromX: Float, fromY: Float, toX: Float, toY: Float) {
@@ -582,7 +644,7 @@ private class LineMeshBuilder(
 
     private fun flush() {
         if (vertexCount > 0 && indexCount > 0) {
-            meshes.add(
+            sink(
                 LineMesh(
                     positions = positions,
                     alphas = alphas,
@@ -592,10 +654,6 @@ private class LineMeshBuilder(
                     indexCount = indexCount,
                 )
             )
-            positions = FloatArray(512)
-            alphas = FloatArray(256)
-            progress = FloatArray(256)
-            indices = IntArray(768)
         }
         vertexCount = 0
         indexCount = 0
