@@ -57,7 +57,7 @@ class RasterTileImage(
  *   many milliseconds as it loads. A tile here is rasterized once and handed to the tile pipeline as
  *   bytes; there is no frame loop, and no per-tile load timeline to fade against.
  * - **The image is resampled twice**, once into the tile bitmap and again when that bitmap is drawn
- *   (see `vectorTileBitmapSize`). Drawing into the tile bitmap is what keeps a raster layer in style
+ *   (see `vectorTileRaster`). Drawing into the tile bitmap is what keeps a raster layer in style
  *   order relative to the vector layers around it.
  */
 class RasterLayerPainter {
