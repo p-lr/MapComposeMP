@@ -18,6 +18,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
+import kotlin.math.abs
 
 /**
  * Draws `fill` layers.
@@ -58,7 +59,8 @@ class FillLayerPainter(
 
     /**
      * Fills one feature already decoded into [path] -- by `TileGeometry`, which decodes a tile layer
-     * once for every style layer that draws it.
+     * once for every style layer that draws it. [cull], when given, skips a feature that cannot
+     * reach the part of the canvas being drawn.
      */
     fun paintPath(
         canvas: DrawScope,
@@ -66,8 +68,16 @@ class FillLayerPainter(
         style: FillLayer,
         featureProperties: EvalFeature?,
         actualZoom: Double,
+        cull: FeatureCull? = null,
     ) {
         val paint = style.paint
+        if (cull != null) {
+            val translate = paint.fillTranslate.processAsDoubleList(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.FILL_TRANSLATE
+            // The outline is a one-density-pixel stroke, and antialiasing reaches a pixel further.
+            val reach = translate.sumOf { abs(it) }.toFloat() * canvas.density + canvas.density + 1f
+            if (!cull.reaches(reach)) return
+        }
 
         val fillColor = paint.fillColor?.processAsColor(featureProperties, actualZoom)
             ?: StyleSpecDefaults.FILL_COLOR
