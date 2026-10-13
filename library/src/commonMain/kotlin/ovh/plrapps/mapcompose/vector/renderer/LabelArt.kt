@@ -6,6 +6,8 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.vector.data.glyphs.GlyphRasterizer
 import ovh.plrapps.mapcompose.vector.data.glyphs.LabelBox
 import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedGlyph
@@ -120,7 +122,14 @@ internal abstract class LabelArt {
         fun drawGlyph(scope: DrawScope, quad: RenderedGlyph, alpha: Float = 1f, scale: Float = 1f) {
             scope.scale(scale, scale, pivot = Offset.Zero) {
                 translate(quad.left, quad.top) {
-                    drawImage(quad.bitmap, alpha = alpha)
+                    val size = IntSize(quad.width.toInt(), quad.height.toInt())
+                    drawImage(
+                        image = quad.bitmap,
+                        srcOffset = IntOffset(quad.srcX, quad.srcY),
+                        srcSize = size,
+                        dstSize = size,
+                        alpha = alpha,
+                    )
                 }
             }
         }
