@@ -200,7 +200,7 @@ private fun TileJson.overriddenBy(source: Source): TileJson = copy(
 suspend fun getTileJson(tileJsonUrl: String, loadResource: suspend (String) -> RawSource?): Result<TileJson> {
     return try {
         val rawTileJson = withContext(IODispatcher) {
-            loadResource(tileJsonUrl)?.buffered()?.readString() ?: throw Exception("TileJson not found")
+            loadResource(tileJsonUrl)?.buffered()?.use { it.readString() } ?: throw Exception("TileJson not found")
         }
         val tileJson = json.decodeFromString(TileJson.serializer(), rawTileJson)
 
