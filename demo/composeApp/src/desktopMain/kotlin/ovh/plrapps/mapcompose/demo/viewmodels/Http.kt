@@ -15,17 +15,9 @@ import java.net.URL
  */
 actual fun makeHttpTileStreamProvider(): TileStreamProvider {
     return TileStreamProvider { row, col, zoomLvl ->
-        try {
-            val url =
-                URL("https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg")
-            val connection = url.openConnection() as HttpURLConnection
-            connection.doInput = true
-            connection.connect()
-            connection.inputStream.asSource()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        openHttpStream(
+            "https://raw.githubusercontent.com/p-lr/MapCompose/master/demo/src/main/assets/tiles/mont_blanc_layered/$zoomLvl/$row/$col.jpg"
+        )
     }
 }
 
@@ -34,18 +26,8 @@ actual fun makeHttpTileStreamProvider(): TileStreamProvider {
  */
 actual fun makeOsmTileStreamProvider() : TileStreamProvider {
     return TileStreamProvider { row, col, zoomLvl ->
-        try {
-            val url = URL("https://tile.openstreetmap.org/$zoomLvl/$col/$row.png")
-            val connection = url.openConnection() as HttpURLConnection
-            // OSM requires a user-agent
-            connection.setRequestProperty("User-Agent", "Chrome/120.0.0.0 Safari/537.36")
-            connection.doInput = true
-            connection.connect()
-            connection.inputStream.asSource()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
+        // OSM requires a user-agent
+        openHttpStream("https://tile.openstreetmap.org/$zoomLvl/$col/$row.png", USER_AGENT)
     }
 }
 
@@ -74,25 +56,51 @@ actual class OSMVectorTileStreamProvider actual constructor(actual override val 
         return getResourceAsStream(tileUrl)
     }
 
-    private fun getResourceAsStream(url: String): RawSource? {
-        return try {
-            val connection = URL(url).openConnection() as HttpURLConnection
-            connection.setRequestProperty("User-Agent", "Chrome/120.0.0.0 Safari/537.36")
-            // Explicitly request gzip — this disables Java's auto-decompression, so we
-            // decompress manually below when the server confirms gzip encoding.
-            connection.setRequestProperty("Accept-Encoding", "gzip")
-            connection.doInput = true
-            connection.connect()
+    /* Requests gzip explicitly, which disables Java's auto-decompression: [openHttpStream]
+     * decompresses when the server confirms the encoding. */
+    private fun getResourceAsStream(url: String): RawSource? =
+        openHttpStream(url, USER_AGENT, acceptGzip = true)
+}
 
-            val stream = if (connection.contentEncoding?.equals("gzip", ignoreCase = true) == true) {
-                java.util.zip.GZIPInputStream(connection.inputStream)
-            } else {
-                connection.inputStream
-            }
-            stream.asSource()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
+private const val USER_AGENT = "Chrome/120.0.0.0 Safari/537.36"
+
+/**
+ * The body of a GET on [url], or null when there is none.
+ *
+ * The connection is released on every path that does not hand the body over -- a non-2xx response,
+ * which a vector source answers for every tile outside its coverage, and any failure.
+ * `connection.inputStream` throws on an error status, so asking for it first skipped both the error
+ * body and `disconnect()` and leaked the connection. On success the caller closes the returned
+ * source, which releases it.
+ */
+private fun openHttpStream(url: String, userAgent: String? = null, acceptGzip: Boolean = false): RawSource? {
+    var connection: HttpURLConnection? = null
+    return try {
+        connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            userAgent?.let { setRequestProperty("User-Agent", it) }
+            if (acceptGzip) setRequestProperty("Accept-Encoding", "gzip")
+            // Without these a stalled request holds its connection forever.
+            connectTimeout = 15_000
+            readTimeout = 30_000
+            doInput = true
         }
+        val status = connection.responseCode
+        if (status !in 200..299) {
+            if (status != HttpURLConnection.HTTP_NOT_FOUND) println("HTTP $status for $url")
+            connection.errorStream?.close()
+            connection.disconnect()
+            return null
+        }
+
+        val stream = if (connection.contentEncoding?.equals("gzip", ignoreCase = true) == true) {
+            java.util.zip.GZIPInputStream(connection.inputStream)
+        } else {
+            connection.inputStream
+        }
+        stream.asSource()
+    } catch (e: Exception) {
+        connection?.disconnect()
+        println("HTTP request failed for $url: ${e.message}")
+        null
     }
 }
