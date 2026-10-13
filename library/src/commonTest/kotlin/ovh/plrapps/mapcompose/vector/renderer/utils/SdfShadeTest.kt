@@ -44,6 +44,18 @@ class SdfShadeTest {
         }
     }
 
+    @Test
+    fun `source over an empty pixel is the source for every alpha`() {
+        for (alpha in 0..255) {
+            for (rgb in listOf(0x000000, 0x123456, 0xFFFFFF, 0x80FF01, 0x010203)) {
+                val source = (alpha shl 24) or rgb
+                for (destination in listOf(0, 0x00FFFFFF, 0x00123456)) {
+                    assertEquals(reference(Color(source), destination), sourceOverArgb(source, destination))
+                }
+            }
+        }
+    }
+
     /** The `Color`-based source-over the rasterizer used before. */
     private fun reference(source: Color, destinationArgb: Int): Int {
         if (source.alpha >= 1f) return source.toArgb()

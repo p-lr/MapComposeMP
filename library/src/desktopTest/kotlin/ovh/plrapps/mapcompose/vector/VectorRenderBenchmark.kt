@@ -10,6 +10,8 @@ import kotlinx.io.RawSource
 import ovh.plrapps.mapcompose.core.adoptRenderedBitmap
 import ovh.plrapps.mapcompose.vector.core.VectorRasterizer
 import ovh.plrapps.mapcompose.vector.core.VectorStats
+import ovh.plrapps.mapcompose.vector.core.ViewportInfo
+import androidx.compose.ui.unit.IntSize
 import ovh.plrapps.mapcompose.vector.core.vectorTileRaster
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.data.getMapLibreConfiguration
@@ -158,14 +160,15 @@ class VectorRenderBenchmark {
 
         /* The layout pass on a rasterizer of its own, so its label and bucket caches are cold, as on
          * a first visit -- after one pass on another, so the JIT and the glyph ranges are not. */
-        measureLayout(newRasterizer(), scenario.z, cx, cy)
-        val layoutMs = measureLayout(newRasterizer(), scenario.z, cx, cy)
+        measureLayout(newRasterizer(), scenario.z, cx, cy, profile)
+        val (layoutMs, placementMs, placed) = measureLayout(newRasterizer(), scenario.z, cx, cy, profile)
 
         log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
         log("  per tile: ${fmt(elapsedMs / count)} ms total; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
         log("  cold per tile (caches trimmed, bytes kept): ${fmt(coldMs)} ms")
         log("  layout pass, cold caches (3x3 + ring): ${fmt(layoutMs)} ms")
+        log("  first placement, rasterizing what it places: ${fmt(placementMs)} ms, $placed symbols")
         VectorStats.report().lines().forEach { if (it.isNotBlank()) log("  $it") }
         log()
     }
@@ -188,18 +191,46 @@ class VectorRenderBenchmark {
         }
     }
 
-    private suspend fun measureLayout(rasterizer: VectorRasterizer, z: Int, cx: Int, cy: Int): Double {
+    /** One cold layout pass and the first placement over it: (layout ms, placement ms, symbols placed). */
+    private suspend fun measureLayout(
+        rasterizer: VectorRasterizer,
+        z: Int,
+        cx: Int,
+        cy: Int,
+        profile: Profile,
+    ): Triple<Double, Double, Int> {
+        val matrix = (cy - 1..cy + 1).associateWith { cx - 1..cx + 1 }
         val viewport = MVTViewport(
             width = 1080f,
             height = 1920f,
             bearing = 0f,
             pitch = 0f,
             zoom = z.toFloat(),
-            tileMatrix = (cy - 1..cy + 1).associateWith { cx - 1..cx + 1 },
+            tileMatrix = matrix,
         )
         val start = TimeSource.Monotonic.markNow()
-        rasterizer.layoutBuckets(viewport, z.toDouble()).getOrThrow()
-        return start.elapsedNow().inWholeMicroseconds / 1000.0
+        val buckets = rasterizer.layoutBuckets(viewport, z.toDouble()).getOrThrow().buckets
+        val layoutMs = start.elapsedNow().inWholeMicroseconds / 1000.0
+
+        // The map at integer zoom [z], centred on the middle tile, one tile pixel per screen pixel.
+        val worldPx = (TILE_SIZE * profile.density).toInt() * (1 shl z)
+        val info = ViewportInfo(
+            matrix = matrix,
+            size = IntSize(1080, 1920),
+            angleRad = 0f,
+            pitch = 0f,
+            zoom = z,
+            fractionalZoom = z.toDouble(),
+            centroidX = (cx + 0.5) / (1 shl z),
+            centroidY = (cy + 0.5) / (1 shl z),
+            scale = 1.0,
+            fullWidth = worldPx,
+            fullHeight = worldPx,
+        )
+        val placementStart = TimeSource.Monotonic.markNow()
+        val result = rasterizer.place(buckets, info, now = 0L).result
+        val placementMs = placementStart.elapsedNow().inWholeMicroseconds / 1000.0
+        return Triple(layoutMs, placementMs, result?.symbols?.size ?: 0)
     }
 
     /** How big a decoded tile is next to its bytes. */
