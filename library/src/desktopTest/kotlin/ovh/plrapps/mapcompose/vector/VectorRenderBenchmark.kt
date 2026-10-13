@@ -118,13 +118,14 @@ class VectorRenderBenchmark {
         bitmapPx: Int,
         superSampling: Int,
     ) {
-        val rasterizer = VectorRasterizer(
+        fun newRasterizer() = VectorRasterizer(
             configuration = configuration,
             densityState = MutableStateFlow(Density(profile.density)),
             fontFamilyResolverState = MutableStateFlow<FontFamily.Resolver?>(null),
             textMeasurerState = MutableStateFlow<TextMeasurer?>(null),
             getTileStream = { url, _, _, _ -> fetchCached(url)?.let { Buffer().apply { write(it) } as RawSource } },
         )
+        val rasterizer = newRasterizer()
         val (cx, cy) = tileOf(ZURICH_LON, ZURICH_LAT, scenario.z)
         val tiles = (-1..1).flatMap { dy -> (-1..1).map { dx -> (cx + dx) to (cy + dy) } }
 
@@ -155,13 +156,16 @@ class VectorRenderBenchmark {
         }
         val coldMs = coldStart.elapsedNow().inWholeMicroseconds / 1000.0 / tiles.size
 
-        val layoutMs = measureLayout(rasterizer, scenario.z, cx, cy)
+        /* The layout pass on a rasterizer of its own, so its label and bucket caches are cold, as on
+         * a first visit -- after one pass on another, so the JIT and the glyph ranges are not. */
+        measureLayout(newRasterizer(), scenario.z, cx, cy)
+        val layoutMs = measureLayout(newRasterizer(), scenario.z, cx, cy)
 
         log("== ${profile.name} / ${scenario.name}: render ${bitmapPx}px, ss $superSampling")
         log("  per tile: ${fmt(elapsedMs / count)} ms total; " +
             "allocated ${fmt(allocated / count / 1e6)} MB (JVM heap, this thread)")
         log("  cold per tile (caches trimmed, bytes kept): ${fmt(coldMs)} ms")
-        log("  first layout pass (3x3 + ring): ${fmt(layoutMs)} ms")
+        log("  layout pass, cold caches (3x3 + ring): ${fmt(layoutMs)} ms")
         VectorStats.report().lines().forEach { if (it.isNotBlank()) log("  $it") }
         log()
     }

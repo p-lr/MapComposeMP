@@ -6,7 +6,8 @@ import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import ovh.plrapps.mapcompose.vector.data.imageBitmapFromArgb
-import ovh.plrapps.mapcompose.vector.renderer.utils.sdfPixel
+import ovh.plrapps.mapcompose.vector.renderer.utils.SdfShade
+import ovh.plrapps.mapcompose.vector.renderer.utils.sourceOverArgb
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -55,7 +56,7 @@ class RenderedGlyph(
  * Draws a [ShapedLabel]'s SDF glyphs, and any inline image among them, into a bitmap.
  *
  * This is the CPU stand-in for maplibre-gl-js's `symbol_sdf` draw pass: every glyph's distance field
- * is sampled and run through [sdfPixel], the same function the SDF *icons* go through, so
+ * is sampled and run through [SdfShade] -- `sdfPixel`, the function the SDF *icons* go through, so
  * `text-halo-width`, `text-halo-color` and `text-halo-blur` mean here what they mean upstream -- a
  * dilated outline around the glyph rather than a blur behind it.
  *
@@ -178,8 +179,13 @@ object GlyphRasterizer {
             val toX = min(width, ceil(originX + glyph.bitmapWidth * shaped.scale).toInt())
             val toY = min(height, ceil(originY + glyph.bitmapHeight * shaped.scale).toInt())
 
-            val fill = (shaped.color ?: fillColor).withAlphaScaled(opacity)
-            val halo = haloColor.withAlphaScaled(opacity)
+            val shade = SdfShade(
+                fillColor = (shaped.color ?: fillColor).withAlphaScaled(opacity),
+                haloColor = haloColor.withAlphaScaled(opacity),
+                haloWidth = haloWidth,
+                haloBlur = haloBlur,
+                fontScale = shaped.scale,
+            )
 
             for (y in fromY until toY) {
                 for (x in fromX until toX) {
@@ -189,17 +195,10 @@ object GlyphRasterizer {
                     val distance = sampleBilinear(glyph, u, v)
                     if (distance <= 0f) continue
 
-                    val color = sdfPixel(
-                        distance = distance,
-                        fillColor = fill,
-                        haloColor = halo,
-                        haloWidth = haloWidth,
-                        haloBlur = haloBlur,
-                        fontScale = shaped.scale,
-                    )
-                    if (color.alpha <= 0f) continue
+                    val color = shade.argb(distance)
+                    if (color ushr 24 == 0) continue
                     val index = y * width + x
-                    pixels[index] = over(color, pixels[index])
+                    pixels[index] = sourceOverArgb(color, pixels[index])
                 }
             }
         }
@@ -217,7 +216,7 @@ object GlyphRasterizer {
      * The label's glyphs, each rasterized into its own bitmap.
      *
      * The per-glyph counterpart of [render], for a label that follows a line. Everything about a
-     * glyph's shading is identical -- the same [sdfPixel] call with the same arguments -- so a
+     * glyph's shading is identical -- the same [SdfShade] with the same arguments -- so a
      * glyph drawn this way carries the same ink as the same glyph inside [render]'s composite, up
      * to the sub-pixel phase of the sampling grid, which is the glyph's own here and the label's
      * there. Compositing *neighbours* is left to the canvas, which is what upstream does too.
@@ -284,8 +283,13 @@ object GlyphRasterizer {
             if (width <= 0 || height <= 0) continue
 
             val pixels = IntArray(width * height)
-            val fill = (shaped.color ?: fillColor).withAlphaScaled(opacity)
-            val halo = haloColor.withAlphaScaled(opacity)
+            val shade = SdfShade(
+                fillColor = (shaped.color ?: fillColor).withAlphaScaled(opacity),
+                haloColor = haloColor.withAlphaScaled(opacity),
+                haloWidth = haloWidth,
+                haloBlur = haloBlur,
+                fontScale = shaped.scale,
+            )
             var hasInk = false
 
             for (y in 0 until height) {
@@ -298,16 +302,9 @@ object GlyphRasterizer {
                     val distance = sampleBilinear(glyph, u, v)
                     if (distance <= 0f) continue
 
-                    val color = sdfPixel(
-                        distance = distance,
-                        fillColor = fill,
-                        haloColor = halo,
-                        haloWidth = haloWidth,
-                        haloBlur = haloBlur,
-                        fontScale = shaped.scale,
-                    )
-                    if (color.alpha <= 0f) continue
-                    pixels[y * width + x] = color.toArgb()
+                    val color = shade.argb(distance)
+                    if (color ushr 24 == 0) continue
+                    pixels[y * width + x] = color
                     hasInk = true
                 }
             }
