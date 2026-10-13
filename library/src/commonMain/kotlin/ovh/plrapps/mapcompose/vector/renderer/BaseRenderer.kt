@@ -8,11 +8,11 @@ import ovh.plrapps.mapcompose.vector.spec.style.Layer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
-import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.Point2D
 import ovh.plrapps.mapcompose.vector.spec.style.expression.geometry.EXTENT
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers
+import ovh.plrapps.mapcompose.vector.spec.style.props.globalsAt
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsString
 import kotlin.math.round
 
@@ -60,7 +60,7 @@ abstract class BaseRenderer(
          * for a source that promotes its ids: a filter reads the raw protobuf id there, where paint
          * and layout read the promoted one. See its KDoc. */
         return filter.filter(
-            globals = GlobalProperties(zoom = zoom.toInt().toDouble()),
+            globals = globalsAt(zoom.toInt().toDouble()),
             feature = target.filterFeature ?: target,
             canonical = target.canonical ?: canonical,
         )
@@ -136,12 +136,23 @@ abstract class BaseRenderer(
         promoteIdProperty: String? = null,
     ): EvalFeature {
         val extent = tileLayer.extent ?: DEFAULT_MVT_EXTENT
-        val properties = extractFeatureProperties(feature, tileLayer)
-        /* A `geojson` source's synthetic tile smuggles a non-integral id through the tag table,
-         * because the MVT wire format has no room for one -- see [GeoJsonTiler.SYNTHETIC_ID_KEY].
-         * Removing it here is what keeps it out of `["get"]` and `["properties"]`. */
-        val syntheticId = properties.remove(GeoJsonTiler.SYNTHETIC_ID_KEY)
-        restoreSyntheticProperties(properties)
+        /* A view over the tags for an ordinary tile -- see [MvtFeatureProperties]. A `geojson`
+         * source's synthetic tile smuggles a non-integral id and the properties MVT cannot hold
+         * through the tag table -- see [GeoJsonTiler.SYNTHETIC_ID_KEY] -- so its layers still get a
+         * copied map, which is what removing those keys out of `["get"]` and `["properties"]` needs. */
+        val synthetic = GeoJsonTiler.SYNTHETIC_ID_KEY in tileLayer.keyIndex ||
+            GeoJsonTiler.SYNTHETIC_JSON_KEY in tileLayer.keyIndex
+        val properties: Map<String, Any?>
+        val syntheticId: Any?
+        if (synthetic) {
+            val copied = extractFeatureProperties(feature, tileLayer)
+            syntheticId = copied.remove(GeoJsonTiler.SYNTHETIC_ID_KEY)
+            restoreSyntheticProperties(copied)
+            properties = copied
+        } else {
+            properties = MvtFeatureProperties(tileLayer, feature.tags)
+            syntheticId = null
+        }
         val raw = EvalFeature(
             type = geometryTypeOf(feature),
             id = syntheticId ?: feature.id?.toDouble(),
@@ -224,15 +235,11 @@ abstract class BaseRenderer(
         val props = mutableMapOf<String, Any?>()
         val keys = tileLayer.keys
         val values = tileLayer.values
-        for (i in feature.tags.indices step 2) {
+        for (i in 0 until feature.tags.size - 1 step 2) {
             val keyIdx = feature.tags[i]
             val valueIdx = feature.tags[i + 1]
             if (keyIdx < keys.size && valueIdx < values.size) {
-                val key = keys[keyIdx]
-                val value = values[valueIdx]
-                val raw = value.stringValue ?: value.floatValue ?: value.doubleValue ?: value.intValue
-                    ?: value.uintValue ?: value.sintValue ?: value.boolValue
-                props[key] = normalizeNumbers(raw)
+                props[keys[keyIdx]] = tileLayer.engineValues[valueIdx]
             }
         }
         return props
