@@ -159,6 +159,126 @@ class GeometryDecoders {
         return lines
     }
 
+    /**
+     * [decodeLine] straight into `x, y` interleaved arrays, one per part, without a `Pair` per
+     * vertex. The arithmetic is the same, so the coordinates are bit-identical.
+     */
+    fun decodeLineArrays(
+        geometry: IntArray,
+        extent: Int,
+        canvasSize: Int
+    ): List<FloatArray> {
+        val lines = ArrayList<FloatArray>(1)
+        var x = 0
+        var y = 0
+        var i = 0
+        val scale = canvasSize.toFloat() / extent
+        var current: FloatArray? = null
+        var count = 0
+
+        fun push(px: Float, py: Float) {
+            var line = current!!
+            if (2 * count + 2 > line.size) {
+                line = line.copyOf(line.size * 2)
+                current = line
+            }
+            line[2 * count] = px
+            line[2 * count + 1] = py
+            count++
+        }
+
+        fun finishLine() {
+            val line = current
+            if (line != null && count > 0) lines.add(line.copyOf(2 * count))
+            current = null
+            count = 0
+        }
+
+        while (i < geometry.size) {
+            val cmdInteger = geometry[i++]
+            val command = cmdInteger and 0x7
+            val repeat = cmdInteger shr 3
+            when (command) {
+                1 -> { // MoveTo
+                    if (repeat < 1) continue
+                    finishLine()
+                    current = FloatArray(16)
+                    for (j in 0 until repeat) {
+                        if (i + 1 >= geometry.size) break
+                        x += decodeZigZag(geometry[i++])
+                        y += decodeZigZag(geometry[i++])
+                        push(x * scale, y * scale)
+                    }
+                }
+                2 -> { // LineTo
+                    if (current == null) break
+                    for (j in 0 until repeat) {
+                        if (i + 1 >= geometry.size) break
+                        x += decodeZigZag(geometry[i++])
+                        y += decodeZigZag(geometry[i++])
+                        push(x * scale, y * scale)
+                    }
+                }
+                7 -> {
+                    // For lines ClosePath is ignored
+                }
+                else -> break
+            }
+        }
+        finishLine()
+        return lines
+    }
+
+    /**
+     * [decodePolygons], flattened -- every ring of every polygon, in [classifyRings]' order -- as
+     * `x, y` interleaved arrays, which is what a `line` layer strokes a polygon's outline from.
+     */
+    fun decodePolygonRingArrays(
+        geometry: IntArray,
+        extent: Int,
+        canvasSize: Int
+    ): List<FloatArray> {
+        val scale = canvasSize.toFloat() / extent
+        val out = ArrayList<FloatArray>()
+        for (polygon in classifyRings(decodePolygonRings(geometry))) {
+            for (ring in polygon) {
+                out += FloatArray(ring.size * 2).also { array ->
+                    for ((index, point) in ring.withIndex()) {
+                        array[2 * index] = (point.x * scale).toFloat()
+                        array[2 * index + 1] = (point.y * scale).toFloat()
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /**
+     * The fillable [Path] [createPolygonPath] builds from [decodePolygon], without the intermediate
+     * lists. Null for a feature with no ring.
+     */
+    fun decodePolygonPath(
+        geometry: IntArray,
+        extent: Int,
+        canvasSize: Int
+    ): Path? {
+        val rings = decodePolygonRings(geometry)
+        if (rings.isEmpty()) return null
+        val scale = canvasSize.toFloat() / extent
+        val path = Path()
+        path.fillType = PathFillType.NonZero
+        for (ring in rings) {
+            if (ring.isEmpty()) continue
+            for ((index, point) in ring.withIndex()) {
+                val px = (point.x * scale).toFloat()
+                val py = (point.y * scale).toFloat()
+                if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
+            }
+            path.close()
+        }
+        return path
+    }
+
     fun createLineStringPath(points: List<Pair<Float, Float>>): Path {
         val path = Path()
         if (points.isEmpty()) return path
