@@ -41,14 +41,24 @@ internal class OpacityState private constructor(
             increment: Float,
             placed: Boolean,
             skipFade: Boolean = false,
-        ): OpacityState = OpacityState(
-            opacity = if (previous != null) {
+        ): OpacityState {
+            val opacity = if (previous != null) {
                 (previous.opacity + if (previous.placed) increment else -increment).coerceIn(0f, 1f)
             } else {
                 if (skipFade && placed) 1f else 0f
-            },
-            placed = placed,
-        )
+            }
+            /* The two states nearly every symbol is in are shared: an `OpacityState` is immutable, and
+             * a placement records one per symbol of every bucket in the layout ring -- tens of
+             * thousands where a style draws every tree -- almost all of them hidden. */
+            return when {
+                opacity == 0f && !placed -> HIDDEN
+                opacity == 1f && placed -> SHOWN
+                else -> OpacityState(opacity, placed)
+            }
+        }
+
+        private val HIDDEN = OpacityState(opacity = 0f, placed = false)
+        private val SHOWN = OpacityState(opacity = 1f, placed = true)
     }
 }
 
@@ -66,9 +76,24 @@ internal class JointOpacityState(
             placedText: Boolean,
             placedIcon: Boolean,
             skipFade: Boolean = false,
-        ): JointOpacityState = JointOpacityState(
-            text = OpacityState.create(previous?.text, increment, placedText, skipFade),
-            icon = OpacityState.create(previous?.icon, increment, placedIcon, skipFade),
+        ): JointOpacityState {
+            val text = OpacityState.create(previous?.text, increment, placedText, skipFade)
+            val icon = OpacityState.create(previous?.icon, increment, placedIcon, skipFade)
+            // Shared for the reason the halves are; see `OpacityState.create`.
+            return when {
+                text === HIDDEN.text && icon === HIDDEN.icon -> HIDDEN
+                text === SHOWN.text && icon === SHOWN.icon -> SHOWN
+                else -> JointOpacityState(text, icon)
+            }
+        }
+
+        private val HIDDEN = JointOpacityState(
+            OpacityState.create(null, 0f, placed = false),
+            OpacityState.create(null, 0f, placed = false),
+        )
+        private val SHOWN = JointOpacityState(
+            OpacityState.create(null, 0f, placed = true, skipFade = true),
+            OpacityState.create(null, 0f, placed = true, skipFade = true),
         )
     }
 }
@@ -84,4 +109,9 @@ internal data class JointPlacement(
     val text: Boolean,
     val icon: Boolean,
     val skipFade: Boolean,
-)
+) {
+    companion object {
+        /** A symbol that placed neither half, which is most of them; immutable, so shared. */
+        val REJECTED = JointPlacement(text = false, icon = false, skipFade = false)
+    }
+}

@@ -546,7 +546,7 @@ internal class Placement(
 
     private fun reject(crossTileID: Long) {
         if (crossTileID != 0L) {
-            placements[crossTileID] = JointPlacement(text = false, icon = false, skipFade = false)
+            placements[crossTileID] = JointPlacement.REJECTED
         }
     }
 

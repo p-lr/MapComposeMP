@@ -18,48 +18,60 @@ class OBB(
     private val sin = sin(rotationRad).toFloat()
 
     /*
-     * Corners, axes and the enclosing AABB are computed once and kept. An OBB is immutable, and
-     * `intersects` used to rebuild the corner list once per projection axis -- four lists and
+     * Corners, axes and the enclosing AABB are computed on first use and kept. An OBB is immutable,
+     * and `intersects` used to rebuild the corner list once per projection axis -- four lists and
      * sixteen points per box per pair test, on the collision detector's hot path.
+     *
+     * On first use rather than at construction: every laid-out symbol carries a box of its own
+     * (`LabelPlacement.obb`) whose size and angle placement reads but whose corners it never asks
+     * for -- it tests boxes projected to the viewport instead. Built eagerly, those were eight points,
+     * two lists and an AABB per symbol, which on a map drawing every tree as a symbol was a third of
+     * the symbols' memory. Unsynchronized: a box is read by one placement pass at a time, and two
+     * first uses racing would only compute the same values twice.
      */
-    private val corners: List<ObbPoint> = run {
-        val halfWidth = size.width / 2
-        val halfHeight = size.height / 2
+    private var cachedCorners: List<ObbPoint>? = null
+    private var cachedAxes: List<ObbPoint>? = null
+    private var cachedAabb: AABB? = null
 
-        // Calculate the corners before rotation
-        val local = listOf(
-            ObbPoint(-halfWidth, -halfHeight),
-            ObbPoint(halfWidth, -halfHeight),
-            ObbPoint(halfWidth, halfHeight),
-            ObbPoint(-halfWidth, halfHeight)
-        )
-
-        // Rotate and translate each corner
-        local.map { corner ->
-            ObbPoint(
-                x = center.x + corner.x * cos - corner.y * sin,
-                y = center.y + corner.x * sin + corner.y * cos
-            )
+    private val cornerList: List<ObbPoint>
+        get() = cachedCorners ?: run {
+            val halfWidth = size.width / 2
+            val halfHeight = size.height / 2
+            // The corners before rotation, (-w, -h), (w, -h), (w, h), (-w, h), rotated and translated.
+            listOf(
+                corner(-halfWidth, -halfHeight),
+                corner(halfWidth, -halfHeight),
+                corner(halfWidth, halfHeight),
+                corner(-halfWidth, halfHeight),
+            ).also { cachedCorners = it }
         }
-    }
 
-    private val axes: List<ObbPoint> = listOf(
-        ObbPoint(cos, sin),      // First axis
-        ObbPoint(-sin, cos)      // Second axis (perpendicular to first)
+    private fun corner(x: Float, y: Float) = ObbPoint(
+        x = center.x + x * cos - y * sin,
+        y = center.y + x * sin + y * cos
     )
 
-    private val aabb: AABB = AABB(
-        minX = corners.minOf { it.x },
-        minY = corners.minOf { it.y },
-        maxX = corners.maxOf { it.x },
-        maxY = corners.maxOf { it.y }
-    )
+    private val axisList: List<ObbPoint>
+        get() = cachedAxes ?: listOf(
+            ObbPoint(cos, sin),      // First axis
+            ObbPoint(-sin, cos)      // Second axis (perpendicular to first)
+        ).also { cachedAxes = it }
+
+    private val boundingBox: AABB
+        get() = cachedAabb ?: cornerList.let { corners ->
+            AABB(
+                minX = corners.minOf { it.x },
+                minY = corners.minOf { it.y },
+                maxX = corners.maxOf { it.x },
+                maxY = corners.maxOf { it.y }
+            )
+        }.also { cachedAabb = it }
 
     // Get the four corners of the OBB
-    fun getCorners(): List<ObbPoint> = corners
+    fun getCorners(): List<ObbPoint> = cornerList
 
     // Get the axes of the OBB (normalized)
-    fun getAxes(): List<ObbPoint> = axes
+    fun getAxes(): List<ObbPoint> = axisList
 
     // Project a point onto an axis
     private fun projectPoint(obbPoint: ObbPoint, axis: ObbPoint): Float {
@@ -70,7 +82,7 @@ class OBB(
     private fun projectOnto(axis: ObbPoint, into: FloatArray) {
         var min = Float.MAX_VALUE
         var max = -Float.MAX_VALUE
-        for (corner in corners) {
+        for (corner in cornerList) {
             val p = projectPoint(corner, axis)
             if (p < min) min = p
             if (p > max) max = p
@@ -86,7 +98,7 @@ class OBB(
 
         // Project both OBBs onto each of the four axes
         for (i in 0 until 4) {
-            val axis = if (i < 2) axes[i] else other.axes[i - 2]
+            val axis = if (i < 2) axisList[i] else other.axisList[i - 2]
             projectOnto(axis, a)
             other.projectOnto(axis, b)
 
@@ -102,5 +114,5 @@ class OBB(
     }
 
     // Get the AABB that contains this OBB
-    fun getAABB(): AABB = aabb
+    fun getAABB(): AABB = boundingBox
 }
