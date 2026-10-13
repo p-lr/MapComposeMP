@@ -638,7 +638,7 @@ vanished altogether, so `["has", k]` answered `false` where upstream's worker, w
 `geojson-vt` the parsed document, answers `true`. All three now ride one JSON object under
 `GeoJsonTiler.SYNTHETIC_JSON_KEY`, the trick `SYNTHETIC_ID_KEY` already plays with a string id, and
 `BaseRenderer.buildEvalFeature` lifts them back out and removes the key before an expression can see
-it -- once per (feature, tile), since that is what `localPropCache` holds.
+it -- once per (feature, tile), since that is what `TileRenderer`'s evaluated-feature cache holds.
 
 Geometry is **wrapped across the antimeridian**, as `geojson-vt`'s `wrap.ts` wraps it: longitude 181
 projects to `x ≈ 1.0028`, which is no tile's, so a coordinate past the edge of the world used to fall
@@ -1355,6 +1355,11 @@ Two source sets, split by what needs a graphics backend:
 `BitmapTileProvider` path, including the rule that an abandoned tile outputs nothing. Android's
 hardware copy has no unit-test route (androidHostTest cannot allocate an `ImageBitmap`), so it is
 checked by running the demo APK.
+
+`VectorRenderBenchmark` (in `desktopTest`) runs the swisstopo basemap through the whole tile pipeline
+on real tiles and reports time and allocation per phase (`VectorStats`). It is skipped unless
+`MAPCOMPOSE_BENCH` is set, and caches every resource under `library/build/bench-cache`, so nothing
+binary is committed and later runs are offline.
 
 `*UpstreamTest.kt` files are transcriptions of MapLibre's own unit tests, each naming its upstream
 path and keeping upstream's wording, so a failure can be traced back to a `describe`/`test` block by
