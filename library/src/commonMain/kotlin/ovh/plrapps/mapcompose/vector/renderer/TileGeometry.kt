@@ -72,10 +72,27 @@ class TileGeometry(
                     for (i in 1 until ring.size / 2) path.lineTo(ring[2 * i], ring[2 * i + 1])
                     path.close()
                 }
+                materialize(path)
                 path
             }
             Fills(paths, bounds)
         }
+    }
+
+    /**
+     * Turns [path] into one that can be drawn from several threads at once, which a path in [Fills]
+     * is: every sub-square of an overzoomed ancestor draws the same one, each on its own tile worker.
+     *
+     * Compose's skiko `Path` (1.12) records `moveTo` / `lineTo` into a native `PathBuilder` and only
+     * builds the Skia path the first time something reads it -- a *draw* included -- by swapping in a
+     * snapshot and closing the builder. Two workers drawing a fresh path raced through that: the
+     * second closed a builder the first had already closed (`Object already closed: class
+     * org.jetbrains.skia.PathBuilder`), or swapped in a half-built snapshot. [Path.getBounds] runs
+     * the same synchronisation, here, under [mutex] and before the path is published; every later
+     * read finds nothing pending and only reads. Android's `Path` is built eagerly and unaffected.
+     */
+    private fun materialize(path: Path) {
+        path.getBounds()
     }
 
     private fun decodePolylines(feature: Tile.Feature, extent: Int): List<FloatArray> {
