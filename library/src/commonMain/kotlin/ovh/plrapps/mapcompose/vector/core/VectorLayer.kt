@@ -1,6 +1,7 @@
 package ovh.plrapps.mapcompose.vector.core
 
 import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.channels.Channel
@@ -187,15 +188,26 @@ internal class VectorLayer(
                  * decoded the bytes. */
                 val outputPx = (raster.outputPx shr subSample.coerceAtLeast(0)).coerceAtLeast(1)
 
-                val imageBitmap = rasterizer.getTile(
-                    x = col,
-                    y = row,
-                    zoom = zoomLvl.toDouble(),
-                    tileSize = raster.renderPx,
-                    superSampling = raster.superSampling,
-                    outputSize = outputPx,
-                    isWanted = isWanted,
-                ) ?: return BitmapTileResult.Skipped
+                /* A provider must not throw: core's `TileCollector` runs its workers in one
+                 * `coroutineScope`, so an exception out of here cancels every worker and no tile of
+                 * any layer is drawn again -- only the symbol overlay, which is not a tile, survives.
+                 * A tile that fails to render is a hole until it is evicted, not a dead map. */
+                val imageBitmap = try {
+                    rasterizer.getTile(
+                        x = col,
+                        y = row,
+                        zoom = zoomLvl.toDouble(),
+                        tileSize = raster.renderPx,
+                        superSampling = raster.superSampling,
+                        outputSize = outputPx,
+                        isWanted = isWanted,
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    println("ERROR: rendering tile $zoomLvl/$col/$row failed: ${e.stackTraceToString()}")
+                    return BitmapTileResult.Empty
+                } ?: return BitmapTileResult.Skipped
 
                 VectorStats.bitmapReleased(imageBitmap.width.toLong() * imageBitmap.height * 4)
                 return BitmapTileResult.Rendered(imageBitmap)
