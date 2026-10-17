@@ -75,7 +75,7 @@ Add this to your commonMain dependencies:
 ```kotlin
 sourceSets {
   commonMain.dependencies {
-      implementation("ovh.plrapps:mapcompose-mp:1.1.1")
+      implementation("ovh.plrapps:mapcompose-mp:1.1.4")
   }
 }
 ```
