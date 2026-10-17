@@ -5,7 +5,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
+import kotlin.concurrent.Volatile
 import kotlinx.coroutines.CloseableCoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -53,8 +55,19 @@ internal class TileCanvasState(
 
     /* This view-model uses a dedicated background thread for its computations */
     private val singleThreadDispatcher = tileCanvasDispatcher()
+
+    @Volatile
+    private var isShutdown = false
+
+    /* Once shut down, cancelled coroutines may still try to resume on the closed
+     * singleThreadDispatcher. On Kotlin/Native, this throws while on the JVM the dispatcher silently
+     * reroutes the task to Dispatchers.IO. */
+    private val exceptionHandler = CoroutineExceptionHandler { _, throwable ->
+        if (!isShutdown) throw throwable
+    }
+
     private val scope = CoroutineScope(
-        parentScope.coroutineContext + singleThreadDispatcher
+        parentScope.coroutineContext + singleThreadDispatcher + exceptionHandler
     )
     internal var tilesToRender: List<Tile> by mutableStateOf(listOf())
     private var tilesCollectedBySpace: Map<SpaceKey, Tile> = mapOf()
@@ -172,6 +185,7 @@ internal class TileCanvasState(
     }
 
     fun shutdown() {
+        isShutdown = true
         scope.cancel()
         singleThreadDispatcher.close()
     }
