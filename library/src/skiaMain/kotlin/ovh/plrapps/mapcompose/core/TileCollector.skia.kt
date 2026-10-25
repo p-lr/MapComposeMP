@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import kotlinx.io.Source
 import kotlinx.io.readByteArray
 import org.jetbrains.skia.Bitmap
@@ -25,7 +26,10 @@ internal actual fun Source.decodeFirstLayer(
     subSamplingRatio: Int,
     workerData: WorkerData
 ): ImageBitmap? {
-    return decodeImage(this.readByteArray(), subSamplingRatio)
+    val bitmap = decodeImage(this.readByteArray(), subSamplingRatio) ?: return null
+    /* With layers, overlays are drawn into this bitmap */
+    if (!hasLayers) bitmap.setImmutable()
+    return bitmap.asComposeImageBitmap()
 }
 
 internal actual fun Source.decodeOverlay(
@@ -35,31 +39,39 @@ internal actual fun Source.decodeOverlay(
     subSamplingRatio: Int,
     workerData: WorkerData
 ): ImageBitmap? {
-    return decodeImage(this.readByteArray(), subSamplingRatio)
+    val bitmap = decodeImage(this.readByteArray(), subSamplingRatio) ?: return null
+    bitmap.setImmutable()
+    return bitmap.asComposeImageBitmap()
 }
 
 internal actual fun processFinalImage(
     currentImage: ImageBitmap,
     previousLayer: ImageBitmap?
 ): ImageBitmap {
+    currentImage.asSkiaBitmap().setImmutable()
     return currentImage
 }
 
-private fun decodeImage(bytes: ByteArray, subSamplingRatio: Int): ImageBitmap? {
+/**
+ * Decoded bitmaps should be made immutable once nothing draws into them anymore. Otherwise, the
+ * pixels are copied on every draw and the resulting image gets a new id, and the GPU texture
+ * cache gets a cache miss => the tile is re-uploaded every frame.
+ */
+private fun decodeImage(bytes: ByteArray, subSamplingRatio: Int): Bitmap? {
     if (subSamplingRatio <= 1) return decodeFull(bytes)
     return decodeViaCodec(bytes, subSamplingRatio) ?: decodeViaSurface(bytes, subSamplingRatio)
 }
 
-private fun decodeFull(bytes: ByteArray): ImageBitmap? = runCatching {
+private fun decodeFull(bytes: ByteArray): Bitmap? = runCatching {
     val img = Image.makeFromEncoded(bytes)
     try {
-        Bitmap.makeFromImage(img).asComposeImageBitmap()
+        Bitmap.makeFromImage(img)
     } finally {
         img.close()
     }
 }.getOrNull()
 
-private fun decodeViaCodec(bytes: ByteArray, ratio: Int): ImageBitmap? = runCatching {
+private fun decodeViaCodec(bytes: ByteArray, ratio: Int): Bitmap? = runCatching {
     val data = Data.makeFromBytes(bytes)
     try {
         val codec = Codec.makeFromData(data)
@@ -70,7 +82,7 @@ private fun decodeViaCodec(bytes: ByteArray, ratio: Int): ImageBitmap? = runCatc
             val bitmap = Bitmap()
             check(bitmap.allocPixels(info)) { "allocPixels failed" }
             codec.readPixels(bitmap)
-            bitmap.asComposeImageBitmap()
+            bitmap
         } finally {
             codec.close()
         }
@@ -79,7 +91,7 @@ private fun decodeViaCodec(bytes: ByteArray, ratio: Int): ImageBitmap? = runCatc
     }
 }.getOrNull()
 
-private fun decodeViaSurface(bytes: ByteArray, ratio: Int): ImageBitmap? = runCatching {
+private fun decodeViaSurface(bytes: ByteArray, ratio: Int): Bitmap? = runCatching {
     val img = Image.makeFromEncoded(bytes)
     try {
         val targetWidth = (img.width / ratio).coerceAtLeast(1)
@@ -97,7 +109,7 @@ private fun decodeViaSurface(bytes: ByteArray, ratio: Int): ImageBitmap? = runCa
             )
             val snapshot = surface.makeImageSnapshot()
             try {
-                Bitmap.makeFromImage(snapshot).asComposeImageBitmap()
+                Bitmap.makeFromImage(snapshot)
             } finally {
                 snapshot.close()
             }
