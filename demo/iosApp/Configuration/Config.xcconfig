@@ -1,3 +1,5 @@
-TEAM_ID=A426QL38D2
+TEAM_ID=
 BUNDLE_ID=ovh.plrapps.mapcompose.demo
 APP_NAME=MapComposeMP
+
+#include? "Config.local.xcconfig"

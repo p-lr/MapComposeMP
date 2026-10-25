@@ -40,6 +40,13 @@ fun MapContainer(
 This project holds the source code of this library, plus a demo app - which is useful to get started.
 To test the demo, just clone the repo and launch the demo app from Android Studio.
 
+On iOS, open `demo/iosApp/iosApp.xcodeproj` in Xcode. Simulator builds work out of the box. To run on a
+physical device, create `demo/iosApp/Configuration/Config.local.xcconfig` (git-ignored) with your Apple
+team ID:
+```
+TEAM_ID=XXXXXXXXXX
+```
+
 ## Clustering
 
 Marker clustering regroups markers of close proximity into clusters. The video below shows how it works.
@@ -75,7 +82,7 @@ Add this to your commonMain dependencies:
 ```kotlin
 sourceSets {
   commonMain.dependencies {
-      implementation("ovh.plrapps:mapcompose-mp:1.1.4")
+      implementation("ovh.plrapps:mapcompose-mp:1.1.5")
   }
 }
 ```
