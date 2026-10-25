@@ -153,6 +153,7 @@ internal fun PathCanvas(
     ) {
         Paint().apply {
             style = PaintingStyle.Stroke
+            isAntiAlias = pathAntiAlias
             strokeJoin = StrokeJoin.Round
             this.color = drawablePathState.color
             strokeCap = when (drawablePathState.cap) {
@@ -207,6 +208,14 @@ internal fun PathCanvas(
         }
     }
 }
+
+/**
+ * Whether paths are stroked with anti-aliasing.
+ * On iOS, Skia has no GPU renderer for anti-aliased strokes (the surface has no MSAA), so it falls
+ * back to rasterizing each path on the CPU on every frame. Without anti-aliasing, strokes are
+ * tessellated on the GPU, and the difference is barely visible on high-density screens.
+ */
+internal expect val pathAntiAlias: Boolean
 
 /**
  * Once an instance of [PathData] is created, [data] shall not have structural modifications for
