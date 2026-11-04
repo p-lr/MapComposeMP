@@ -20,12 +20,26 @@ fun MapState.reloadTiles() {
 
 /**
  * Controls the fade-in effect of tiles. Provided speed should be in the range [0.01f, 1.0f].
- * Values below 0.04f aren't recommended (can cause blinks), the default is 0.07f.
+ * The provided value represents the alpha increase rate per frame at 60Hz. The library takes into
+ * account the actual framerate to maintain the total fade-in duration constant.
+ * Values below 0.04f aren't recommended (can cause blinks), the default is 0.065f.
  * A [speed] of 1f effectively disables the fade-in effect.
  */
+@Deprecated("Use setFadeInDuration instead", replaceWith = ReplaceWith("setFadeInDuration(250)"))
 fun MapState.setFadeInSpeed(speed: Float) {
     scope.launch {
-        tileCanvasState.alphaTick = speed
+        val tick = speed.coerceAtLeast(0.01f)
+        tileCanvasState.setFadeInDuration((16.6666 * (1 - tick) / tick).toInt())
+    }
+}
+
+/**
+ * Set the duration of tile fade in effect in milliseconds. Default value is 250.
+ * A [durationMs] of 0 effectively disables the fade-in effect.
+ */
+fun MapState.setFadeInDuration(durationMs: Int) {
+    scope.launch {
+        tileCanvasState.setFadeInDuration(durationMs)
     }
 }
 
@@ -34,7 +48,7 @@ fun MapState.setFadeInSpeed(speed: Float) {
  */
 fun MapState.disableFadeIn() {
     scope.launch {
-        tileCanvasState.alphaTick = 1f
+        tileCanvasState.setFadeInDuration(0)
     }
 }
 

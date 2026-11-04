@@ -49,7 +49,7 @@ fun MapUI(
                 zoomPRState = zoomPRState,
                 visibleTilesResolver = state.visibleTilesResolver,
                 tileSize = state.tileSize,
-                alphaTick = state.tileCanvasState.alphaTick,
+                fadeInDuration = state.tileCanvasState.fadeInDuration,
                 colorFilterProvider = state.tileCanvasState.colorFilterProvider,
                 tilesToRender = state.tileCanvasState.tilesToRender,
                 isFilteringBitmap = state.isFilteringBitmap,

@@ -38,7 +38,11 @@ internal data class Tile(
 
     @Volatile
     var timeMark: TimeSource.Monotonic.ValueTimeMark? = null
+
+    var lastAlphaTickNanos: Long = NO_ALPHA_TICK  // read and write on main thread only
 }
+
+internal const val NO_ALPHA_TICK = -1L
 
 internal data class TileSpec(val zoom: Int, val row: Int, val col: Int, val subSample: Int = 0)
 

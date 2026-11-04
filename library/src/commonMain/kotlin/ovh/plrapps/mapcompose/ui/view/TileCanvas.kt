@@ -13,10 +13,13 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.util.fastCoerceAtMost
 import ovh.plrapps.mapcompose.core.ColorFilterProvider
+import ovh.plrapps.mapcompose.core.NO_ALPHA_TICK
 import ovh.plrapps.mapcompose.core.Tile
 import ovh.plrapps.mapcompose.core.VisibleTilesResolver
 import ovh.plrapps.mapcompose.ui.layout.grid
+import ovh.plrapps.mapcompose.ui.state.ALPHA_TICK_INIT
 import ovh.plrapps.mapcompose.ui.state.Rollover
 import ovh.plrapps.mapcompose.ui.state.RolloverData
 import ovh.plrapps.mapcompose.ui.state.ZoomPanRotateState
@@ -30,7 +33,7 @@ internal fun TileCanvas(
     zoomPRState: ZoomPanRotateState,
     visibleTilesResolver: VisibleTilesResolver,
     tileSize: Int,
-    alphaTick: Float,
+    fadeInDuration: Int,
     colorFilterProvider: ColorFilterProvider?,
     tilesToRender: List<Tile>,
     isFilteringBitmap: () -> Boolean,
@@ -43,6 +46,8 @@ internal fun TileCanvas(
         modifier = modifier
             .fillMaxSize()
     ) {
+        val now = drawClock.elapsedNow().inWholeNanoseconds
+
         /* Scroll values may not be represented accurately using floats (a float has 7 significant
          * decimal digits, so any number above ~10M isn't represented accurately).
          * Since the translate function of the Canvas works with floats, we perform a change of
@@ -104,9 +109,16 @@ internal fun TileCanvas(
                     }
                 }
 
-                /* If a tile isn't fully opaque, increase its alpha state by the alpha tick */
+                /* If a tile isn't fully opaque, increase its alpha state by the scaled alpha tick */
                 if (tile.alpha < 1f) {
-                    tile.alpha = (tile.alpha + alphaTick).coerceAtMost(1f)
+                    val lastTick = tile.lastAlphaTickNanos
+                    val increment = when {
+                        fadeInDuration == 0 -> 1f
+                        lastTick != NO_ALPHA_TICK -> (now - lastTick) / (fadeInDuration * 1E6f)
+                        else -> ALPHA_TICK_INIT
+                    }
+                    tile.alpha = (tile.alpha + increment).fastCoerceAtMost(1f)
+                    tile.lastAlphaTickNanos = now
                 } else {
                     tile.overlaps?.markedForSweep = true
                     tile.overlaps = null
@@ -115,6 +127,8 @@ internal fun TileCanvas(
         }
     }
 }
+
+private val drawClock = TimeSource.Monotonic.markNow()
 
 private fun DrawScope.drawTile(
     tile: Tile,

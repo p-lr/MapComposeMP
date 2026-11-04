@@ -2,6 +2,7 @@ package ovh.plrapps.mapcompose.ui.state
 
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
@@ -78,10 +79,12 @@ internal class TileCanvasState(
     private val visibleTileLocationsChannel = Channel<TileSpec>(capacity = Channel.RENDEZVOUS)
     private val tilesOutput = Channel<Tile>(capacity = Channel.RENDEZVOUS)
     private val visibleStateFlow = MutableStateFlow<VisibleState?>(null)
-    internal var alphaTick = 0.07f
-        set(value) {
-            field = value.coerceIn(0.01f, 1f)
-        }
+    internal var fadeInDuration by mutableIntStateOf(250)
+        private set
+
+    internal fun setFadeInDuration(value: Int) {
+        fadeInDuration = value.coerceAtLeast(0)
+    }
     internal var colorFilterProvider: ColorFilterProvider? by mutableStateOf(null)
     private val recycleChannel = Channel<Tile>(Channel.UNLIMITED)
 
@@ -332,11 +335,11 @@ internal class TileCanvasState(
     }
 
     /**
-     * The the alpha needs to be set to [alphaTick], to produce a fade-in effect. If [alphaTick] is
-     * 1f, the alpha won't be updated and there won't be any fade-in effect.
+     * The alpha needs to be initialized to some arbitrary small value. If [fadeInDuration] is 0,
+     * the alpha won't be updated and there won't be any fade-in effect.
      */
     private fun Tile.prepare() {
-        alpha = alphaTick
+        alpha = if (fadeInDuration == 0) 1f else ALPHA_TICK_INIT
     }
 
     private fun VisibleTiles.contains(tile: Tile): Boolean {
@@ -543,7 +546,6 @@ internal class TileCanvasState(
      * After a [Tile] is no longer visible, recycle its Bitmap and Paint if possible, for later use.
      */
     private fun Tile.recycle() {
-        alpha = 0f
         sendToRecycle(recycleChannel)
     }
 
@@ -576,6 +578,8 @@ internal class TileCanvasState(
         val opacities: List<Float>
     )
 }
+
+internal const val ALPHA_TICK_INIT = 0.03f
 
 internal expect fun Tile.sendToRecycle(recycleChannel: Channel<Tile>)
 internal expect fun performRecycle(bitmap: ImageBitmap)
