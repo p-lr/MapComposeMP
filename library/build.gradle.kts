@@ -3,6 +3,7 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -10,6 +11,7 @@ plugins {
     alias(libs.plugins.jetbrainsCompose)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.vanniktechPublish)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -19,6 +21,16 @@ kotlin {
                 withIos()
                 withJvm()
                 withWasmJs()
+            }
+            // Android and desktop share a JVM standard library, which is where an actual that is
+            // the same `java.*` code on both belongs -- see `formatNumberPlatform`. Neither is in
+            // the skia group's reach for it: that group is desktop + iOS + wasm.
+            group("jvmShared") {
+                withJvm()
+                // Not `withAndroidTarget()`: that tests for `KotlinAndroidTarget`, and this module
+                // declares its Android target through AGP's newer
+                // `com.android.kotlin.multiplatform.library` plugin, whose target is not one.
+                withCompilations { it.target.platformType == KotlinPlatformType.androidJvm }
             }
         }
     }
@@ -72,13 +84,16 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.ui.tooling.preview)
             implementation(libs.compose.ui.tooling)
+            implementation(libs.androidx.core)
         }
         commonMain.dependencies {
             implementation(libs.jetbrains.compose.runtime)
             implementation(libs.jetbrains.compose.foundation)
             implementation(libs.jetbrains.compose.ui)
+            implementation(libs.components.resources)
             implementation(libs.kotlinx.coroutines)
             api(libs.kotlinx.io.core)
+            implementation(libs.kotlinx.serialization.json)
         }
         named("skiaMain").configure {
             dependencies {
@@ -93,6 +108,9 @@ kotlin {
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.kotlinx.datetime)
+
+            implementation(libs.compose.ui.test)
         }
     }
 }

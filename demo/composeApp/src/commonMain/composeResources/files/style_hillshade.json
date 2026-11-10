@@ -1,0 +1,35 @@
+{
+  "version": 8,
+  "name": "Terrain hillshade",
+  "sources": {
+    "terrain": {
+      "type": "raster-dem",
+      "encoding": "terrarium",
+      "tiles": ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+      "minzoom": 0,
+      "maxzoom": 15,
+      "attribution": "Terrain Tiles (AWS Open Data), Mapzen"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#f4f1ea"
+      }
+    },
+    {
+      "id": "hillshade",
+      "type": "hillshade",
+      "source": "terrain",
+      "paint": {
+        "hillshade-exaggeration": 0.6,
+        "hillshade-illumination-direction": 335,
+        "hillshade-shadow-color": "#4a3f35",
+        "hillshade-highlight-color": "#ffffff",
+        "hillshade-accent-color": "#5a5148"
+      }
+    }
+  ]
+}

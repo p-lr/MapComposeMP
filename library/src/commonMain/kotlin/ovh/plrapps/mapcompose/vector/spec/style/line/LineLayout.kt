@@ -1,0 +1,29 @@
+package ovh.plrapps.mapcompose.vector.spec.style.line
+
+import ovh.plrapps.mapcompose.vector.spec.style.LayoutInterface
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import ovh.plrapps.mapcompose.vector.spec.style.props.VISIBILITY_DEFAULT
+import ovh.plrapps.mapcompose.vector.spec.style.props.VisibilitySerializer
+
+@Serializable
+data class LineLayout(
+    @SerialName("line-cap")
+    val lineCap: ExpressionOrValue<String>? = null,
+
+    @SerialName("line-join")
+    val lineJoin: ExpressionOrValue<String>? = null,
+
+    @SerialName("line-miter-limit")
+    val lineMiterLimit: ExpressionOrValue<Double>? = null,
+
+    @SerialName("line-round-limit")
+    val lineRoundLimit: ExpressionOrValue<Double>? = null,
+
+    @SerialName("line-sort-key")
+    val lineSortKey: ExpressionOrValue<Double>? = null,
+
+    @Serializable(with = VisibilitySerializer::class)
+    override val visibility: ExpressionOrValue<String>? = VISIBILITY_DEFAULT
+) : LayoutInterface

@@ -1,0 +1,172 @@
+package ovh.plrapps.mapcompose.vector.spec.style.symbol
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import ovh.plrapps.mapcompose.vector.spec.style.LayoutInterface
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ResolvedImage
+import ovh.plrapps.mapcompose.vector.spec.style.expression.types.NumberArray
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValue
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueNumberArraySerializer
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueFormattedSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.props.ExpressionOrValueResolvedImageSerializer
+import ovh.plrapps.mapcompose.vector.spec.style.props.VISIBILITY_DEFAULT
+import ovh.plrapps.mapcompose.vector.spec.style.props.VisibilitySerializer
+
+@Serializable
+data class SymbolLayout(
+    @Serializable(with = VisibilitySerializer::class)
+    override val visibility: ExpressionOrValue<String>? = VISIBILITY_DEFAULT,
+
+    @SerialName("icon-allow-overlap")
+    val iconAllowOverlap: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("icon-ignore-placement")
+    val iconIgnorePlacement: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("icon-optional")
+    val iconOptional: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("icon-rotation-alignment")
+    val iconRotationAlignment: ExpressionOrValue<String>? = null,
+
+    @SerialName("icon-size")
+    val iconSize: ExpressionOrValue<Double>? = null,
+
+    @SerialName("icon-text-fit")
+    val iconTextFit: ExpressionOrValue<String>? = null,
+
+    @SerialName("icon-text-fit-padding")
+    val iconTextFitPadding: ExpressionOrValue<List<Double>>? = null,
+
+    /* `resolvedImage`, not `string`: the type is what lets an ["image", ...] expression compile. */
+    @SerialName("icon-image")
+    @Serializable(with = ExpressionOrValueResolvedImageSerializer::class)
+    val iconImage: ExpressionOrValue<ResolvedImage>? = null,
+
+    @SerialName("icon-rotate")
+    val iconRotate: ExpressionOrValue<Double>? = null,
+
+    /**
+     * Typed `padding` by the spec, with a default of `[2]`: a number or one to four of them.
+     *
+     * Carried as a `numberArray` rather than as a `padding` -- the engine models no `padding` type,
+     * and the two agree on everything this property needs, a bare scalar becoming a one-element
+     * array included (`NumberArray.parse`). The CSS expansion into four sides is
+     * `renderer/utils/PaddingSides.kt`. Modelled as a plain `Double`, an asymmetric `[0, 20, 0, 0]`
+     * failed the constant decode and the property fell back to its default.
+     */
+    @SerialName("icon-padding")
+    @Serializable(with = ExpressionOrValueNumberArraySerializer::class)
+    val iconPadding: ExpressionOrValue<NumberArray>? = null,
+
+    @SerialName("icon-keep-upright")
+    val iconKeepUpright: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("icon-offset")
+    val iconOffset: ExpressionOrValue<List<Double>>? = null,
+
+    @SerialName("icon-anchor")
+    val iconAnchor: ExpressionOrValue<String>? = null,
+
+    @SerialName("icon-pitch-alignment")
+    val iconPitchAlignment: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-pitch-alignment")
+    val textPitchAlignment: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-rotation-alignment")
+    val textRotationAlignment: ExpressionOrValue<String>? = null,
+
+    /* `formatted`, not `string`: the type is what lets a ["format", ...] expression compile. */
+    @SerialName("text-field")
+    @Serializable(with = ExpressionOrValueFormattedSerializer::class)
+    val textField: ExpressionOrValue<Formatted>? = null,
+
+    @SerialName("text-font")
+    val textFont: ExpressionOrValue<List<String>>? = null,
+
+    @SerialName("text-size")
+    val textSize: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-max-width")
+    val textMaxWidth: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-line-height")
+    val textLineHeight: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-letter-spacing")
+    val textLetterSpacing: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-justify")
+    val textJustify: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-radial-offset")
+    val textRadialOffset: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-variable-anchor")
+    val textVariableAnchor: ExpressionOrValue<List<String>>? = null,
+
+    /*
+     * Upstream's `variableAnchorOffsetCollection`: a flat ["top", [dx, dy], "left", [dx, dy], ...]
+     * list pairing each anchor with its own offset in ems. Kept as raw JSON because the expression
+     * engine has no such type; the painter reads the pairs out of it.
+     */
+    @SerialName("text-variable-anchor-offset")
+    val textVariableAnchorOffset: ExpressionOrValue<List<JsonElement>>? = null,
+
+    @SerialName("text-anchor")
+    val textAnchor: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-max-angle")
+    val textMaxAngle: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-writing-mode")
+    val textWritingMode: ExpressionOrValue<List<String>>? = null,
+
+    @SerialName("text-rotate")
+    val textRotate: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-padding")
+    val textPadding: ExpressionOrValue<Double>? = null,
+
+    @SerialName("text-keep-upright")
+    val textKeepUpright: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("text-transform")
+    val textTransform: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-offset")
+    val textOffset: ExpressionOrValue<List<Double>>? = null,
+
+    @SerialName("text-allow-overlap")
+    val textAllowOverlap: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("text-ignore-placement")
+    val textIgnorePlacement: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("text-optional")
+    val textOptional: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("symbol-placement")
+    val symbolPlacement: ExpressionOrValue<String>? = null,
+
+    @SerialName("symbol-spacing")
+    val symbolSpacing: ExpressionOrValue<Double>? = null,
+
+    @SerialName("symbol-avoid-edges")
+    val symbolAvoidEdges: ExpressionOrValue<Boolean>? = null,
+
+    @SerialName("symbol-sort-key")
+    val symbolSortKey: ExpressionOrValue<Double>? = null,
+
+    @SerialName("symbol-z-order")
+    val symbolZOrder: ExpressionOrValue<String>? = null,
+
+    @SerialName("icon-overlap")
+    val iconOverlap: ExpressionOrValue<String>? = null,
+
+    @SerialName("text-overlap")
+    val textOverlap: ExpressionOrValue<String>? = null
+) : LayoutInterface

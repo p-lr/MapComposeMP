@@ -2,9 +2,22 @@
 
 package ovh.plrapps.mapcompose.api
 
-import ovh.plrapps.mapcompose.core.*
+import ovh.plrapps.mapcompose.core.AboveAll
+import ovh.plrapps.mapcompose.core.AboveLayer
+import ovh.plrapps.mapcompose.core.BelowAll
+import ovh.plrapps.mapcompose.core.BelowLayer
+import ovh.plrapps.mapcompose.core.Layer
+import ovh.plrapps.mapcompose.core.LayerPlacement
+import ovh.plrapps.mapcompose.core.TileStreamProvider
+import ovh.plrapps.mapcompose.vector.core.VectorTileStreamProvider
+import ovh.plrapps.mapcompose.core.makeLayerId
 import ovh.plrapps.mapcompose.ui.state.MapState
 import ovh.plrapps.mapcompose.utils.swap
+import ovh.plrapps.mapcompose.vector.core.VectorLayer
+import ovh.plrapps.mapcompose.vector.core.magnifyingFactorForDensity
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 
 /**
@@ -53,6 +66,58 @@ fun MapState.addLayer(
     setLayers(newLayers)
 
     return id
+}
+
+/**
+ * Adds a layer rendered from MapLibre vector tiles.
+ *
+ * The map's `levelCount` is the deepest tile `z` this layer will be asked for, and it should be
+ * chosen for the deepest zoom the app wants to offer rather than for the style's sources' `maxzoom`.
+ * A source that runs out of tiles is *overzoomed*, as it is in maplibre-gl-js: the deepest ancestor
+ * tile is re-rendered at the display zoom rather than the layer going blank. Setting `levelCount` to
+ * a source's `maxzoom + 1` therefore caps the map at that source's data, which is almost never what
+ * a vector style wants.
+ *
+ * @param superSamplingFactor Renders each tile this many times larger and filters it back down,
+ * trading `factor²` rasterization cost for cleaner hairlines and text. It is an upper bound: the
+ * whole render is capped at 2048 px, and the factor is lowered first when a tile would exceed it --
+ * on a high-density phone with 512 px tiles it is usually lowered to `1`.
+ * @param adaptTileScaleToDensity Sets the map's magnifying factor from the screen density, so that
+ * one style pixel lands on one density-independent pixel. A vector style is authored in CSS pixels,
+ * which is the unit a path's `width` and a marker's offset already use here; tile content, though,
+ * is drawn at `tileSize * relativeScale` *device* pixels whatever the density is. Without this the
+ * map renders at `1 / density` of its intended size — thin roads under correctly-sized labels — and
+ * MapCompose asks for a higher tile `z` than MapLibre would for the same view. Left at its default
+ * this is applied once, and only when the map is still at the default magnifying factor of `0`, so
+ * a caller that chose its own keeps it.
+ */
+suspend fun MapState.addVectorLayer(
+    vectorTileStreamProvider: VectorTileStreamProvider,
+    initialOpacity: Float = 1f,
+    placement: LayerPlacement = AboveAll,
+    superSamplingFactor: Int = 1,
+    adaptTileScaleToDensity: Boolean = true,
+): String {
+    if (adaptTileScaleToDensity && visibleTilesResolver.magnifyingFactor == 0) {
+        /* Launched rather than awaited: the density only arrives when MapUI first composes, and
+         * blocking here would deadlock a caller that awaits this layer's id before showing the map.
+         * setMagnifyingFactor re-resolves the visible tiles, so arriving late costs one re-render. */
+        scope.launch {
+            val density = densityState.filterNotNull().first()
+            if (visibleTilesResolver.magnifyingFactor == 0) {
+                setMagnifyingFactor(magnifyingFactorForDensity(density.density))
+            }
+        }
+    }
+
+    val vectorLayer = VectorLayer(
+        mapState = this,
+        vectorTileStreamProvider = vectorTileStreamProvider,
+        superSamplingFactor = superSamplingFactor.coerceAtLeast(1),
+    )
+    val tileStreamProvider = vectorLayer.makeTileStreamProvider()
+    // TODO: honor placement parameter
+    return addLayer(tileStreamProvider)
 }
 
 /**
