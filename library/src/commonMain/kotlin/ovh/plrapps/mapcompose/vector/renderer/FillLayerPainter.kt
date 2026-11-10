@@ -9,10 +9,12 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
+import ovh.plrapps.mapcompose.vector.spec.FeatureClasses
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.FillLayer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.spec.style.props.followsFeatureClass
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsBoolean
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
@@ -41,6 +43,102 @@ class FillLayerPainter(
     private val spriteManager: SpriteManager? = null,
     private val patternBrushes: PatternBrushCache = PatternBrushCache(),
 ) : BaseLayerPainter<FillLayer>() {
+    /* One paint for every plain fill and one for every outline of the layer, rather than a native
+     * paint and its cleaner per feature. A painter draws on one thread at a time. */
+    private val solidFill = Paint().apply { style = PaintingStyle.Fill }
+    private val outline = Paint().apply {
+        isAntiAlias = true
+        style = PaintingStyle.Stroke
+    }
+
+    /** Everything the style says about one feature's fill, evaluated; see [resolve]. */
+    private class ResolvedFill(
+        val color: Color,
+        val opacity: Float,
+        val antialias: Boolean,
+        val translate: List<Double>,
+        /** `|dx| + |dy|` of [translate], in style pixels: how far it can move the fill. */
+        val translateReach: Float,
+        val translateAnchor: String,
+        val patternName: String?,
+        val outlineColor: Color?,
+    )
+
+    /* The per-class results, valid for exactly the inputs below; a painter serves one style layer
+     * over one tile layer of one render, so in practice this is filled once and read from then on. */
+    private var classResults: Array<ResolvedFill?>? = null
+    private var classResultsFor: FeatureClasses? = null
+    private var classResultsStyle: FillLayer? = null
+    private var classResultsZoom = Double.NaN
+
+    /**
+     * The fill properties of one feature -- one evaluation per feature **class** where the layer
+     * allows it, since features that agree on type and tags agree on every one of them. See
+     * [FeatureClasses].
+     */
+    private fun resolve(
+        style: FillLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        classes: FeatureClasses?,
+        featureIndex: Int,
+        views: FeatureViews?,
+    ): ResolvedFill {
+        if (classes == null || featureIndex < 0 || !followsFeatureClass(style)) {
+            return evaluate(style, featureProperties ?: views?.at(featureIndex), actualZoom)
+        }
+        var results = classResults
+        if (results == null || classResultsFor !== classes || classResultsStyle !== style ||
+            classResultsZoom != actualZoom
+        ) {
+            results = arrayOfNulls(classes.count)
+            classResults = results
+            classResultsFor = classes
+            classResultsStyle = style
+            classResultsZoom = actualZoom
+        }
+        val classId = classes.classOf[featureIndex]
+        return results[classId]
+            ?: evaluate(style, featureProperties ?: views?.at(featureIndex), actualZoom)
+                .also { results[classId] = it }
+    }
+
+    private var followsClassStyle: FillLayer? = null
+    private var followsClass = false
+
+    /** Whether every property [evaluate] reads has one value per feature class. */
+    private fun followsFeatureClass(style: FillLayer): Boolean {
+        if (followsClassStyle !== style) {
+            val paint = style.paint
+            followsClass = paint.fillColor.followsFeatureClass() && paint.fillOpacity.followsFeatureClass() &&
+                paint.fillAntialias.followsFeatureClass() && paint.fillTranslate.followsFeatureClass() &&
+                paint.fillTranslateAnchor.followsFeatureClass() && paint.fillPattern.followsFeatureClass() &&
+                paint.fillOutlineColor.followsFeatureClass()
+            followsClassStyle = style
+        }
+        return followsClass
+    }
+
+    private fun evaluate(style: FillLayer, featureProperties: EvalFeature?, actualZoom: Double): ResolvedFill {
+        val paint = style.paint
+        val translate = paint.fillTranslate.processAsDoubleList(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.FILL_TRANSLATE
+        return ResolvedFill(
+            color = paint.fillColor?.processAsColor(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.FILL_COLOR,
+            opacity = paint.fillOpacity.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.FILL_OPACITY.toFloat(),
+            antialias = paint.fillAntialias.processAsBoolean(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.FILL_ANTIALIAS,
+            translate = translate,
+            translateReach = translate.sumOf { abs(it) }.toFloat(),
+            translateAnchor = paint.fillTranslateAnchor?.processAsString(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.FILL_TRANSLATE_ANCHOR,
+            patternName = paint.fillPattern?.processAsString(featureProperties, actualZoom),
+            outlineColor = paint.fillOutlineColor?.processAsColor(featureProperties, actualZoom),
+        )
+    }
+
     override suspend fun paint(
         canvas: DrawScope,
         feature: Tile.Feature,
@@ -69,57 +167,68 @@ class FillLayerPainter(
         featureProperties: EvalFeature?,
         actualZoom: Double,
         cull: FeatureCull? = null,
+    ) = paintPath(
+        canvas, path, style, featureProperties, actualZoom, cull,
+        classes = null, featureIndex = -1, views = null,
+    )
+
+    /**
+     * [paintPath] for a feature of a tile layer whose [classes] are known: [featureIndex] is its
+     * position in that layer, and the style is then evaluated once per class -- see [resolve].
+     * [views] stands in for a null [featureProperties], and is only asked when the style really has
+     * to be evaluated against this feature.
+     */
+    internal fun paintPath(
+        canvas: DrawScope,
+        path: Path,
+        style: FillLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        cull: FeatureCull?,
+        classes: FeatureClasses?,
+        featureIndex: Int,
+        views: FeatureViews?,
     ) {
-        val paint = style.paint
+        val resolved = resolve(style, featureProperties, actualZoom, classes, featureIndex, views)
+        val translate = resolved.translate
         if (cull != null) {
-            val translate = paint.fillTranslate.processAsDoubleList(featureProperties, actualZoom)
-                ?: StyleSpecDefaults.FILL_TRANSLATE
             // The outline is a one-density-pixel stroke, and antialiasing reaches a pixel further.
-            val reach = translate.sumOf { abs(it) }.toFloat() * canvas.density + canvas.density + 1f
+            val reach = resolved.translateReach * canvas.density + canvas.density + 1f
             if (!cull.reaches(reach)) return
         }
 
-        val fillColor = paint.fillColor?.processAsColor(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.FILL_COLOR
-        val fillOpacity = paint.fillOpacity.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.FILL_OPACITY.toFloat()
-        val antialias = paint.fillAntialias.processAsBoolean(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.FILL_ANTIALIAS
-        val translate = paint.fillTranslate.processAsDoubleList(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.FILL_TRANSLATE
-        val translateAnchor = paint.fillTranslateAnchor?.processAsString(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.FILL_TRANSLATE_ANCHOR
+        val fillColor = resolved.color
+        val fillOpacity = resolved.opacity
+        val antialias = resolved.antialias
+        val translateAnchor = resolved.translateAnchor
 
         // A pattern that the sprite sheet cannot supply falls back to fill-color: dropping the
         // feature would punch a hole through every layer drawn underneath it.
-        val patternName = paint.fillPattern?.processAsString(featureProperties, actualZoom)
-        val patternBrush = patternBrushes.get(spriteManager, patternName)
+        val patternBrush = patternBrushes.get(spriteManager, resolved.patternName)
 
-        val outlineColor = paint.fillOutlineColor?.processAsColor(featureProperties, actualZoom)
+        val outlineColor = resolved.outlineColor
 
         canvas.withTranslate(translate, translateAnchor) {
             drawIntoCanvas { canvasHandle ->
-                val fill = Paint().apply {
-                    isAntiAlias = antialias
-                    this.style = PaintingStyle.Fill
-                }
+                val fill: Paint
                 if (patternBrush != null) {
+                    // A pattern leaves a shader in its paint, so it gets one of its own.
+                    fill = Paint().apply {
+                        isAntiAlias = antialias
+                        this.style = PaintingStyle.Fill
+                    }
                     patternBrush.applyTo(size, fill, fillOpacity)
                 } else {
+                    fill = solidFill
+                    fill.isAntiAlias = antialias
                     fill.color = fillColor.withOpacity(fillOpacity)
                 }
                 canvasHandle.drawPath(path, fill)
 
                 if (antialias && outlineColor != null) {
-                    canvasHandle.drawPath(
-                        path,
-                        Paint().apply {
-                            isAntiAlias = true
-                            this.style = PaintingStyle.Stroke
-                            strokeWidth = density
-                            color = outlineColor.withOpacity(fillOpacity)
-                        },
-                    )
+                    outline.strokeWidth = density
+                    outline.color = outlineColor.withOpacity(fillOpacity)
+                    canvasHandle.drawPath(path, outline)
                 }
             }
         }

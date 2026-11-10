@@ -82,6 +82,11 @@ class Tile(
 
         internal val hasDuplicateKeys: Boolean get() = keyIndex.size != keys.size
 
+        /** The features grouped by what an expression can tell them apart by; see [FeatureClasses]. */
+        internal val featureClasses: FeatureClasses by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            FeatureClasses.of(features)
+        }
+
         /**
          * Each entry of [values] as the expression engine reads it -- a string, a boolean or a
          * `Double`, see `normalizeNumbers` -- converted once per layer rather than per feature.
@@ -103,4 +108,54 @@ private val EMPTY_INTS = IntArray(0)
 internal fun Tile.Value.engineValue(): Any? {
     val raw: Any? = stringValue ?: floatValue ?: doubleValue ?: intValue ?: uintValue ?: sintValue ?: boolValue
     return ovh.plrapps.mapcompose.vector.spec.style.expression.normalizeNumbers(raw)
+}
+
+/**
+ * A tile layer's features grouped into **classes**: features with the same geometry type and the
+ * same tags, which are the same properties.
+ *
+ * A style layer's filter and nearly all of its paint properties read nothing else of a feature --
+ * see `isPropertyDependentOnly` -- so they have one value per class, and a tile layer has far fewer
+ * classes than features: every residential street of a tile carries the same handful of tags. The
+ * renderer therefore evaluates an expression once per class where it used to evaluate it once per
+ * feature, per style layer, per tile.
+ *
+ * [classOf] is indexed like `Layer.features`; ids run from 0 to [count] - 1 in order of first
+ * appearance.
+ */
+internal class FeatureClasses private constructor(val classOf: IntArray, val count: Int) {
+
+    companion object {
+        fun of(features: List<Tile.Feature>): FeatureClasses {
+            /* An open-addressed table of feature positions, each standing for its class: a layer is
+             * thousands of features, and a key object and a map entry for each was more than the
+             * classes are worth. A slot holds the position plus one, so that zero is empty. */
+            var capacity = 16
+            while (capacity < features.size * 2) capacity = capacity shl 1
+            val mask = capacity - 1
+            val slots = IntArray(capacity)
+            var count = 0
+            val classOf = IntArray(features.size)
+            for (index in features.indices) {
+                val feature = features[index]
+                val type = feature.type?.value ?: -1
+                var slot = (31 * feature.tags.contentHashCode() + type) * -0x61c88647 ushr 16 and mask
+                while (true) {
+                    val held = slots[slot] - 1
+                    if (held < 0) {
+                        slots[slot] = index + 1
+                        classOf[index] = count++
+                        break
+                    }
+                    val other = features[held]
+                    if ((other.type?.value ?: -1) == type && other.tags.contentEquals(feature.tags)) {
+                        classOf[index] = classOf[held]
+                        break
+                    }
+                    slot = (slot + 1) and mask
+                }
+            }
+            return FeatureClasses(classOf, count)
+        }
+    }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.sync.Mutex
 import ovh.plrapps.mapcompose.vector.data.MapLibreConfiguration
 import ovh.plrapps.mapcompose.vector.data.TileRef
 import ovh.plrapps.mapcompose.vector.renderer.BaseRenderer
+import ovh.plrapps.mapcompose.vector.renderer.FilterVerdicts
 import ovh.plrapps.mapcompose.vector.renderer.utils.MergeableFeature
 import ovh.plrapps.mapcompose.vector.renderer.utils.mergeLines
 import ovh.plrapps.mapcompose.vector.spec.Tile
@@ -112,12 +113,20 @@ internal class SymbolBucketBuilder(
         /* Indexed by the feature's position in the tile layer. See the note in
          * `TileRenderer.visibleFeatures`: an MVT feature usually has no `id`, and a hash collides. */
         val cached = localPropCache.getOrPut(tileLayer) { arrayOfNulls(tileLayer.features.size) }
+        /* One verdict per feature class, as the tile painters keep -- see [FilterVerdicts]. */
+        val verdicts = FilterVerdicts(styleLayer, tileLayer)
         for ((index, feature) in tileLayer.features.withIndex()) {
+            val verdict = verdicts[index]
+            if (verdict == FilterVerdicts.REJECTED) continue
+
             val featureProperties = cached[index]
                 ?: buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty).also { cached[index] = it }
 
-            val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)
-            if (!isShouldRenderFeature) continue
+            if (verdict == FilterVerdicts.UNKNOWN) {
+                val isShouldRenderFeature = shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)
+                verdicts[index] = isShouldRenderFeature
+                if (!isShouldRenderFeature) continue
+            }
 
             val extent = tileLayer.extent ?: 4096
             /* The bucket's own identity key, not an expression id: it names the instance within

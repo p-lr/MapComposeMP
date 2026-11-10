@@ -17,12 +17,10 @@ internal actual fun DrawScope.drawTriangles(
     vertexCount: Int,
     indices: ShortArray,
     indexCount: Int,
+    scratch: TriangleScratch,
 ) {
     if (indexCount == 0) return
-    val paint = Paint().apply {
-        color = android.graphics.Color.WHITE
-        isAntiAlias = false
-    }
+    val paint = scratch.paint
     drawIntoCanvas { canvas ->
         canvas.nativeCanvas.drawVertices(
             Canvas.VertexMode.TRIANGLES,
@@ -38,5 +36,13 @@ internal actual fun DrawScope.drawTriangles(
             indexCount,
             paint,
         )
+    }
+}
+
+/** Android's `drawVertices` takes counts, so all there is to keep is the paint. */
+internal actual class TriangleScratch actual constructor() {
+    val paint: Paint = Paint().apply {
+        color = android.graphics.Color.WHITE
+        isAntiAlias = false
     }
 }

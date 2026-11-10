@@ -34,6 +34,7 @@ class LineBatchTest {
                 vertexCount = 4,
                 indices = shortArrayOf(0, 1, 2, 1, 3, 2),
                 indexCount = 6,
+                scratch = TriangleScratch(),
             )
         }
         val left = bitmap.pixelAt(2, 32)

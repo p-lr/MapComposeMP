@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.vector.symbol
 
+import ovh.plrapps.mapcompose.vector.utils.LongSet
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.pow
@@ -90,9 +91,12 @@ private class CrossTileIDs {
 private class CrossTileSymbolLayerIndex {
 
     private val indexes = mutableMapOf<Int, MutableMap<String, TileLayerIndex>>()
-    private val usedCrossTileIDs = mutableMapOf<Int, MutableSet<Long>>()
+    private val usedCrossTileIDs = mutableMapOf<Int, LongSet>()
 
-    fun usedCrossTileIDsAt(zoom: Int): List<Long> = usedCrossTileIDs[zoom].orEmpty().sorted()
+    fun usedCrossTileIDsAt(zoom: Int): List<Long> {
+        val used = usedCrossTileIDs[zoom] ?: return emptyList()
+        return buildList { used.forEach { add(it) } }.sorted()
+    }
 
     fun addBucket(bucket: SymbolBucket, crossTileIDs: CrossTileIDs, density: Float): Boolean {
         /* Upstream keys `indexes` by `overscaledZ` and `usedCrossTileIDs` by the same. The two are
@@ -121,7 +125,7 @@ private class CrossTileSymbolLayerIndex {
 
         for (instance in bucket.instances) instance.crossTileID = 0L
 
-        val zoomCrossTileIDs = usedCrossTileIDs.getOrPut(bucket.zoom) { mutableSetOf() }
+        val zoomCrossTileIDs = usedCrossTileIDs.getOrPut(bucket.zoom) { LongSet() }
 
         for ((indexZoom, zoomIndexes) in indexes) {
             if (indexZoom > canonicalZ) {
@@ -140,7 +144,7 @@ private class CrossTileSymbolLayerIndex {
             if (instance.crossTileID == 0L) {
                 // symbol did not match any known symbol, assign a new id
                 instance.crossTileID = crossTileIDs.generate()
-                zoomCrossTileIDs += instance.crossTileID
+                zoomCrossTileIDs.add(instance.crossTileID)
             }
         }
 
@@ -149,7 +153,7 @@ private class CrossTileSymbolLayerIndex {
     }
 
     private fun removeBucketCrossTileIDs(zoom: Int, removed: TileLayerIndex) {
-        usedCrossTileIDs[zoom]?.removeAll(removed.crossTileIDs().toSet())
+        usedCrossTileIDs[zoom]?.let { removed.releaseCrossTileIDs(it) }
     }
 
     fun removeStaleBuckets(currentIDs: Set<Long>): Boolean {
@@ -181,51 +185,53 @@ private class TileLayerIndex(bucket: SymbolBucket, density: Float) {
     private val canonicalX = bucket.ref.x
     private val canonicalY = bucket.ref.y
 
-    private class Entry(
-        val positions: MutableList<Pair<Int, Int>> = mutableListOf(),
-        val crossTileIDs: MutableList<Long> = mutableListOf(),
-    )
+    /**
+     * The symbols of one key, as parallel arrays: a bucket of trees is tens of thousands of
+     * positions under a single key, and a pair and a boxed id for each was most of what the
+     * identity pass allocated.
+     */
+    private class Entry {
+        var xs = IntArray(4)
+        var ys = IntArray(4)
+        var crossTileIDs = LongArray(4)
+        var size = 0
+
+        fun add(x: Int, y: Int, crossTileID: Long) {
+            if (size == xs.size) {
+                xs = xs.copyOf(size * 2)
+                ys = ys.copyOf(size * 2)
+                crossTileIDs = crossTileIDs.copyOf(size * 2)
+            }
+            xs[size] = x
+            ys[size] = y
+            crossTileIDs[size] = crossTileID
+            size++
+        }
+    }
 
     private val symbolsByKey: Map<String, Entry> = buildMap {
         val units = tileUnitsPerLayoutPixel(density, bucket.ref.span)
         for (instance in bucket.instances) {
             val entry = getOrPut(instance.key) { Entry() }
-            entry.positions += Pair(
+            entry.add(
                 floor(instance.tileAnchor.x * units * ROUNDING_FACTOR).toInt(),
                 floor(instance.tileAnchor.y * units * ROUNDING_FACTOR).toInt(),
+                instance.crossTileID,
             )
-            entry.crossTileIDs += instance.crossTileID
         }
     }
 
-    fun crossTileIDs(): List<Long> = symbolsByKey.values.flatMap { it.crossTileIDs }
+    /** Takes every id this index holds out of [used]. */
+    fun releaseCrossTileIDs(used: LongSet) {
+        for (entry in symbolsByKey.values) {
+            for (i in 0 until entry.size) used.remove(entry.crossTileIDs[i])
+        }
+    }
 
     fun isChildOf(bucket: SymbolBucket): Boolean {
         if (canonicalZ <= bucket.ref.z) return false
         val shift = canonicalZ - bucket.ref.z
         return (canonicalX shr shift) == bucket.ref.x && (canonicalY shr shift) == bucket.ref.y
-    }
-
-    /**
-     * The other bucket's anchor in *this* index's frame, ported from `getScaledCoordinates`.
-     *
-     * Upstream's comment: the coordinates are made local to this index's tile, converted to its
-     * zoom's scale, and down-sampled by the rounding factor "in order to be more tolerant of small
-     * differences between tiles".
-     */
-    private fun scaledCoordinates(
-        anchorX: Float,
-        anchorY: Float,
-        other: SymbolBucket,
-        density: Float,
-    ): Pair<Int, Int> {
-        val units = tileUnitsPerLayoutPixel(density, other.ref.span)
-        val scale = ROUNDING_FACTOR / 2.0.pow(other.ref.z - canonicalZ)
-        val xWorld = (other.ref.x * TILE_UNITS + anchorX * units) * scale
-        val yWorld = (other.ref.y * TILE_UNITS + anchorY * units) * scale
-        val xOffset = canonicalX * TILE_UNITS * ROUNDING_FACTOR
-        val yOffset = canonicalY * TILE_UNITS * ROUNDING_FACTOR
-        return Pair(floor(xWorld - xOffset).toInt(), floor(yWorld - yOffset).toInt())
     }
 
     /**
@@ -236,24 +242,33 @@ private class TileLayerIndex(bucket: SymbolBucket, density: Float) {
      * unit, and once a symbol has been matched against a parent symbol no other symbol at the same
      * zoom may claim that same parent.
      */
-    fun findMatches(bucket: SymbolBucket, zoomCrossTileIDs: MutableSet<Long>, density: Float) {
+    fun findMatches(bucket: SymbolBucket, zoomCrossTileIDs: LongSet, density: Float) {
         val tolerance = if (canonicalZ < bucket.ref.z) 1.0 else 2.0.pow(canonicalZ - bucket.ref.z)
+
+        /* The other bucket's anchor in *this* index's frame, ported from `getScaledCoordinates`.
+         * Upstream's comment: the coordinates are made local to this index's tile, converted to
+         * its zoom's scale, and down-sampled by the rounding factor "in order to be more tolerant
+         * of small differences between tiles". */
+        val units = tileUnitsPerLayoutPixel(density, bucket.ref.span)
+        val scale = ROUNDING_FACTOR / 2.0.pow(bucket.ref.z - canonicalZ)
+        val xOffset = canonicalX * TILE_UNITS * ROUNDING_FACTOR
+        val yOffset = canonicalY * TILE_UNITS * ROUNDING_FACTOR
 
         for (instance in bucket.instances) {
             if (instance.crossTileID != 0L) continue
             val entry = symbolsByKey[instance.key] ?: continue
 
-            val (sx, sy) = scaledCoordinates(
-                instance.tileAnchor.x, instance.tileAnchor.y, bucket, density,
-            )
+            val xWorld = (bucket.ref.x * TILE_UNITS + instance.tileAnchor.x * units) * scale
+            val yWorld = (bucket.ref.y * TILE_UNITS + instance.tileAnchor.y * units) * scale
+            val sx = floor(xWorld - xOffset).toInt()
+            val sy = floor(yWorld - yOffset).toInt()
 
-            for (i in entry.positions.indices) {
-                val (px, py) = entry.positions[i]
+            for (i in 0 until entry.size) {
                 val crossTileID = entry.crossTileIDs[i]
-                if (abs(px - sx) <= tolerance && abs(py - sy) <= tolerance &&
+                if (abs(entry.xs[i] - sx) <= tolerance && abs(entry.ys[i] - sy) <= tolerance &&
                     crossTileID != 0L && crossTileID !in zoomCrossTileIDs
                 ) {
-                    zoomCrossTileIDs += crossTileID
+                    zoomCrossTileIDs.add(crossTileID)
                     instance.crossTileID = crossTileID
                     break
                 }

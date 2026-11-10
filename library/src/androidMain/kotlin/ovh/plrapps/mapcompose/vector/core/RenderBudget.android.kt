@@ -12,3 +12,7 @@ internal actual fun defaultCacheBudgetBytes(): Long =
 internal actual fun defaultMaxConcurrentRenders(): Int =
     (Runtime.getRuntime().maxMemory() / (64 * MB)).toInt()
         .coerceIn(2, (Runtime.getRuntime().availableProcessors() - 1).coerceAtLeast(2))
+
+internal actual fun decodedFeatureBytes(): Long = 80L
+
+internal actual fun fillPathBytes(): Long = 0L

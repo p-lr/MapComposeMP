@@ -313,3 +313,51 @@ abstract class BaseRenderer(
         return rings
     }
 }
+
+/**
+ * The evaluation views of one tile layer's features, each built when it is first asked for.
+ *
+ * A painter that has already evaluated a feature's class never asks, and then the feature's view --
+ * an [EvalFeature], its property map and its geometry provider -- is never built at all.
+ */
+internal fun interface FeatureViews {
+    /** The view of the feature at [index] of the tile layer. */
+    fun at(index: Int): EvalFeature?
+}
+
+/**
+ * One style layer's filter verdicts over one tile layer, kept per feature **class** -- see
+ * [FeatureClasses] -- for as long as one walk of the layer's features lasts.
+ *
+ * A style stacks a dozen layers on one source layer, each filtering every feature of it, and that
+ * was the largest single cost of rasterizing a tile: thousands of evaluations where the answers
+ * number a few dozen. A filter that reads more of a feature than its class says -- its id, its
+ * geometry -- has no verdict to share, and every read answers [UNKNOWN].
+ */
+internal class FilterVerdicts(styleLayer: Layer, tileLayer: Tile.Layer) {
+    private val classOf: IntArray?
+    private val verdicts: ByteArray?
+
+    init {
+        val classes = styleLayer.filter?.filter?.takeIf { it.followsFeatureClass }
+            ?.let { tileLayer.featureClasses }
+        classOf = classes?.classOf
+        verdicts = classes?.let { ByteArray(it.count) }
+    }
+
+    /** What is known about the feature at [index] of the tile layer. */
+    operator fun get(index: Int): Byte =
+        if (verdicts != null && classOf != null) verdicts[classOf[index]] else UNKNOWN
+
+    /** Records the filter's answer for the feature at [index], and with it for its whole class. */
+    operator fun set(index: Int, accepted: Boolean) {
+        if (verdicts != null && classOf != null) verdicts[classOf[index]] = if (accepted) ACCEPTED else REJECTED
+    }
+
+    companion object {
+        // 0 is what a fresh array holds.
+        const val UNKNOWN: Byte = 0
+        const val ACCEPTED: Byte = 1
+        const val REJECTED: Byte = 2
+    }
+}

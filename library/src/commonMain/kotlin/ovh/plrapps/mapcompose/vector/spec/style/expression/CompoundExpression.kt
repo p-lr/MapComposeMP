@@ -458,6 +458,30 @@ fun isFeatureConstant(e: Expression): Boolean {
     return result
 }
 
+/**
+ * Whether [e] reads a feature through nothing but its **properties and geometry type**, so that two
+ * features agreeing on both are guaranteed the same value at the same zoom.
+ *
+ * Not upstream's: it has no use for the distinction, because it evaluates a property once per
+ * feature into a vertex buffer. This port evaluates per feature *per tile render*, and a tile layer
+ * holds thousands of features in a few dozen property combinations -- see
+ * `Tile.Layer.featureClasses`, which is what the answer gates.
+ *
+ * What is left out is everything else an [EvaluationContext] can reach of a feature: its id, its
+ * geometry and tile (`within`, `distance`), and its state.
+ */
+fun isPropertyDependentOnly(e: Expression): Boolean {
+    if (e is CompoundExpression) {
+        if (e.name == "id" || e.name == "feature-state" || e.name == "accumulated") return false
+        if (e.name.startsWith("filter-id-") || e.name == "filter-has-id") return false
+    }
+    if (e is Within || e is Distance) return false
+
+    var result = true
+    e.eachChild { arg -> if (result && !isPropertyDependentOnly(arg)) result = false }
+    return result
+}
+
 /** Ported from `isStateConstant`. */
 fun isStateConstant(e: Expression): Boolean {
     if (e is CompoundExpression && e.name == "feature-state") return false

@@ -56,18 +56,19 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
  * `CircleBucket.addFeature` applies: a vertex in a neighbouring sub-square is still drawn, and
  * merely clipped by the bitmap.
  */
-class TileRenderer(
+class TileRenderer internal constructor(
     configuration: MapLibreConfiguration,
+    /** One set of line mesh arrays for every line layer of the tile; see [LineLayerPainter]. */
+    private val lineBatch: LineBatch,
 ) : BaseRenderer(configuration = configuration) {
+    constructor(configuration: MapLibreConfiguration) : this(configuration, LineBatch())
+
     /**
      * Every feature's evaluation view, built once per tile layer and shared by the style layers that
      * read it. Indexed like `layer.features`; see [visibleFeatures] for why the index is the key.
      * A renderer serves one tile, so this lives exactly as long as that tile's render.
      */
     private val evalFeatures = HashMap<Tile.Layer, Array<EvalFeature?>>()
-
-    /** One set of line mesh arrays for every line layer of the tile; see [LineLayerPainter]. */
-    private val lineBatch = LineBatch()
 
     /** The geometry of a tile no caller handed one for, decoded for this render only. */
     private val localGeometry = HashMap<Pair<Tile, Int>, TileGeometry>()
@@ -261,7 +262,7 @@ class TileRenderer(
                 val visible = visibleFeatures(
                     tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical
                 )
-                if (visible.isEmpty()) return
+                if (visible.size == 0) return
 
                 /* `*-layer-opacity` composites the whole layer once, after every feature is drawn,
                  * rather than scaling each feature's own alpha -- see [layerOpacityOf]. A
@@ -300,16 +301,21 @@ class TileRenderer(
                     windowRight = (tileRef.subX + 1f) * canvasSize,
                     windowBottom = (tileRef.subY + 1f) * canvasSize,
                 )
+                /* What lets a painter evaluate its properties once per class of feature rather than
+                 * once per feature; see `FeatureClasses`. */
+                val classes = tileLayer.featureClasses
                 try {
                     when (styleLayer) {
                         is FillLayer -> {
                             val painter = painterFor(styleLayer) as FillLayerPainter
                             val fills = tileGeometry.fills(tileLayer, extent)
-                            for (entry in visible) {
-                                val path = fills.paths[entry.index] ?: continue
+                            for (position in 0 until visible.size) {
+                                val index = visible.indices[position]
+                                val path = fills.paths[index] ?: continue
                                 painter.paintPath(
-                                    canvas, path, styleLayer, entry.properties, actualZoom,
-                                    cull.select(fills.bounds, entry.index),
+                                    canvas, path, styleLayer, null, actualZoom,
+                                    cull.select(fills.bounds, index),
+                                    classes, index, visible,
                                 )
                             }
                         }
@@ -321,11 +327,14 @@ class TileRenderer(
                             val painter = painterFor(styleLayer) as LineLayerPainter
                             val lines = tileGeometry.lines(tileLayer, extent)
                             try {
-                                for (entry in visible) {
+                                val features = tileLayer.features
+                                for (position in 0 until visible.size) {
+                                    val index = visible.indices[position]
                                     painter.append(
-                                        canvas, entry.feature, styleLayer, geometrySize, extent, zoom,
-                                        entry.properties, actualZoom, lines.polylines[entry.index],
-                                        cull.select(lines.bounds, entry.index),
+                                        canvas, features[index], styleLayer, geometrySize, extent, zoom,
+                                        null, actualZoom, lines.polylines[index],
+                                        cull.select(lines.bounds, index),
+                                        classes, index, visible,
                                     )
                                 }
                             } finally {
@@ -440,7 +449,9 @@ class TileRenderer(
             tileLayer, styleLayer, zoom, actualZoom, tileKey, geometrySize, canonical,
             sorted = false,
         )
-        for (entry in visible) {
+        for (position in 0 until visible.size) {
+            val index = visible.indices[position]
+            val entry = VisibleFeature(tileLayer.features[index], visible.at(index), index)
             into.add(CircleCandidate(entry, extent, gate))
         }
     }
@@ -465,8 +476,7 @@ class TileRenderer(
         geometrySize: Int,
         canonical: CanonicalTileId,
         sorted: Boolean = true,
-    ): List<VisibleFeature> {
-        val visible = ArrayList<VisibleFeature>(tileLayer.features.size)
+    ): LayerFeatures {
         /* A function of the source and the source layer alone, so hoisting it out of the loop is
          * safe and so is caching the features it builds. See `promoteIdPropertyFor`. */
         val promoteIdProperty = promoteIdPropertyFor(styleLayer.source, tileLayer)
@@ -481,26 +491,70 @@ class TileRenderer(
         } else {
             null
         }
-        tileLayer.features.forEachIndexed { index, feature ->
-            val featureProperties = if (cached != null) {
-                cached[index] ?: buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
-                    .also { cached[index] = it }
-            } else {
-                buildEvalFeature(feature, tileLayer, canonical, promoteIdProperty)
-            }
+        /* One verdict per feature class where the filter allows it -- see [FilterVerdicts]. A
+         * rejected class is skipped before its feature's evaluation view is even built. */
+        val verdicts = FilterVerdicts(styleLayer, tileLayer)
+        val visible = LayerFeatures(tileLayer, canonical, promoteIdProperty, cached)
+        val features = tileLayer.features
+        for (index in features.indices) {
+            val verdict = verdicts[index]
+            if (verdict == FilterVerdicts.REJECTED) continue
 
-            if (!shouldRenderFeature(feature, tileLayer, styleLayer, zoom, featureProperties)) {
-                return@forEachIndexed
+            /* Only a feature whose class has no verdict yet is looked at, and so only it has its
+             * evaluation view built here; the rest are built if a painter asks for them. */
+            if (verdict == FilterVerdicts.UNKNOWN) {
+                val accepted = shouldRenderFeature(features[index], tileLayer, styleLayer, zoom, visible.at(index))
+                verdicts[index] = accepted
+                if (!accepted) continue
             }
-            visible.add(VisibleFeature(feature, featureProperties, index))
+            visible.add(index)
         }
 
         if (sorted) {
             sortKeyOf(styleLayer)?.let { sortKey ->
-                visible.sortBy { evaluateSortKey(sortKey, it.properties, actualZoom) }
+                visible.sortBy { evaluateSortKey(sortKey, visible.at(it), actualZoom) }
             }
         }
         return visible
+    }
+
+    /**
+     * The features of one tile layer that one style layer draws, as their positions in the tile
+     * layer, in draw order -- and, as a [FeatureViews], their evaluation views.
+     *
+     * Positions rather than one object per feature: a style layer keeps thousands of features of a
+     * dense tile, and a painter that works per feature class needs nothing of most of them but the
+     * position. A view is built on first use and kept in [views], which is the renderer's own
+     * per-tile-layer array when the tile has a key and this walk's own otherwise.
+     */
+    private inner class LayerFeatures(
+        private val tileLayer: Tile.Layer,
+        private val canonical: CanonicalTileId,
+        private val promoteIdProperty: String?,
+        private var views: Array<EvalFeature?>?,
+    ) : FeatureViews {
+        var indices = IntArray(INITIAL_VISIBLE)
+            private set
+        var size = 0
+            private set
+
+        fun add(index: Int) {
+            if (size == indices.size) indices = indices.copyOf(size * 2)
+            indices[size++] = index
+        }
+
+        override fun at(index: Int): EvalFeature {
+            val held = views ?: arrayOfNulls<EvalFeature>(tileLayer.features.size).also { views = it }
+            return held[index]
+                ?: buildEvalFeature(tileLayer.features[index], tileLayer, canonical, promoteIdProperty)
+                    .also { held[index] = it }
+        }
+
+        /** Reorders the features by [key] of their position, ascending and stable. */
+        fun sortBy(key: (Int) -> Double) {
+            val ordered = indices.asList().subList(0, size).sortedBy(key)
+            for (position in 0 until size) indices[position] = ordered[position]
+        }
     }
 
     /**
@@ -624,6 +678,9 @@ class TileRenderer(
 
     private companion object {
         const val DEFAULT_EXTENT = 4096
+
+        /** What a style layer's list of visible features starts at; it doubles as it fills. */
+        const val INITIAL_VISIBLE = 64
 
         /** `background` has no source, so its painter is handed a feature that carries nothing. */
         val EMPTY_FEATURE = Tile.Feature(

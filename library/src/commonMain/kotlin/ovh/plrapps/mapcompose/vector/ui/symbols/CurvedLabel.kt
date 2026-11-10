@@ -3,13 +3,11 @@ package ovh.plrapps.mapcompose.vector.ui.symbols
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
+import ovh.plrapps.mapcompose.vector.data.glyphs.RenderedGlyph
 import ovh.plrapps.mapcompose.vector.renderer.LabelArt
 import ovh.plrapps.mapcompose.vector.symbol.LabelPath
-import ovh.plrapps.mapcompose.vector.symbol.SymbolInstance
-import ovh.plrapps.mapcompose.vector.symbol.PathInterpolator
 import ovh.plrapps.mapcompose.vector.symbol.PathPoint
-import ovh.plrapps.mapcompose.vector.symbol.SymbolProjection
 import ovh.plrapps.mapcompose.vector.renderer.Point
 import kotlin.math.PI
 import kotlin.math.abs
@@ -42,70 +40,6 @@ internal object CurvedLabel {
      * majority of line labels, which run straight over the stretch they occupy.
      */
     const val CURVE_EPSILON_DP: Float = 0.5f
-
-    /**
-     * The glyph placements for [art] along [path], or null to draw it straight.
-     *
-     * Null means one of: the path does not bend enough to be worth it, the label has no per-glyph
-     * quads (a wrapped or vertical label, or the Compose fallback), or a glyph ran off an end of
-     * the path. The last is upstream's `notEnoughRoom`, where it hides the label instead; hiding it
-     * here would flicker, because the placement pass has already decided the label fits and would
-     * keep re-placing it.
-     */
-    fun place(
-        art: LabelArt.Glyphs,
-        path: LabelPath,
-        textScale: Float,
-        alongOffset: Float,
-        perpendicular: Float,
-        keepUpright: Boolean,
-        curveEpsilonPx: Float,
-        mapRotationDeg: Float,
-    ): List<PathPoint>? {
-        val quads = art.quads ?: return null
-        if (bendOf(path.points) < curveEpsilonPx) return null
-
-        val interpolator = PathInterpolator(path.points.map { it.x to it.y })
-        val anchorDistance = interpolator.distanceTo(path.anchorIndex) + alongOffset * textScale
-        val offsets = FloatArray(quads.size) { quads[it].alongOffset * textScale }
-
-        val forward = SymbolProjection.placeGlyphsAlongPath(
-            path = path.points,
-            anchorDistance = anchorDistance,
-            offsets = offsets,
-            perpendicular = perpendicular * textScale,
-            flip = false,
-        ) ?: return null
-
-        if (!keepUpright || !readsBackwards(forward, mapRotationDeg)) return forward
-        return SymbolProjection.placeGlyphsAlongPath(
-            path = path.points,
-            anchorDistance = anchorDistance,
-            offsets = offsets,
-            perpendicular = perpendicular * textScale,
-            flip = true,
-        ) ?: forward
-    }
-
-    /**
-     * The label's own stretch of line, projected to the canvas, or null when the label does not
-     * follow one.
-     *
-     * The stretch was cut by the layout pass (`SymbolInstance.Text.globalLine`), so this is a
-     * projection of a handful of vertices and no search: a merged road can carry hundreds of them
-     * and this runs for every line label on every frame.
-     */
-    fun pathFor(
-        symbol: SymbolInstance.Text,
-        project: (Point) -> Offset,
-    ): LabelPath? {
-        val line = symbol.globalLine ?: return null
-        if (line.size < 2) return null
-        return LabelPath(
-            points = line.map { project(it) },
-            anchorIndex = symbol.globalAnchorIndex.coerceIn(0, line.size - 1),
-        )
-    }
 
     /**
      * The angle a straight label takes: its path's **chord**, not the anchor's own segment.
@@ -147,23 +81,197 @@ internal object CurvedLabel {
     }
 
     /** The largest distance from an interior vertex of [points] to the chord of the whole path. */
-    fun bendOf(points: List<Offset>): Float {
-        if (points.size < 3) return 0f
-        val first = points.first()
-        val last = points.last()
-        val dx = last.x - first.x
-        val dy = last.y - first.y
+    fun bendOf(points: List<Offset>): Float =
+        bendOf(FloatArray(points.size) { points[it].x }, FloatArray(points.size) { points[it].y }, points.size)
+
+    /** [bendOf] over the first [count] points of two coordinate arrays. */
+    fun bendOf(xs: FloatArray, ys: FloatArray, count: Int): Float {
+        if (count < 3) return 0f
+        val firstX = xs[0]
+        val firstY = ys[0]
+        val dx = xs[count - 1] - firstX
+        val dy = ys[count - 1] - firstY
         val length = sqrt(dx * dx + dy * dy)
         if (length <= 0f) return 0f
         var worst = 0f
-        for (i in 1 until points.size - 1) {
-            val p = points[i]
+        for (i in 1 until count - 1) {
             /* Twice the triangle's area over its base is the height, i.e. the distance to the
              * chord's *line*; the vertices are between the ends, so that is the distance wanted. */
-            val distance = abs((p.x - first.x) * dy - (p.y - first.y) * dx) / length
+            val distance = abs((xs[i] - firstX) * dy - (ys[i] - firstY) * dx) / length
             if (distance > worst) worst = distance
         }
         return worst
+    }
+}
+
+/**
+ * One line label's projected path and the glyph positions along it, for the frame being drawn.
+ *
+ * The draw pass owns a single instance and reuses it for every line label of every frame. This used
+ * to be a list of projected points, a `LabelPath`, two `PathInterpolator`s over lists of pairs, an
+ * offsets array and one or two lists of `PathPoint` -- per label, per frame, on the main thread. The
+ * arithmetic is unchanged: [placeGlyphs] is `SymbolProjection.placeGlyphsAlongPath` over arrays,
+ * which `LabelPathScratchTest` holds it to.
+ */
+internal class LabelPathScratch {
+    private var xs = FloatArray(16)
+    private var ys = FloatArray(16)
+    private var distances = FloatArray(16)
+
+    /** How many points the path has. */
+    var size = 0
+        private set
+
+    /** Where the label's anchor sits in the path. */
+    var anchorIndex = 0
+        private set
+
+    private var glyphX = FloatArray(32)
+    private var glyphY = FloatArray(32)
+    private var glyphAngle = FloatArray(32)
+
+    /** How many glyphs the last successful [placeGlyphs] placed. */
+    var glyphCount = 0
+        private set
+
+    fun x(index: Int): Float = xs[index]
+    fun y(index: Int): Float = ys[index]
+    fun glyphX(index: Int): Float = glyphX[index]
+    fun glyphY(index: Int): Float = glyphY[index]
+    fun glyphAngleDeg(index: Int): Float = glyphAngle[index]
+
+    /**
+     * Projects the label's own stretch of line -- `SymbolInstance.Text.globalLine`, cut by the
+     * layout pass -- to the canvas, and says whether there is a path at all.
+     *
+     * A point lands at `point * world - origin`, the same arithmetic the anchor is projected with.
+     * It is a projection of a handful of vertices and no search: a merged road can carry hundreds
+     * of them and this runs for every line label on every frame.
+     */
+    fun load(
+        line: List<Point>,
+        anchorIndex: Int,
+        worldWidth: Double,
+        worldHeight: Double,
+        originX: Double,
+        originY: Double,
+    ): Boolean {
+        val count = line.size
+        if (count < 2) return false
+        if (xs.size < count) {
+            xs = FloatArray(count * 2)
+            ys = FloatArray(count * 2)
+            distances = FloatArray(count * 2)
+        }
+        for (i in 0 until count) {
+            val point = line[i]
+            xs[i] = (point.x * worldWidth - originX).toFloat()
+            ys[i] = (point.y * worldHeight - originY).toFloat()
+        }
+        size = count
+        this.anchorIndex = anchorIndex.coerceIn(0, count - 1)
+        glyphCount = 0
+        return true
+    }
+
+    /** See [CurvedLabel.bendOf]. */
+    fun bend(): Float = CurvedLabel.bendOf(xs, ys, size)
+
+    /** See [CurvedLabel.chordAngleDeg]. */
+    fun chordAngleDeg(): Float =
+        atan2(ys[size - 1] - ys[0], xs[size - 1] - xs[0]) * 180f / PI.toFloat()
+
+    /** See [CurvedLabel.readsBackwards], for a label drawn straight between the path's two ends. */
+    fun chordReadsBackwards(mapRotationDeg: Float): Boolean = CurvedLabel.readsBackwards(
+        Offset(xs[0], ys[0]), Offset(xs[size - 1], ys[size - 1]), mapRotationDeg,
+    )
+
+    /**
+     * Places [quads] along the loaded path, and says whether the label is to be drawn that way.
+     *
+     * False means one of: the path does not bend enough to be worth it, or a glyph ran off an end
+     * of the path. The last is upstream's `notEnoughRoom`, where it hides the label instead; hiding
+     * it here would flicker, because the placement pass has already decided the label fits and
+     * would keep re-placing it. The caller draws the label straight in either case.
+     */
+    fun placeGlyphs(
+        quads: List<RenderedGlyph>,
+        textScale: Float,
+        alongOffset: Float,
+        perpendicular: Float,
+        keepUpright: Boolean,
+        curveEpsilonPx: Float,
+        mapRotationDeg: Float,
+    ): Boolean {
+        glyphCount = 0
+        if (quads.isEmpty() || bend() < curveEpsilonPx) return false
+
+        distances[0] = 0f
+        for (i in 1 until size) {
+            val dx = xs[i] - xs[i - 1]
+            val dy = ys[i] - ys[i - 1]
+            distances[i] = distances[i - 1] + sqrt(dx * dx + dy * dy)
+        }
+        if (glyphX.size < quads.size) {
+            glyphX = FloatArray(quads.size * 2)
+            glyphY = FloatArray(quads.size * 2)
+            glyphAngle = FloatArray(quads.size * 2)
+        }
+
+        val anchorDistance = distances[anchorIndex] + alongOffset * textScale
+        val normal = perpendicular * textScale
+        if (!walk(quads, textScale, anchorDistance, normal, flip = false)) return false
+        glyphCount = quads.size
+
+        if (!keepUpright || quads.size < 2) return true
+        val last = quads.size - 1
+        val backwards = CurvedLabel.readsBackwards(
+            Offset(glyphX[0], glyphY[0]), Offset(glyphX[last], glyphY[last]), mapRotationDeg,
+        )
+        if (!backwards) return true
+        // Turned around; and if that runs off the path, the forward placement stands.
+        if (!walk(quads, textScale, anchorDistance, normal, flip = true)) {
+            walk(quads, textScale, anchorDistance, normal, flip = false)
+        }
+        return true
+    }
+
+    /** `SymbolProjection.placeGlyphsAlongPath`, into the glyph arrays; false when a glyph falls off. */
+    private fun walk(
+        quads: List<RenderedGlyph>,
+        textScale: Float,
+        anchorDistance: Float,
+        normal: Float,
+        flip: Boolean,
+    ): Boolean {
+        val length = distances[size - 1]
+        val direction = if (flip) -1f else 1f
+        for (i in quads.indices) {
+            val distance = anchorDistance + direction * (quads[i].alongOffset * textScale)
+            if (distance < 0f || distance > length) return false
+
+            // `PathInterpolator.at`: the first vertex at or past the distance ends the segment.
+            var current = 1
+            while (distances[current] < distance && current < size - 1) current++
+            val previous = current - 1
+            val segmentLength = distances[current] - distances[previous]
+            val t = if (segmentLength > 0f) (distance - distances[previous]) / segmentLength else 0f
+
+            var angle = atan2(ys[current] - ys[previous], xs[current] - xs[previous]) * 180f / PI.toFloat()
+            if (flip) angle += 180f
+            var x = xs[previous] * (1f - t) + xs[current] * t
+            var y = ys[previous] * (1f - t) + ys[current] * t
+            if (normal != 0f) {
+                // `PathPoint.movedAlongNormal`.
+                val radians = angle * PI.toFloat() / 180f
+                x -= sin(radians) * normal
+                y += cos(radians) * normal
+            }
+            glyphX[i] = x
+            glyphY[i] = y
+            glyphAngle[i] = angle
+        }
+        return true
     }
 }
 
@@ -183,11 +291,37 @@ internal fun DrawScope.drawTextAlongPath(
     val quads = art.quads ?: return
     for (i in quads.indices) {
         val point = placements.getOrNull(i) ?: return
-        translate(point.x, point.y) {
-            rotate(degrees = point.angleDeg, pivot = Offset.Zero) {
-                art.drawGlyph(this, quads[i], alpha = alpha, scale = scale)
-            }
-        }
+        drawGlyphAt(art, quads[i], point.x, point.y, point.angleDeg, alpha, scale)
+    }
+}
+
+/** As above, at the positions [LabelPathScratch.placeGlyphs] left in [scratch]. */
+internal fun DrawScope.drawTextAlongPath(
+    art: LabelArt.Glyphs,
+    quads: List<RenderedGlyph>,
+    scratch: LabelPathScratch,
+    alpha: Float,
+    scale: Float,
+) {
+    for (i in 0 until minOf(quads.size, scratch.glyphCount)) {
+        drawGlyphAt(art, quads[i], scratch.glyphX(i), scratch.glyphY(i), scratch.glyphAngleDeg(i), alpha, scale)
+    }
+}
+
+private fun DrawScope.drawGlyphAt(
+    art: LabelArt.Glyphs,
+    quad: RenderedGlyph,
+    x: Float,
+    y: Float,
+    angleDeg: Float,
+    alpha: Float,
+    scale: Float,
+) {
+    withTransform({
+        translate(x, y)
+        rotate(degrees = angleDeg, pivot = Offset.Zero)
+    }) {
+        art.drawGlyph(this, quad, alpha = alpha, scale = scale)
     }
 }
 

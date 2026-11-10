@@ -2,8 +2,7 @@ package ovh.plrapps.mapcompose.vector.renderer
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.IntOffset
@@ -120,29 +119,32 @@ internal abstract class LabelArt {
          * path, which is why the pivot is the origin and not the label's box corner.
          */
         fun drawGlyph(scope: DrawScope, quad: RenderedGlyph, alpha: Float = 1f, scale: Float = 1f) {
-            scope.scale(scale, scale, pivot = Offset.Zero) {
-                translate(quad.left, quad.top) {
-                    val size = IntSize(quad.width.toInt(), quad.height.toInt())
-                    drawImage(
-                        image = quad.bitmap,
-                        srcOffset = IntOffset(quad.srcX, quad.srcY),
-                        srcSize = size,
-                        dstSize = size,
-                        alpha = alpha,
-                    )
-                }
+            /* One transform block, not one per step: every nested block is a save and a restore
+             * on the canvas, and this runs per glyph of every curved label on every frame. */
+            scope.withTransform({
+                scale(scale, scale, pivot = Offset.Zero)
+                translate(quad.left, quad.top)
+            }) {
+                val size = IntSize(quad.width.toInt(), quad.height.toInt())
+                drawImage(
+                    image = quad.bitmap,
+                    srcOffset = IntOffset(quad.srcX, quad.srcY),
+                    srcSize = size,
+                    dstSize = size,
+                    alpha = alpha,
+                )
             }
         }
 
         override fun draw(scope: DrawScope, topLeft: Offset, alpha: Float, scale: Float) {
             /* The bitmap is larger than the box -- ascenders, descenders and the halo reach outside
              * it -- so it is placed by the box corner's position *within* the bitmap. */
-            scope.translate(topLeft.x, topLeft.y) {
-                scale(scale, scale, pivot = Offset.Zero) {
-                    translate(-box.left, -box.top) {
-                        drawImage(rendered.bitmap, alpha = alpha)
-                    }
-                }
+            scope.withTransform({
+                translate(topLeft.x, topLeft.y)
+                scale(scale, scale, pivot = Offset.Zero)
+                translate(-box.left, -box.top)
+            }) {
+                drawImage(rendered.bitmap, alpha = alpha)
             }
         }
     }
@@ -161,10 +163,11 @@ internal abstract class LabelArt {
         override val height: Float get() = layout.size.height.toFloat()
 
         override fun draw(scope: DrawScope, topLeft: Offset, alpha: Float, scale: Float) {
-            scope.translate(topLeft.x, topLeft.y) {
-                scale(scale, scale, pivot = Offset.Zero) {
-                    drawText(textLayoutResult = layout, topLeft = Offset.Zero, alpha = alpha)
-                }
+            scope.withTransform({
+                translate(topLeft.x, topLeft.y)
+                scale(scale, scale, pivot = Offset.Zero)
+            }) {
+                drawText(textLayoutResult = layout, topLeft = Offset.Zero, alpha = alpha)
             }
         }
     }

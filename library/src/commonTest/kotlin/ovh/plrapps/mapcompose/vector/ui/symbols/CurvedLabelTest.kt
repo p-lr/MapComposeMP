@@ -8,7 +8,6 @@ import ovh.plrapps.mapcompose.vector.symbol.SymbolFixtures
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -78,19 +77,26 @@ class CurvedLabelTest {
             globalAnchorIndex = 1,
         )
 
-        val path = CurvedLabel.pathFor(symbol) { point ->
-            Offset((point.x * 1000f).toFloat(), (point.y * 1000f).toFloat())
-        }
+        val path = LabelPathScratch()
+        val loaded = path.load(
+            line = symbol.globalLine!!,
+            anchorIndex = symbol.globalAnchorIndex,
+            worldWidth = 1000.0,
+            worldHeight = 1000.0,
+            originX = 0.0,
+            originY = 0.0,
+        )
 
-        assertNotNull(path)
-        assertEquals(listOf(400f, 500f, 600f), path.points.map { it.x })
+        assertTrue(loaded)
+        assertEquals(listOf(400f, 500f, 600f), List(path.size) { path.x(it) })
         assertEquals(1, path.anchorIndex)
     }
 
     @Test
-    fun `a symbol with no line has no path`() {
-        val symbol = SymbolFixtures.textInstance(key = "poi")
+    fun `a line of fewer than two points is no path`() {
+        val path = LabelPathScratch()
 
-        assertEquals(null, CurvedLabel.pathFor(symbol) { Offset.Zero })
+        assertFalse(path.load(listOf(Point(0.5, 0.5)), 0, 1000.0, 1000.0, 0.0, 0.0))
+        assertFalse(path.load(emptyList(), 0, 1000.0, 1000.0, 0.0, 0.0))
     }
 }

@@ -65,18 +65,27 @@ internal fun SymbolComposer(
         }
     }
 
+    /* One line label's projected path at a time, reused by every label of every frame. */
+    val linePath = remember { LabelPathScratch() }
+
     Canvas(
         modifier = modifier.fillMaxSize()
     ) {
         val x0 = ((ceil(zoomPRState.scrollX / grid) * grid)).toInt()
         val y0 = ((ceil(zoomPRState.scrollY / grid) * grid)).toInt()
         val fadeChange = placement.fadeChangeAt(fade.elapsedMillis)
+        /* Read once per frame, not once per symbol: each of these is snapshot state, and a read is a
+         * thread-local lookup plus an observer notification -- per symbol, several times over, that
+         * was a measurable part of the frame. */
+        val rotation = zoomPRState.rotation
+        val worldWidth = zoomPRState.fullWidth * zoomPRState.scale
+        val worldHeight = zoomPRState.fullHeight * zoomPRState.scale
         val zoom = fractionalZoom(zoomPRState.fullWidth, zoomPRState.scale, density)
         val curveEpsilonPx = CurvedLabel.CURVE_EPSILON_DP * density
 
         withTransform({
             rotate(
-                degrees = zoomPRState.rotation,
+                degrees = rotation,
                 pivot = Offset(
                     x = zoomPRState.pivotX.toFloat(),
                     y = zoomPRState.pivotY.toFloat()
@@ -88,7 +97,7 @@ internal fun SymbolComposer(
             )
         }) {
             for (phase in symbolState.visiblePhases) {
-                val phaseOffsetPx = phase * zoomPRState.fullWidth * zoomPRState.scale
+                val phaseOffsetPx = phase * worldWidth
                 /* Already in draw order -- ascending, so the first entry is underneath. It is not
                  * the placement order reversed; see `SymbolDrawOrder`. */
                 for (placed in placement.symbols) {
@@ -106,13 +115,13 @@ internal fun SymbolComposer(
                     val canvasX: Float
                     val canvasY: Float
                     if (symbol is SymbolInstance.Text && symbol.spriteAnchorGlobal != null && symbol.textOffset != null) {
-                        canvasX = (symbol.spriteAnchorGlobal.x * zoomPRState.fullWidth * zoomPRState.scale - x0 +
+                        canvasX = (symbol.spriteAnchorGlobal.x * worldWidth - x0 +
                                    symbol.textOffset.x * textScale + phaseOffsetPx).toFloat()
-                        canvasY = (symbol.spriteAnchorGlobal.y * zoomPRState.fullHeight * zoomPRState.scale - y0 +
+                        canvasY = (symbol.spriteAnchorGlobal.y * worldHeight - y0 +
                                    symbol.textOffset.y * textScale).toFloat()
                     } else {
-                        canvasX = (symbol.global.x * zoomPRState.fullWidth * zoomPRState.scale - x0 + phaseOffsetPx).toFloat()
-                        canvasY = (symbol.global.y * zoomPRState.fullHeight * zoomPRState.scale - y0).toFloat()
+                        canvasX = (symbol.global.x * worldWidth - x0 + phaseOffsetPx).toFloat()
+                        canvasY = (symbol.global.y * worldHeight - y0).toFloat()
                     }
 
                     /* A label that follows a line is drawn along the *projected* line, not as one
@@ -121,18 +130,19 @@ internal fun SymbolComposer(
                     if (symbol is SymbolInstance.Text && symbol.globalLine != null) {
                         val drawn = drawLineLabel(
                             symbol = symbol,
+                            line = symbol.globalLine,
+                            path = linePath,
                             textScale = textScale,
                             textAlpha = textAlpha,
                             curveEpsilonPx = curveEpsilonPx,
-                            mapRotationDeg = zoomPRState.rotation,
+                            mapRotationDeg = rotation,
                             canvasX = canvasX,
                             canvasY = canvasY,
-                        ) { point ->
-                            Offset(
-                                (point.x * zoomPRState.fullWidth * zoomPRState.scale - x0 + phaseOffsetPx).toFloat(),
-                                (point.y * zoomPRState.fullHeight * zoomPRState.scale - y0).toFloat(),
-                            )
-                        }
+                            worldWidth = worldWidth,
+                            worldHeight = worldHeight,
+                            originX = x0 - phaseOffsetPx,
+                            originY = y0.toDouble(),
+                        )
                         if (drawn) continue
                     }
 
@@ -143,11 +153,11 @@ internal fun SymbolComposer(
 
                     withTransform({
                         translate(left = canvasX + offsetX, top = canvasY + offsetY)
-                        if (symbol.viewportAligned) {
+                        if (symbol.viewportAligned && rotation != 0f) {
                             // Counter-rotate around the symbol's geographic reference point in local
                             // coords (= -offsetX, -offsetY), so the symbol stays horizontal on screen
                             // while its position still tracks the map-rotated viewport coordinate.
-                            rotate(degrees = -zoomPRState.rotation, pivot = Offset(-offsetX, -offsetY))
+                            rotate(degrees = -rotation, pivot = Offset(-offsetX, -offsetY))
                         }
                     }) {
                         symbol.drawScaled(
@@ -176,45 +186,47 @@ internal fun SymbolComposer(
  */
 private fun DrawScope.drawLineLabel(
     symbol: SymbolInstance.Text,
+    line: List<Point>,
+    path: LabelPathScratch,
     textScale: Float,
     textAlpha: Float,
     curveEpsilonPx: Float,
     mapRotationDeg: Float,
     canvasX: Float,
     canvasY: Float,
-    project: (Point) -> Offset,
+    worldWidth: Double,
+    worldHeight: Double,
+    originX: Double,
+    originY: Double,
 ): Boolean {
     if (textAlpha <= 0f) return true
-    val path = CurvedLabel.pathFor(symbol, project) ?: return false
+    if (!path.load(line, symbol.globalAnchorIndex, worldWidth, worldHeight, originX, originY)) return false
     val art = symbol.value
 
     if (art is LabelArt.Glyphs) {
-        val placements = CurvedLabel.place(
-            art = art,
-            path = path,
-            textScale = textScale,
-            alongOffset = symbol.lineOffsetX,
-            perpendicular = symbol.lineOffsetY,
-            keepUpright = symbol.keepUpright,
-            curveEpsilonPx = curveEpsilonPx,
-            mapRotationDeg = mapRotationDeg,
-        )
-        if (placements != null) {
-            drawTextAlongPath(art, placements, alpha = textAlpha, scale = textScale)
+        val quads = art.quads
+        if (quads != null && path.placeGlyphs(
+                quads = quads,
+                textScale = textScale,
+                alongOffset = symbol.lineOffsetX,
+                perpendicular = symbol.lineOffsetY,
+                keepUpright = symbol.keepUpright,
+                curveEpsilonPx = curveEpsilonPx,
+                mapRotationDeg = mapRotationDeg,
+            )
+        ) {
+            drawTextAlongPath(art, quads, path, alpha = textAlpha, scale = textScale)
             return true
         }
     }
 
-    val chord = CurvedLabel.chordAngleDeg(path)
+    val chord = path.chordAngleDeg()
     /* `text-keep-upright` on the straight path, decided the same way the glyph path decides it:
      * in screen space, bearing included, so a chord running right to left is turned around. */
-    val backwards = symbol.keepUpright &&
-        CurvedLabel.readsBackwards(path.points.first(), path.points.last(), mapRotationDeg)
+    val backwards = symbol.keepUpright && path.chordReadsBackwards(mapRotationDeg)
     val angle = if (backwards) chord + 180f else chord
-    translate(canvasX, canvasY) {
-        translate(-art.width * textScale / 2f, -art.height * textScale / 2f) {
-            drawTextAtAngle(art, angle, alpha = textAlpha, scale = textScale)
-        }
+    translate(canvasX - art.width * textScale / 2f, canvasY - art.height * textScale / 2f) {
+        drawTextAtAngle(art, angle, alpha = textAlpha, scale = textScale)
     }
     return true
 }

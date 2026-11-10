@@ -221,6 +221,20 @@ fun DrawScope.drawStretchedImage(
     dstSize: Size,
     alpha: Float = 1f,
 ) {
+    /* An icon that declares no stretch zones is one stripe each way, which is what the general
+     * path below works out too -- through two lists per axis, for every icon on every frame. */
+    if (sprite.stretchX.isNullOrEmpty() && sprite.stretchY.isNullOrEmpty() &&
+        image.width > 0 && image.height > 0
+    ) {
+        drawImage(
+            image = image,
+            dstOffset = IntOffset(dstOffset.x.roundToInt(), dstOffset.y.roundToInt()),
+            dstSize = IntSize(dstSize.width.roundToInt(), dstSize.height.roundToInt()),
+            alpha = alpha,
+        )
+        return
+    }
+
     val columns = stretchStripes(sprite.stretchX, image.width.toFloat(), dstSize.width)
     val rows = stretchStripes(sprite.stretchY, image.height.toFloat(), dstSize.height)
 

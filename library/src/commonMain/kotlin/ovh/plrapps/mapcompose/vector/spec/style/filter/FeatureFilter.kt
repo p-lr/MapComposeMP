@@ -1,5 +1,6 @@
 package ovh.plrapps.mapcompose.vector.spec.style.filter
 
+import ovh.plrapps.mapcompose.vector.spec.style.expression.isPropertyDependentOnly
 import ovh.plrapps.mapcompose.vector.spec.style.expression.CanonicalTileId
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
 import ovh.plrapps.mapcompose.vector.spec.style.expression.ExpressionLogger
@@ -33,6 +34,13 @@ class FeatureFilter(
     val needGeometry: Boolean,
     private val globalStateRefs: Set<String>,
 ) {
+    /**
+     * Whether the verdict on a feature follows from its properties and geometry type alone, which
+     * is what lets a renderer ask once per `Tile.Layer.featureClasses` class rather than once per
+     * feature. See [isPropertyDependentOnly].
+     */
+    val followsFeatureClass: Boolean = isPropertyDependentOnly(expression.expression)
+
     fun filter(
         globals: GlobalProperties,
         feature: EvalFeature,

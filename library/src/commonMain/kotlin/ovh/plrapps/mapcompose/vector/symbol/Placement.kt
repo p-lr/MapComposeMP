@@ -6,12 +6,13 @@ import ovh.plrapps.mapcompose.vector.core.ViewportInfo
 import ovh.plrapps.mapcompose.vector.renderer.LabelArt
 import ovh.plrapps.mapcompose.vector.renderer.Point
 import ovh.plrapps.mapcompose.vector.spec.style.WRITING_MODE_VERTICAL
+import ovh.plrapps.mapcompose.vector.utils.LongMap
+import ovh.plrapps.mapcompose.vector.utils.LongSet
 import ovh.plrapps.mapcompose.vector.utils.obb.OBB
 import ovh.plrapps.mapcompose.vector.utils.obb.ObbPoint
 import ovh.plrapps.mapcompose.vector.utils.obb.Size as ObbSize
 import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.sin
 
 /** Upstream's default `fadeDuration` (`src/ui/map.ts`), the length of a symbol's fade in or out. */
@@ -157,6 +158,12 @@ internal class Placement(
     /** The **fractional** map zoom, which is what a size expression is evaluated at. */
     private val zoom: Double,
     private val collisionDetectionEnabled: Boolean,
+    /**
+     * Roughly how many symbol identities this cycle will decide on -- the last cycle's count is the
+     * best guess there is. It sizes [placements] and [opacities] once, where growing them from
+     * nothing copied each of them a dozen times over on its way to tens of thousands of entries.
+     */
+    expectedSymbols: Int = 16,
 ) {
     private val collisionDetector = CollisionDetector(
         viewportWidth = viewportInfo.size.width.toFloat(),
@@ -164,19 +171,19 @@ internal class Placement(
     )
 
     /** The decision per symbol identity, upstream's `placements`. */
-    val placements = mutableMapOf<Long, JointPlacement>()
+    val placements = LongMap<JointPlacement>(expectedSymbols)
 
     /** Which `text-variable-anchor` each symbol settled on, upstream's `variableOffsets`. */
     val variableOffsets = mutableMapOf<Long, Int>()
 
     /** The fade state per symbol identity, filled by [commit]. */
-    val opacities = mutableMapOf<Long, JointOpacityState>()
+    val opacities = LongMap<JointOpacityState>(expectedSymbols)
 
     /** The view this placement was taken against, for "did anything move" -- see [Placement]. */
     val viewport: ViewportInfo = viewportInfo
 
     private val accepted = mutableListOf<AcceptedSymbol>()
-    private val seenCrossTileIDs = mutableSetOf<Long>()
+    private val seenCrossTileIDs = LongSet()
     private var placedOrder: PlacementOrder? = null
     private var commitTime = 0L
     private var lastPlacementChangeTime = 0L
@@ -206,6 +213,8 @@ internal class Placement(
 
     private val mapRotationDeg: Float = viewportInfo.angleRad * (180f / kotlin.math.PI.toFloat())
 
+    private val projector = ViewportProjector(viewportInfo)
+
     /**
      * Places every symbol of every bucket, in the order [sortForPlacement] gives.
      *
@@ -225,7 +234,7 @@ internal class Placement(
         bucket: SymbolBucket,
         instance: SymbolInstance,
         previous: Placement?,
-        seenCrossTileIDs: MutableSet<Long>,
+        seenCrossTileIDs: LongSet,
     ) {
         val crossTileID = instance.crossTileID
 
@@ -237,10 +246,18 @@ internal class Placement(
         val iconScale = scaleFor(bucket.iconSizeData, instance.iconLayoutSizeOf(), instance.iconFeatureSizesOf())
         val textScale = scaleFor(bucket.textSizeData, instance.layoutSize, instance.featureSizes)
 
-        val viewportPos = mercatorToViewport(instance.global.x, instance.global.y, viewportInfo)
+        val viewportPos = projector.project(instance.global.x, instance.global.y)
 
         if (!collisionDetectionEnabled) {
             accept(instance, crossTileID, bucket, text = true, icon = true, viewportPos)
+            return
+        }
+
+        /* Most candidates are nowhere near the screen -- the layout pass covers a ring of tiles
+         * around the viewport, and an overzoomed ancestor covers far more than that -- and every one
+         * of them used to have its collision shapes built before the index refused them. */
+        if (isBeyondGrid(instance, viewportPos, iconScale, textScale)) {
+            reject(crossTileID)
             return
         }
 
@@ -255,6 +272,69 @@ internal class Placement(
     }
 
     // region per-symbol placement
+
+    /* The collision index's own bounds; see `CollisionDetector.isInsideGrid`. */
+    private val gridLeft = -CollisionDetector.VIEWPORT_PADDING
+    private val gridTop = -CollisionDetector.VIEWPORT_PADDING
+    private val gridRight = viewportInfo.size.width + CollisionDetector.VIEWPORT_PADDING
+    private val gridBottom = viewportInfo.size.height + CollisionDetector.VIEWPORT_PADDING
+
+    /**
+     * Whether *every* shape [instance] could be tested with lies outside the collision index, in
+     * which case `CollisionDetector.wouldCollide` refuses each of them and the symbol is rejected
+     * whichever branch it takes -- so it can be rejected here, before any of them is built.
+     *
+     * Conservative on purpose: a box is taken as a disc around its centre that contains it at any
+     * rotation, and a case this cannot bound cheaply -- a label following a line, whose circle
+     * chain starts wherever the line is, or one with a second writing mode on another centre --
+     * answers false and goes the long way.
+     */
+    private fun isBeyondGrid(
+        instance: SymbolInstance,
+        viewportPos: Offset,
+        iconScale: Float,
+        textScale: Float,
+    ): Boolean = when (instance) {
+        is SymbolInstance.Sprite -> {
+            val text = instance.placement.textPlacement
+            isOffGrid(viewportPos, instance.placement.spritePlacement, iconScale) &&
+                (text == null || isOffGrid(viewportPos, text, iconScale))
+        }
+
+        is SymbolInstance.Text -> {
+            val text = instance.placement.textPlacement
+            instance.line == null && instance.verticalSetting == null && text != null &&
+                isOffGrid(viewportPos, text, textScale)
+        }
+
+        is SymbolInstance.SpriteWithText ->
+            isOffGrid(viewportPos, instance.placement.spritePlacement, iconScale) &&
+                if (instance.textCandidates.isEmpty()) {
+                    val text = instance.placement.textPlacement
+                    text == null || isOffGrid(viewportPos + instance.textOffset * textScale, text, textScale)
+                } else {
+                    areOffGrid(instance.textCandidates, textScale) &&
+                        areOffGrid(instance.verticalTextCandidates, textScale)
+                }
+    }
+
+    private fun areOffGrid(candidates: List<TextPlacementCandidate>, scale: Float): Boolean {
+        for (i in candidates.indices) {
+            val candidate = candidates[i]
+            val center = projector.project(candidate.mercatorX, candidate.mercatorY)
+            if (!isOffGrid(center, candidate.labelPlacement, scale)) return false
+        }
+        return true
+    }
+
+    /** Whether [box], drawn at [scale] about [center] at any angle, misses the collision index. */
+    private fun isOffGrid(center: Offset, box: LabelPlacement, scale: Float): Boolean {
+        /* Half the diagonal is what a rotated box can reach; half the sum of the sides is at least
+         * that, and a pixel more covers the rounding between this and the box that would be built. */
+        val reach = (box.bounds.width + box.bounds.height) / 2f * scale + 1f
+        return center.x + reach < gridLeft || center.x - reach >= gridRight ||
+            center.y + reach < gridTop || center.y - reach >= gridBottom
+    }
 
     private fun placeSpriteWithText(
         bucket: SymbolBucket,
@@ -333,7 +413,7 @@ internal class Placement(
                     }
 
                 for ((index, candidate) in ordered) {
-                    val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
+                    val textVP = projector.project(candidate.mercatorX, candidate.mercatorY)
                     val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
                     if (collisionDetector.wouldCollide(textVPPlacement)) continue
 
@@ -379,7 +459,7 @@ internal class Placement(
         if (symbol.iconOptional) {
             for (vertical in orientations) {
                 for (candidate in candidatesOf(vertical)) {
-                    val textVP = mercatorToViewport(candidate.mercatorX, candidate.mercatorY, viewportInfo)
+                    val textVP = projector.project(candidate.mercatorX, candidate.mercatorY)
                     val textVPPlacement = viewportPlacement(textVP, candidate.labelPlacement, textScale)
                     if (collisionDetector.wouldCollide(textVPPlacement)) continue
                     collisionDetector.insert(textVPPlacement)
@@ -438,7 +518,7 @@ internal class Placement(
             val pos = if (oriented === symbol) {
                 viewportPos
             } else {
-                mercatorToViewport(oriented.global.x, oriented.global.y, viewportInfo)
+                projector.project(oriented.global.x, oriented.global.y)
             }
             // textPlacement is always non-null for a Text instance (set in producePointText/produceLineText)
             val resolved = oriented.placement.textPlacement ?: continue
@@ -504,7 +584,7 @@ internal class Placement(
 
         val projected = path.map { p ->
             val n = tileToMercator(bucket, p.x, p.y)
-            mercatorToViewport(n.x, n.y, viewportInfo)
+            projector.project(n.x, n.y)
         }
         val radius = symbol.placement.textPlacement!!.bounds.height / 2f * textScale
         return SymbolProjection.collisionCircles(
@@ -573,11 +653,11 @@ internal class Placement(
         prevZoomAdjustment = previous?.zoomAdjustment(zoom) ?: 0.0
         val increment = previous?.symbolFadeChange(now)?.toFloat() ?: 1f
 
-        val prevOpacities = previous?.opacities.orEmpty()
+        val prevOpacities = previous?.opacities
         val prevOffsets = previous?.variableOffsets.orEmpty()
 
-        for ((crossTileID, jointPlacement) in placements) {
-            val prevOpacity = prevOpacities[crossTileID]
+        placements.forEach { crossTileID, jointPlacement ->
+            val prevOpacity = prevOpacities?.get(crossTileID)
             if (prevOpacity != null) {
                 opacities[crossTileID] = JointOpacityState.create(
                     prevOpacity, increment, jointPlacement.text, jointPlacement.icon,
@@ -593,12 +673,14 @@ internal class Placement(
             }
         }
 
-        for ((crossTileID, prevOpacity) in prevOpacities) {
-            if (crossTileID in opacities) continue
-            val jointOpacity = JointOpacityState.create(prevOpacity, increment, placedText = false, placedIcon = false)
-            if (!jointOpacity.isHidden()) {
-                opacities[crossTileID] = jointOpacity
-                placementChanged = placementChanged || prevOpacity.text.placed || prevOpacity.icon.placed
+        prevOpacities?.forEach { crossTileID, prevOpacity ->
+            if (crossTileID !in opacities) {
+                val jointOpacity =
+                    JointOpacityState.create(prevOpacity, increment, placedText = false, placedIcon = false)
+                if (!jointOpacity.isHidden()) {
+                    opacities[crossTileID] = jointOpacity
+                    placementChanged = placementChanged || prevOpacity.text.placed || prevOpacity.icon.placed
+                }
             }
         }
 
@@ -701,7 +783,8 @@ internal class Placement(
      * `seenCrossTileIDs`, so a live copy in another tile still wins the ground.
      */
     fun result(previous: Placement? = null): PlacementResult {
-        val placedIDs = accepted.mapTo(mutableSetOf()) { it.crossTileID }
+        val placedIDs = LongSet(accepted.size)
+        for (a in accepted) placedIDs.add(a.crossTileID)
         val symbols = accepted.mapTo(mutableListOf()) { a ->
             PlacedSymbol(
                 instance = a.instance,
@@ -715,13 +798,13 @@ internal class Placement(
 
         /* Not de-duplicated within this loop: a symbol drawn as an icon *and* a label is two entries
          * under one id, and both halves have to fade together. */
-        val carried = mutableSetOf<Long>()
+        val carried = LongSet()
         for (held in previous?.lastResult?.symbols.orEmpty()) {
             val crossTileID = held.crossTileID
             if (crossTileID == 0L || crossTileID in placedIDs) continue
             val opacity = opacities[crossTileID] ?: continue
             if (opacity.isHidden()) continue
-            carried += crossTileID
+            carried.add(crossTileID)
             symbols += held.withOpacity(opacity)
         }
 
@@ -730,7 +813,7 @@ internal class Placement(
             if (crossTileID == 0L || crossTileID in placedIDs || crossTileID in carried) continue
             val opacity = opacities[crossTileID] ?: continue
             if (opacity.isHidden()) continue
-            carried += crossTileID
+            carried.add(crossTileID)
             symbols += PlacedSymbol(
                 instance = candidate.instance,
                 crossTileID = crossTileID,
@@ -815,13 +898,13 @@ internal class Placement(
      * grows by on the way to the viewport, which is uniform because both steps are pure scales.
      */
     private fun layoutToViewportScale(bucket: SymbolBucket): Float {
-        val n = 2.0.pow(bucket.ref.z.toDouble())
+        val n = (1L shl bucket.ref.z).toDouble()
         val mercatorPerLayoutPx = 1.0 / (bucket.canvasSize.toDouble() * n)
         return (mercatorPerLayoutPx * viewportInfo.fullWidth.toDouble() * viewportInfo.scale).toFloat()
     }
 
     private fun tileToMercator(bucket: SymbolBucket, x: Float, y: Float): Point {
-        val n = 2.0.pow(bucket.ref.z.toDouble())
+        val n = (1L shl bucket.ref.z).toDouble()
         val size = bucket.canvasSize.toDouble()
         return Point(
             (bucket.ref.x * size + x) / (size * n),
@@ -875,23 +958,35 @@ internal class PlacementOrder(
 
     private val isViewDependent: Boolean = buckets.any { it.ordering.isViewDependent }
 
-    val candidates: List<PlacementCandidate> = buckets
-        .flatMap { bucket -> bucket.instances.map { bucket to it } }
-        .withIndex()
-        .map { (index, pair) ->
-            val (bucket, instance) = pair
-            IndexedValue(index, PlacementCandidate(bucket, instance, drawOrderOf(bucket, instance, index)))
-        }
-        .sortedWith(
-            compareByDescending<IndexedValue<PlacementCandidate>> {
-                it.value.bucket.layerIndex
-            }.thenBy {
-                placementOrderOf(it.value.bucket, it.value.instance)
-            }.thenBy {
-                it.index
+    private val projector = ViewportProjector(viewportInfo)
+
+    val candidates: List<PlacementCandidate> = buildCandidates()
+
+    /* One list, sorted in place: this runs over every symbol of every bucket each time a layout pass
+     * publishes, and used to go through five intermediate lists of that length to get here. */
+    private fun buildCandidates(): List<PlacementCandidate> {
+        var count = 0
+        for (bucket in buckets) count += bucket.instances.size
+        val keyed = ArrayList<KeyedCandidate>(count)
+        for (bucket in buckets) {
+            for (instance in bucket.instances) {
+                val index = keyed.size
+                keyed += KeyedCandidate(
+                    candidate = PlacementCandidate(bucket, instance, drawOrderOf(bucket, instance, index)),
+                    placementKey = placementOrderOf(bucket, instance),
+                    index = index,
+                )
             }
-        )
-        .map { it.value }
+        }
+        keyed.sortWith(KEYED_ORDER)
+        return keyed.map { it.candidate }
+    }
+
+    private class KeyedCandidate(
+        val candidate: PlacementCandidate,
+        val placementKey: Double,
+        val index: Int,
+    )
 
     /**
      * Whether this order still describes [other] at [viewport].
@@ -903,6 +998,13 @@ internal class PlacementOrder(
         buckets.size == other.size &&
             buckets.indices.all { buckets[it] === other[it] } &&
             (!isViewDependent || viewportInfo == viewport)
+
+    private companion object {
+        val KEYED_ORDER: Comparator<KeyedCandidate> =
+            compareByDescending<KeyedCandidate> { it.candidate.bucket.layerIndex }
+                .thenBy { it.placementKey }
+                .thenBy { it.index }
+    }
 
     /** The placement comparator's key for one symbol; lower is placed first. */
     private fun placementOrderOf(bucket: SymbolBucket, instance: SymbolInstance): Double {
@@ -936,7 +1038,7 @@ internal class PlacementOrder(
      * infinite-scroll map is handled by the same arithmetic everything else here uses.
      */
     private fun screenY(instance: SymbolInstance): Double =
-        mercatorToViewport(instance.global.x, instance.global.y, viewportInfo).y.toDouble()
+        projector.project(instance.global.x, instance.global.y).y.toDouble()
 }
 
 /** A [SymbolInstance]'s icon layout size, which only a combined symbol carries separately. */
@@ -958,25 +1060,41 @@ internal fun mercatorToViewport(
     mercatorX: Double,
     mercatorY: Double,
     viewportInfo: ViewportInfo,
-): Offset {
-    var deltaX = mercatorX - viewportInfo.centroidX
-    if (viewportInfo.infiniteScrollX) {
-        if (deltaX > 0.5) deltaX -= 1.0
-        else if (deltaX < -0.5) deltaX += 1.0
-    }
-    val deltaY = mercatorY - viewportInfo.centroidY
+): Offset = ViewportProjector(viewportInfo).project(mercatorX, mercatorY)
 
-    val viewportCenterX = viewportInfo.size.width.toDouble() / 2.0
-    val viewportCenterY = viewportInfo.size.height.toDouble() / 2.0
-
-    // Scale the map-space delta to screen pixels
-    val scaledDX = deltaX * viewportInfo.fullWidth.toDouble() * viewportInfo.scale
-    val scaledDY = deltaY * viewportInfo.fullHeight.toDouble() * viewportInfo.scale
+/**
+ * [mercatorToViewport] for one viewport, with everything that does not depend on the point worked
+ * out once. A placement pass projects every symbol of every bucket, and the bearing's sine and
+ * cosine were being recomputed for each of them.
+ */
+internal class ViewportProjector(viewportInfo: ViewportInfo) {
+    private val centroidX = viewportInfo.centroidX
+    private val centroidY = viewportInfo.centroidY
+    private val infiniteScrollX = viewportInfo.infiniteScrollX
+    private val viewportCenterX = viewportInfo.size.width.toDouble() / 2.0
+    private val viewportCenterY = viewportInfo.size.height.toDouble() / 2.0
+    private val worldWidth = viewportInfo.fullWidth.toDouble() * viewportInfo.scale
+    private val worldHeight = viewportInfo.fullHeight.toDouble() * viewportInfo.scale
 
     // Compose rotate(θ) is clockwise, matching x'=dx*cos(θ)-dy*sin(θ); use +angleRad.
-    val angle = viewportInfo.angleRad.toDouble()
-    return Offset(
-        (viewportCenterX + scaledDX * cos(angle) - scaledDY * sin(angle)).toFloat(),
-        (viewportCenterY + scaledDX * sin(angle) + scaledDY * cos(angle)).toFloat(),
-    )
+    private val cosAngle = cos(viewportInfo.angleRad.toDouble())
+    private val sinAngle = sin(viewportInfo.angleRad.toDouble())
+
+    fun project(mercatorX: Double, mercatorY: Double): Offset {
+        var deltaX = mercatorX - centroidX
+        if (infiniteScrollX) {
+            if (deltaX > 0.5) deltaX -= 1.0
+            else if (deltaX < -0.5) deltaX += 1.0
+        }
+        val deltaY = mercatorY - centroidY
+
+        // Scale the map-space delta to screen pixels
+        val scaledDX = deltaX * worldWidth
+        val scaledDY = deltaY * worldHeight
+
+        return Offset(
+            (viewportCenterX + scaledDX * cosAngle - scaledDY * sinAngle).toFloat(),
+            (viewportCenterY + scaledDX * sinAngle + scaledDY * cosAngle).toFloat(),
+        )
+    }
 }

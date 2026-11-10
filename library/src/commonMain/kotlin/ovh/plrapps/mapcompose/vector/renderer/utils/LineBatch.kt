@@ -5,6 +5,8 @@ import androidx.compose.ui.graphics.colorspace.ColorSpaces
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.toArgb
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * One style layer's line meshes, drawn with as few `drawVertices` calls as their size allows.
@@ -20,6 +22,10 @@ import androidx.compose.ui.graphics.toArgb
  *
  * The colour is resolved per vertex as `color * (alpha * opacity)`,
  * which is `line.fragment.glsl`'s `fragColor = color * (alpha * opacity)`.
+ *
+ * A batch also owns the [builder] its meshes come from and the [TriangleScratch] they are drawn
+ * through, so that one object carries every array a tile's lines need -- which is what lets
+ * [LineBatchPool] hand the whole set from one render to the next.
  */
 internal class LineBatch {
     private var positions = FloatArray(INITIAL_VERTICES * 2)
@@ -29,6 +35,53 @@ internal class LineBatch {
     private var indexCount = 0
     private var translateX = 0f
     private var translateY = 0f
+    private val scratch = TriangleScratch()
+
+    /* What [builder]'s sink colours the chunk it is handed with: the feature being tessellated,
+     * set by [target]. */
+    private var targetScope: DrawScope? = null
+    private var targetOpacity = 1f
+    private var targetColor = Color.Unspecified
+    private var targetColorAt: ((Float) -> Color)? = null
+    private var targetDx = 0f
+    private var targetDy = 0f
+
+    /**
+     * Tessellates into this batch: every chunk it finishes is [add]ed with what [target] last set.
+     * One builder serves every line layer of a render, because its arrays and its cached
+     * cross-sections are worth keeping across them.
+     */
+    val builder = LineMeshBuilder { mesh ->
+        addMesh(targetScope!!, mesh, targetOpacity, targetColor, targetColorAt, targetDx, targetDy)
+    }
+
+    /**
+     * How the chunks [builder] produces from here on are drawn, until [release]: in [color], or per
+     * vertex by [colorAt] when there is one. The colour is not nullable so that it is never boxed --
+     * this is called once per feature.
+     */
+    fun target(scope: DrawScope, opacity: Float, color: Color, colorAt: ((Float) -> Color)?, dx: Float, dy: Float) {
+        targetScope = scope
+        targetOpacity = opacity
+        targetColor = color
+        targetColorAt = colorAt
+        targetDx = dx
+        targetDy = dy
+    }
+
+    /** Lets go of what [target] was given; the draw scope must not outlive its feature. */
+    fun release() {
+        targetScope = null
+        targetColorAt = null
+    }
+
+    /** Forgets anything pending, for a batch whose render ended early and is about to be reused. */
+    fun reset() {
+        release()
+        builder.reset()
+        vertexCount = 0
+        indexCount = 0
+    }
 
     /**
      * Appends [mesh] at the translation ([dx], [dy]), coloured [color] -- or, for `line-gradient`,
@@ -43,6 +96,22 @@ internal class LineBatch {
         dx: Float,
         dy: Float,
     ) {
+        if (color != null) {
+            addMesh(scope, mesh, opacity, color, null, dx, dy)
+        } else {
+            addMesh(scope, mesh, opacity, Color.Unspecified, colorAt!!, dx, dy)
+        }
+    }
+
+    private fun addMesh(
+        scope: DrawScope,
+        mesh: LineMesh,
+        opacity: Float,
+        color: Color,
+        colorAt: ((Float) -> Color)?,
+        dx: Float,
+        dy: Float,
+    ) {
         if (opacity <= 0f || mesh.indexCount == 0) return
         if (vertexCount > 0 && (dx != translateX || dy != translateY)) flush(scope)
         if (vertexCount + mesh.vertexCount > MAX_VERTEX_ARRAY_LENGTH) flush(scope)
@@ -52,7 +121,7 @@ internal class LineBatch {
 
         val base = vertexCount
         mesh.positions.copyInto(positions, destinationOffset = 2 * base, endIndex = 2 * mesh.vertexCount)
-        if (color != null && color.colorSpace == ColorSpaces.Srgb) {
+        if (colorAt == null && color.colorSpace == ColorSpaces.Srgb) {
             /* The flat-colour case, by integer arithmetic: an sRGB `Color` holds 8-bit channels, and
              * `copy(alpha = a).toArgb()` keeps the colour's own bytes and rounds `a * 255` -- which
              * is all this does, without a `Color` per vertex. */
@@ -63,7 +132,7 @@ internal class LineBatch {
             }
         } else {
             for (i in 0 until mesh.vertexCount) {
-                val c = color ?: colorAt!!(mesh.progress[i])
+                val c = if (colorAt != null) colorAt(mesh.progress[i]) else color
                 colors[base + i] = c.copy(alpha = c.alpha * mesh.alphas[i] * opacity).toArgb()
             }
         }
@@ -78,10 +147,10 @@ internal class LineBatch {
     fun flush(scope: DrawScope) {
         if (indexCount > 0) {
             if (translateX == 0f && translateY == 0f) {
-                scope.drawTriangles(positions, colors, vertexCount, indices, indexCount)
+                scope.drawTriangles(positions, colors, vertexCount, indices, indexCount, scratch)
             } else {
                 scope.translate(translateX, translateY) {
-                    drawTriangles(positions, colors, vertexCount, indices, indexCount)
+                    drawTriangles(positions, colors, vertexCount, indices, indexCount, scratch)
                 }
             }
         }
@@ -130,4 +199,37 @@ internal expect fun DrawScope.drawTriangles(
     vertexCount: Int,
     indices: ShortArray,
     indexCount: Int,
+    scratch: TriangleScratch,
 )
+
+/**
+ * What a platform's [drawTriangles] keeps between calls, owned by the [LineBatch] that draws through
+ * it and so used by one render at a time.
+ */
+internal expect class TriangleScratch()
+
+/**
+ * The line batches no render is using.
+ *
+ * A batch grows to the largest style layer it has drawn -- a few hundred kilobytes of vertex arrays
+ * on a dense tile -- and a render used to build one from nothing and drop it. Renders run a few at a
+ * time and one after another for as long as the map moves, so the same few batches now go round.
+ */
+internal class LineBatchPool {
+    private val mutex = Mutex()
+    private val idle = ArrayList<LineBatch>()
+
+    suspend fun take(): LineBatch = mutex.withLock { idle.removeLastOrNull() } ?: LineBatch()
+
+    suspend fun give(batch: LineBatch) {
+        batch.reset()
+        mutex.withLock { if (idle.size < MAX_IDLE) idle.add(batch) }
+    }
+
+    suspend fun clear() = mutex.withLock { idle.clear() }
+
+    private companion object {
+        /** More than this many idle at once means a burst of concurrency that has passed. */
+        const val MAX_IDLE = 8
+    }
+}

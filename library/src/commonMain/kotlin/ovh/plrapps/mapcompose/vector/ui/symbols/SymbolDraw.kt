@@ -31,7 +31,7 @@ internal fun SymbolInstance.drawScaled(
         when (this@drawScaled) {
             is SymbolInstance.Sprite -> {
                 if (iconAlpha <= 0f) return
-                rotate(placement.spritePlacement.angle, pivot = symbolCenter) {
+                rotatedBy(placement.spritePlacement.angle, pivot = symbolCenter) {
                     drawStretchedImage(
                         image = value,
                         sprite = spriteMeta,
@@ -46,7 +46,7 @@ internal fun SymbolInstance.drawScaled(
                 if (textAlpha <= 0f) return
                 // For text, use the corner from textPlacement (if available) or spritePlacement
                 val textAngle = placement.textPlacement?.angle ?: placement.spritePlacement.angle
-                rotate(textAngle, pivot = symbolCenter) {
+                rotatedBy(textAngle, pivot = symbolCenter) {
                     val centerX = (s.width - value.width * textScale) / 2f
                     val centerY = (s.height - value.height * textScale) / 2f
                     value.draw(this, Offset(centerX, centerY), alpha = textAlpha, scale = textScale)
@@ -54,7 +54,7 @@ internal fun SymbolInstance.drawScaled(
             }
 
             is SymbolInstance.SpriteWithText -> {
-                rotate(placement.spritePlacement.angle, pivot = symbolCenter) {
+                rotatedBy(placement.spritePlacement.angle, pivot = symbolCenter) {
                     /* The drawn box is the union of the icon's and the label's, so each is
                      * placed by its own centre within it. Where the label sits -- below the
                      * icon, beside it, or on it -- is entirely [textOffset]'s business. */
@@ -89,6 +89,15 @@ internal fun SymbolInstance.drawScaled(
             }
         }
     }
+}
+
+/**
+ * [rotate], or nothing at all for an angle of zero -- which is every point symbol, and a rotation by
+ * nothing still costs a save, three matrix operations and a restore on the canvas, per symbol, per
+ * frame.
+ */
+private inline fun DrawScope.rotatedBy(degrees: Float, pivot: Offset, block: DrawScope.() -> Unit) {
+    if (degrees == 0f) block() else rotate(degrees, pivot, block)
 }
 
 /** The box a [SymbolInstance.SpriteWithText] occupies once icon and label are scaled. */

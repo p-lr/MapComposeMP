@@ -72,15 +72,45 @@ internal const val MAX_VERTEX_ARRAY_LENGTH = 32767
 
 /** One chunk of tessellated ribbon, in canvas pixels. */
 internal class LineMesh(
-    val positions: FloatArray,
+    positions: FloatArray,
     /** The fragment shader's `alpha` at each vertex. */
-    val alphas: FloatArray,
+    alphas: FloatArray,
     /** `line-progress` in `0..1` at each vertex, for `line-gradient`. */
-    val progress: FloatArray,
-    val indices: IntArray,
-    val vertexCount: Int,
-    val indexCount: Int,
+    progress: FloatArray,
+    indices: IntArray,
+    vertexCount: Int,
+    indexCount: Int,
 ) {
+    var positions = positions
+        private set
+    var alphas = alphas
+        private set
+    var progress = progress
+        private set
+    var indices = indices
+        private set
+    var vertexCount = vertexCount
+        private set
+    var indexCount = indexCount
+        private set
+
+    /** Points this mesh at other data: what lets a [LineMeshBuilder] hand its sink one mesh for good. */
+    fun set(
+        positions: FloatArray,
+        alphas: FloatArray,
+        progress: FloatArray,
+        indices: IntArray,
+        vertexCount: Int,
+        indexCount: Int,
+    ) {
+        this.positions = positions
+        this.alphas = alphas
+        this.progress = progress
+        this.indices = indices
+        this.vertexCount = vertexCount
+        this.indexCount = indexCount
+    }
+
     /** A mesh that owns exactly its own data, for a caller that keeps it past a builder's sink. */
     fun copy(): LineMesh = LineMesh(
         positions = positions.copyOf(vertexCount * 2),
@@ -164,10 +194,29 @@ internal class LineMeshBuilder(private val sink: (LineMesh) -> Unit) {
     private var spokeAlphas = FloatArray(0)
 
     /**
+     * The cross-sections already worked out, most recently made last and replaced in turn.
+     *
+     * A layer with a data-driven `line-width` alternates between a handful of them, feature by
+     * feature, and the next style layer over the same roads asks for most of them again.
+     */
+    private val crossSections = arrayOfNulls<CrossSection>(CROSS_SECTION_MEMO)
+    private var nextCrossSection = 0
+
+    private class CrossSection(
+        val outset: Float,
+        val inset: Float,
+        val blur2: Float,
+        val rings: FloatArray,
+        val ringAlphas: FloatArray,
+        val spokes: FloatArray,
+        val spokeAlphas: FloatArray,
+    )
+
+    /**
      * Sets the cross-section and progress range the following [addLine] calls tessellate with.
      *
      * The rings are a function of the first three arguments alone, and a layer's features usually
-     * share them, so they are only recomputed when one of those changes.
+     * share them, so they are only looked up when one of those changes.
      */
     fun configure(
         outset: Float,
@@ -181,14 +230,40 @@ internal class LineMeshBuilder(private val sink: (LineMesh) -> Unit) {
             this.outset = outset
             this.inset = inset
             this.blur2 = blur2
-            rings = alphaRings(outset, inset, blur2)
-            ringAlphas = FloatArray(rings.size) { alphaAt(abs(rings[it])) }
-            spokes = rings.filter { it >= 0f }.toFloatArray()
-            spokeAlphas = FloatArray(spokes.size) { alphaAt(spokes[it]) }
+            val section = crossSection(outset, inset, blur2)
+            rings = section.rings
+            ringAlphas = section.ringAlphas
+            spokes = section.spokes
+            spokeAlphas = section.spokeAlphas
         }
         this.offset = offset
         this.startDistance = startDistance
         this.totalLength = totalLength
+    }
+
+    private fun crossSection(outset: Float, inset: Float, blur2: Float): CrossSection {
+        for (section in crossSections) {
+            section ?: break
+            if (section.outset == outset && section.inset == inset && section.blur2 == blur2) return section
+        }
+        val rings = alphaRings(outset, inset, blur2)
+        var spokeCount = 0
+        for (ring in rings) if (ring >= 0f) spokeCount++
+        val spokes = FloatArray(spokeCount)
+        var next = 0
+        for (ring in rings) if (ring >= 0f) spokes[next++] = ring
+        return CrossSection(
+            outset = outset,
+            inset = inset,
+            blur2 = blur2,
+            rings = rings,
+            ringAlphas = FloatArray(rings.size) { alphaAt(abs(rings[it])) },
+            spokes = spokes,
+            spokeAlphas = FloatArray(spokes.size) { alphaAt(spokes[it]) },
+        ).also {
+            crossSections[nextCrossSection] = it
+            nextCrossSection = (nextCrossSection + 1) % CROSS_SECTION_MEMO
+        }
     }
 
     /**
@@ -642,19 +717,21 @@ internal class LineMeshBuilder(private val sink: (LineMesh) -> Unit) {
         }
     }
 
+    /** The one mesh the sink is ever handed, pointed at the chunk in progress by [flush]. */
+    private val chunk = LineMesh(positions, alphas, progress, indices, 0, 0)
+
     private fun flush() {
         if (vertexCount > 0 && indexCount > 0) {
-            sink(
-                LineMesh(
-                    positions = positions,
-                    alphas = alphas,
-                    progress = progress,
-                    indices = indices,
-                    vertexCount = vertexCount,
-                    indexCount = indexCount,
-                )
-            )
+            chunk.set(positions, alphas, progress, indices, vertexCount, indexCount)
+            sink(chunk)
         }
+        vertexCount = 0
+        indexCount = 0
+        breakStrip()
+    }
+
+    /** Drops the chunk in progress without handing it on, for a builder abandoned mid-feature. */
+    fun reset() {
         vertexCount = 0
         indexCount = 0
         breakStrip()
@@ -676,6 +753,9 @@ internal class LineMeshBuilder(private val sink: (LineMesh) -> Unit) {
     private companion object {
         /** An alpha below this rounds to nothing in an 8-bit channel. */
         const val ALPHA_EPSILON = 1f / 512f
+
+        /** How many cross-sections a builder remembers; a style's line widths per zoom are few. */
+        const val CROSS_SECTION_MEMO = 16
     }
 
     private fun putTriangle(a: Int, b: Int, c: Int) {

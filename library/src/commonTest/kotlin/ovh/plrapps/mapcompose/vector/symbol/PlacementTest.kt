@@ -311,6 +311,22 @@ class PlacementTest {
     }
 
     @Test
+    fun `a symbol whose box reaches into the padded viewport still competes`() {
+        /* The fixture viewport is 800 px wide over a 1000 px world centred on 0.5, so the padded
+         * grid ends at 900 px, which is x = 1.0. Both boxes are 40 px wide: the first one's left
+         * edge is 5 px inside the grid although its anchor is outside, the second's is 5 px out. */
+        val reaching = SymbolFixtures.bucket(
+            listOf(SymbolFixtures.textInstance("reaching", global = Point(1.015, 0.5), width = 40f))
+        )
+        val beyond = SymbolFixtures.bucket(
+            listOf(SymbolFixtures.textInstance("beyond", global = Point(1.025, 0.5), width = 40f))
+        )
+
+        assertContentEquals(listOf("reaching"), placedTexts(place(listOf(reaching))))
+        assertTrue(placedTexts(place(listOf(beyond))).isEmpty())
+    }
+
+    @Test
     fun `collision detection off places everything`() {
         val bucket = SymbolFixtures.bucket(
             listOf(

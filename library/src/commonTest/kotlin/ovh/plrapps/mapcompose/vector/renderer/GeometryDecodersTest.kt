@@ -165,4 +165,85 @@ class GeometryDecodersTest {
         assertFalse(isInsideTile(256.0, 10.0, 256))
         assertFalse(isInsideTile(10.0, 256.0, 256))
     }
+
+    /* The array decoders read the command stream themselves; the list decoders below still go
+     * through `decodePolygonRings` and `classifyRings`, so they say what the arrays must hold. */
+
+    private fun List<FloatArray>.asPairs(): List<List<Pair<Float, Float>>> =
+        map { ring -> List(ring.size / 2) { ring[2 * it] to ring[2 * it + 1] } }
+
+    private val ringCases = listOf(
+        // A plain square.
+        Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048)),
+        // A square with a hole, then a second polygon.
+        Mvt.polygonFeature(
+            Mvt.clockwiseRing(0, 0, 2048, 2048),
+            Mvt.counterClockwiseRing(512, 512, 1024, 1024),
+            Mvt.clockwiseRing(3000, 3000, 4000, 4000),
+        ),
+        // A ring of no area between two real ones, which grouping drops and a fill keeps.
+        Mvt.polygonFeature(
+            Mvt.clockwiseRing(0, 0, 2048, 2048),
+            listOf(100 to 100, 200 to 100, 300 to 100),
+            Mvt.counterClockwiseRing(512, 512, 1024, 1024),
+        ),
+        // A lone ring of no area, which is kept either way.
+        Mvt.polygonFeature(listOf(100 to 100, 200 to 100, 300 to 100)),
+        // Coordinates outside the tile and an odd extent, for the arithmetic.
+        Mvt.polygonFeature(listOf(-77 to -13, 4133 to 5, 4101 to 4199, 3 to 4000)),
+    )
+
+    @Test
+    fun `ring arrays hold what the list decoder yields ring by ring`() {
+        for (feature in ringCases) {
+            for (extent in listOf(4096, 4000)) {
+                assertEquals(
+                    decoders.decodePolygon(feature.geometry, extent = extent, canvasSize = 771),
+                    decoders.decodePolygonRingArraysUnclassified(feature.geometry, extent = extent, canvasSize = 771)
+                        .asPairs(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `classified ring arrays hold the grouped polygons flattened`() {
+        for (feature in ringCases) {
+            for (extent in listOf(4096, 4000)) {
+                assertEquals(
+                    decoders.decodePolygons(feature.geometry, extent = extent, canvasSize = 771).flatten(),
+                    decoders.decodePolygonRingArrays(feature.geometry, extent = extent, canvasSize = 771).asPairs(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `a ring whose stream is cut short or never closed is still a closed array`() {
+        val whole = Mvt.polygonFeature(Mvt.clockwiseRing(0, 0, 2048, 2048)).geometry
+        for (length in 1..whole.size) {
+            val cut = whole.copyOf(length)
+            assertEquals(
+                decoders.decodePolygon(cut, extent = 4096, canvasSize = 256),
+                decoders.decodePolygonRingArraysUnclassified(cut, extent = 4096, canvasSize = 256).asPairs(),
+                "cut at $length",
+            )
+        }
+    }
+
+    @Test
+    fun `line arrays hold what the list decoder yields`() {
+        val feature = Mvt.lineFeature(
+            listOf(0 to 0, 2048 to 0, 2048 to 2048),
+            listOf(-5 to 17, 4100 to 3),
+        )
+        for (length in 1..feature.geometry.size) {
+            val cut = feature.geometry.copyOf(length)
+            assertEquals(
+                decoders.decodeLine(cut, extent = 4096, canvasSize = 771),
+                decoders.decodeLineArrays(cut, extent = 4096, canvasSize = 771).asPairs(),
+                "cut at $length",
+            )
+        }
+    }
 }

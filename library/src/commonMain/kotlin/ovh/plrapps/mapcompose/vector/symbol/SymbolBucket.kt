@@ -75,6 +75,13 @@ internal class SymbolBucket(
     val key: String get() = "$sourceName-${ref.z}-${ref.x}-${ref.y}-s${ref.span}-L$layerIndex"
 
     /**
+     * The cross-tile index's slot for this bucket: one per style layer per canonical tile, the
+     * `span` deliberately left out -- see `VectorRasterizer.heldBuckets`. Built once, because the
+     * placement request path asks for it for every bucket on every viewport update.
+     */
+    val indexSlot: String = "$layerId/${ref.z}/${ref.x}/${ref.y}"
+
+    /**
      * Upstream's `bucketInstanceId`, assigned by [CrossTileSymbolIndex] the first time it sees this
      * bucket. It is what tells a *rebuilt* bucket from the one already indexed at the same tile, and
      * what [CrossTileSymbolIndex] retires a stale index entry by.

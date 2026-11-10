@@ -189,7 +189,7 @@ class GeometryDecoders {
 
         fun finishLine() {
             val line = current
-            if (line != null && count > 0) lines.add(line.copyOf(2 * count))
+            if (line != null && count > 0) lines.add(if (line.size == 2 * count) line else line.copyOf(2 * count))
             current = null
             count = 0
         }
@@ -202,7 +202,10 @@ class GeometryDecoders {
                 1 -> { // MoveTo
                     if (repeat < 1) continue
                     finishLine()
-                    current = FloatArray(16)
+                    // Sized for the usual line: this MoveTo and the LineTo that follows it.
+                    val next = i + 2 * repeat
+                    val following = if (next < geometry.size && (geometry[next] and 0x7) == 2) geometry[next] shr 3 else 0
+                    current = FloatArray(2 * (repeat.coerceAtMost(geometry.size) + following.coerceIn(0, geometry.size)))
                     for (j in 0 until repeat) {
                         if (i + 1 >= geometry.size) break
                         x += decodeZigZag(geometry[i++])
@@ -232,26 +235,15 @@ class GeometryDecoders {
     /**
      * [decodePolygons], flattened -- every ring of every polygon, in [classifyRings]' order -- as
      * `x, y` interleaved arrays, which is what a `line` layer strokes a polygon's outline from.
+     *
+     * Flattened, all [classifyRings] does to the rings is drop the ones of no area, unless there
+     * is only one; so that is what this does, without building the groups.
      */
     fun decodePolygonRingArrays(
         geometry: IntArray,
         extent: Int,
         canvasSize: Int
-    ): List<FloatArray> {
-        val scale = canvasSize.toFloat() / extent
-        val out = ArrayList<FloatArray>()
-        for (polygon in classifyRings(decodePolygonRings(geometry))) {
-            for (ring in polygon) {
-                out += FloatArray(ring.size * 2).also { array ->
-                    for ((index, point) in ring.withIndex()) {
-                        array[2 * index] = (point.x * scale).toFloat()
-                        array[2 * index + 1] = (point.y * scale).toFloat()
-                    }
-                }
-            }
-        }
-        return out
-    }
+    ): List<FloatArray> = decodeRingArrays(geometry, canvasSize.toFloat() / extent, dropEmptyRings = true)
 
     /**
      * Every ring of a polygon feature in tile order -- what [decodePolygon] returns -- as `x, y`
@@ -262,16 +254,108 @@ class GeometryDecoders {
         geometry: IntArray,
         extent: Int,
         canvasSize: Int
-    ): List<FloatArray> {
-        val scale = canvasSize.toFloat() / extent
-        return decodePolygonRings(geometry).map { ring ->
-            FloatArray(ring.size * 2).also { array ->
-                for ((index, point) in ring.withIndex()) {
-                    array[2 * index] = (point.x * scale).toFloat()
-                    array[2 * index + 1] = (point.y * scale).toFloat()
+    ): List<FloatArray> = decodeRingArrays(geometry, canvasSize.toFloat() / extent, dropEmptyRings = false)
+
+    /**
+     * [decodePolygonRings] straight into scaled `x, y` arrays, one per closed ring.
+     *
+     * It walks the command stream exactly as [decodePolygonRings] does and yields the same numbers,
+     * but a ring is one array, sized from the stream before it is filled, where it used to be a
+     * list of a boxed point per vertex that was then copied into the array -- for every polygon of
+     * every tile, which made it the largest allocation of a tile's decode.
+     *
+     * A ring's signed area is summed as it is read, in tile units and in [classifyRings]' own
+     * order of operations, so that [dropEmptyRings] drops precisely the rings that would.
+     */
+    private fun decodeRingArrays(geometry: IntArray, scale: Float, dropEmptyRings: Boolean): List<FloatArray> {
+        val rings = ArrayList<FloatArray>(1)
+        /* The rings of some area, kept apart from the first ring without any on. */
+        var solid: ArrayList<FloatArray>? = null
+        var x = 0
+        var y = 0
+        var i = 0
+        var current: FloatArray? = null
+        var count = 0
+        var firstX = 0
+        var firstY = 0
+        var lastX = 0
+        var lastY = 0
+        var area = 0.0
+
+        fun push(px: Int, py: Int) {
+            var ring = current!!
+            if (2 * count + 2 > ring.size) {
+                ring = ring.copyOf(ring.size * 2)
+                current = ring
+            }
+            ring[2 * count] = (px.toDouble() * scale).toFloat()
+            ring[2 * count + 1] = (py.toDouble() * scale).toFloat()
+            if (count == 0) {
+                firstX = px
+                firstY = py
+            } else {
+                area += (lastX - px).toDouble() * (py + lastY).toDouble()
+            }
+            lastX = px
+            lastY = py
+            count++
+        }
+
+        fun flush() {
+            if (current != null && count > 0) {
+                if (firstX != lastX || firstY != lastY) push(firstX, firstY)
+                val ring = current!!.let { if (it.size == 2 * count) it else it.copyOf(2 * count) }
+                if (dropEmptyRings && area == 0.0) {
+                    if (solid == null) solid = ArrayList(rings)
+                } else {
+                    solid?.add(ring)
                 }
+                rings.add(ring)
+            }
+            current = null
+            count = 0
+            area = 0.0
+        }
+
+        while (i < geometry.size) {
+            val cmdInteger = geometry[i++]
+            val command = cmdInteger and 0x7
+            val repeat = cmdInteger shr 3
+            when (command) {
+                1 -> { // MoveTo -- starts a new ring
+                    if (repeat < 1) continue
+                    flush()
+                    /* Sized for the usual ring: this MoveTo, the LineTo that follows it, and the
+                     * vertex that closes it. Anything else grows or is trimmed. */
+                    val next = i + 2 * repeat
+                    val following = if (next < geometry.size && (geometry[next] and 0x7) == 2) geometry[next] shr 3 else 0
+                    current = FloatArray(2 * (repeat.coerceAtMost(geometry.size) + following.coerceIn(0, geometry.size) + 1))
+                    for (j in 0 until repeat) {
+                        if (i + 1 >= geometry.size) break
+                        x += decodeZigZag(geometry[i++])
+                        y += decodeZigZag(geometry[i++])
+                        push(x, y)
+                    }
+                }
+
+                2 -> { // LineTo
+                    if (current == null) break
+                    for (j in 0 until repeat) {
+                        if (i + 1 >= geometry.size) break
+                        x += decodeZigZag(geometry[i++])
+                        y += decodeZigZag(geometry[i++])
+                        push(x, y)
+                    }
+                }
+
+                7 -> flush() // ClosePath
+                else -> break
             }
         }
+        flush()
+
+        // A lone ring is kept whatever its area, as `classifyRings` keeps it.
+        return if (rings.size <= 1) rings else solid ?: rings
     }
 
     fun createLineStringPath(points: List<Pair<Float, Float>>): Path {

@@ -143,6 +143,9 @@ class GlyphManager(
         if (ranges.isEmpty()) return emptyMap()
 
         val stack = fontStack.joinToString(",")
+        /* Nearly every label lies in one range, and then the cached range is the answer as it
+         * stands: merging it into a map of its own copied 256 entries per label shaped. */
+        if (ranges.size == 1) return rangeGlyphs(stack, ranges[0])
         val out = mutableMapOf<Int, Glyph>()
         for (range in ranges) {
             out += rangeGlyphs(stack, range)

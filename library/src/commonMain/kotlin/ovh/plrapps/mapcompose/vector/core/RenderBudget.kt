@@ -89,4 +89,23 @@ internal expect fun defaultCacheBudgetBytes(): Long
  */
 internal expect fun defaultMaxConcurrentRenders(): Int
 
+/**
+ * What one decoded `Tile.Feature` costs beyond its integers: the object and the headers of its two
+ * arrays. Calibrated on the JVM at 80; Kotlin/Native's object layout makes it about 135, measured in
+ * a clean iOS simulator test heap over 76 swisstopo tiles (141 MB live against 107 MB estimated at 80).
+ */
+internal expect fun decodedFeatureBytes(): Long
+
+/**
+ * The fixed cost of one polygon's fill `Path` in a `TileGeometry`, on top of its coordinates.
+ *
+ * On iOS a materialized Compose `Path` is about 650 bytes of Kotlin heap -- the skiko wrapper, its
+ * native peer's cleaner and the snapshot `materialize` forces -- plus about 900 bytes of native Skia
+ * path, whatever its size. Measured in a clean test heap over 76 swisstopo tiles, their geometry
+ * came to 638 MB against the 213 MB the JVM-calibrated formula gave, so the geometry cache held
+ * three times its share; 1400 per polygon closes the gap (649 MB). The other platforms keep 0
+ * because nobody has measured them there.
+ */
+internal expect fun fillPathBytes(): Long
+
 internal const val MB = 1024L * 1024L

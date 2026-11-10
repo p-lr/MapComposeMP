@@ -1335,6 +1335,48 @@ every 16 style layers, and a tile abandoned that way produces no output `Tile` a
 would sit on the canvas as a blank until the next eviction -- so it is simply requested again if it
 comes back into view. A pinch across a level used to render every tile it had asked for to the end.
 
+## What keeps a frame and a tile cheap
+
+None of this changes a pixel -- every item was checked against golden hashes of 216 real tiles -- but
+each is a rule a later change can quietly break.
+
+- **Feature classes.** Features of one tile layer with the same geometry type and the same tags are
+  one *class* (`Tile.Layer.featureClasses`). A layer filter, a line or fill paint value and the
+  symbol layout's filter verdict are evaluated once per class and reused for every member, so an
+  `EvalFeature` is built only for a feature something actually reads (`FeatureViews` in
+  `TileRenderer`). Only an expression `isPropertyDependentOnly` accepts takes that path; one that
+  reads the geometry, the id or the tile is still evaluated per feature.
+- **Line meshes are pooled.** A `LineBatch` owns its `LineMeshBuilder` and its `TriangleScratch`
+  (the size-classed arrays Skia's `drawVertices` is handed), and `VectorRasterizer` passes batches
+  from one render to the next through `LineBatchPool`. A pooled batch keeps arrays as large as the
+  largest layer it drew; `trimMemory` drops the pool.
+- **Fills share one `Paint`** per layer; only a pattern fill gets its own.
+- **Placement runs on a dispatcher of its own** (`placementDispatcher`, parallelism 1), not queued
+  behind the tile renders on the shared pool, and its request path does nothing while the bucket list is unchanged
+  (`settledIdentityBuckets`). Candidates outside the padded collision grid are rejected before any
+  collision shape is built, the placement order is one list sorted once, and decisions, fades and the
+  cross-tile index's ids live in boxing-free `LongMap` / `LongSet`, presized from the previous cycle.
+- **The draw pass allocates nothing per symbol**: line labels are walked over reusable float arrays,
+  and each symbol is drawn through one canvas transform, none for a zero rotation.
+
+**The decoded caches are weighed per platform.** `estimatedTileBytes` and `estimatedGeometryBytes`
+take two constants from `RenderBudget.<platform>.kt`: what a decoded `Tile.Feature` costs beyond its
+integers (`decodedFeatureBytes`), and the fixed cost of one polygon's fill `Path`
+(`fillPathBytes`). On the JVM the original calibration holds. On iOS it did not: in a clean test
+heap over 76 swisstopo tiles a feature costs about 135 bytes rather than 80, and a materialized
+Compose `Path` about 1.5 KB whatever its size -- 650 bytes of Kotlin heap plus the native Skia path --
+so the geometry cache held three times its budget. Both constants are measured on iOS only; the other
+platforms keep the JVM figures and no path term.
+
+Measuring memory *inside* a running iOS app is a trap. `GC.lastGCInfo`'s heap figure tracks occupied
+pages rather than live bytes once the heap is fragmented: decoding 86 tiles there -- at least 21 MB
+of integer arrays -- grew it by 8 MB, because the new objects filled free slots in pages already
+counted, and clearing a cache "frees" every page it was the last tenant of, which can be several
+times its own size. Attribute sizes in a test heap (an `iosTest` that decodes real tiles and calls
+`GC.collect()` between steps, with nothing left in the test function's own frame -- a temporary there
+pins its objects); use the running app only for before/after footprints, and expect run-to-run
+differences of tens of megabytes from where the gesture leaves the map.
+
 ## Testing
 
 Two source sets, split by what needs a graphics backend:

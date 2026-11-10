@@ -13,6 +13,7 @@ import ovh.plrapps.mapcompose.vector.spec.style.expression.GlobalProperties
 import ovh.plrapps.mapcompose.vector.spec.style.expression.StylePropertyExpression
 import ovh.plrapps.mapcompose.vector.spec.style.expression.definitions.Interpolate
 import ovh.plrapps.mapcompose.vector.spec.style.expression.isExpression
+import ovh.plrapps.mapcompose.vector.spec.style.expression.isPropertyDependentOnly
 import ovh.plrapps.mapcompose.vector.spec.style.expression.jsonToValue
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.ColorArray
 import ovh.plrapps.mapcompose.vector.spec.style.expression.types.Formatted
@@ -41,7 +42,12 @@ sealed class ExpressionOrValue<T> {
     data class Expression<T>(
         val expression: StylePropertyExpression,
         override val source: String = "",
-    ) : ExpressionOrValue<T>()
+    ) : ExpressionOrValue<T>() {
+        /** See [isPropertyDependentOnly]; worked out once, the tree never changes. */
+        internal val propertyDependentOnly: Boolean by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            isPropertyDependentOnly(expression.styleExpression.expression)
+        }
+    }
 
     /**
      * A property whose expression failed to compile.
@@ -97,6 +103,13 @@ sealed class ExpressionOrValue<T> {
         }
     }
 }
+
+/**
+ * Whether this property's value for a feature follows from the feature's properties and geometry
+ * type alone -- trivially so for a constant or an absent one. See [isPropertyDependentOnly].
+ */
+internal fun ExpressionOrValue<*>?.followsFeatureClass(): Boolean =
+    this !is ExpressionOrValue.Expression || propertyDependentOnly
 
 // region typed accessors
 //

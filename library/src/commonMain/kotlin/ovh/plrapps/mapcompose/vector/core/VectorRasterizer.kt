@@ -23,6 +23,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +44,8 @@ import ovh.plrapps.mapcompose.vector.renderer.NeighbourTile
 import ovh.plrapps.mapcompose.vector.renderer.RasterTileImage
 import ovh.plrapps.mapcompose.vector.renderer.TileGeometry
 import ovh.plrapps.mapcompose.vector.renderer.TileRenderer
+import ovh.plrapps.mapcompose.vector.renderer.utils.LineBatch
+import ovh.plrapps.mapcompose.vector.renderer.utils.LineBatchPool
 import ovh.plrapps.mapcompose.vector.renderer.utils.MVTViewport
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.symbol.CrossTileSymbolIndex
@@ -106,6 +109,9 @@ class VectorRasterizer(
         weigher = { it.estimatedBytes },
     )
     private val geometryCacheMutex = Mutex()
+
+    /** The line mesh arrays of renders past, for the renders to come. See [LineBatchPool]. */
+    private val lineBatches = LineBatchPool()
     // Separate mutexes per cache eliminate cross-cache contention when tiles render concurrently.
     private val byteCacheMutex = Mutex()
     private val tileCacheMutex = Mutex()
@@ -264,6 +270,7 @@ class VectorRasterizer(
         actualZoom: Double,
         x: Int,
         y: Int,
+        lineBatch: LineBatch,
         superSampling: Int = 1,
         isWanted: () -> Boolean = { true },
     ): ImageBitmap? {
@@ -316,7 +323,7 @@ class VectorRasterizer(
             buildDem(sourceName, tile.ref)?.let { DemTile(dem = it, ref = tile.ref) }
         }
 
-        val tileRenderer = TileRenderer(configuration = configuration)
+        val tileRenderer = TileRenderer(configuration = configuration, lineBatch = lineBatch)
 
         /* Every vector and geojson tile's geometry at the size this render decodes it at -- shared
          * through [geometryCache] with the other map tiles an overzoomed ancestor covers. */
@@ -410,7 +417,7 @@ class VectorRasterizer(
         return geometryCacheMutex.withLock {
             geometryCache.get(key) ?: TileGeometry(
                 geometrySize = geometrySize,
-                estimatedBytes = estimatedTileBytes(tile) * GEOMETRY_BYTES_PER_TILE_BYTE,
+                estimatedBytes = estimatedGeometryBytes(tile),
             ).also { geometryCache.put(key, it) }
         }
     }
@@ -714,17 +721,23 @@ class VectorRasterizer(
 
             VectorStats.bitmapAllocated(renderBytes)
             val rendered = VectorStats.measure(VectorStats.Phase.RENDER) {
-                renderTile(
-                    fetched = fetched,
-                    refs = refs,
-                    zoom = zoom,
-                    tileSize = tileSize,
-                    actualZoom = zoom,
-                    x = x,
-                    y = y,
-                    superSampling = superSampling,
-                    isWanted = isWanted,
-                )
+                val lineBatch = lineBatches.take()
+                try {
+                    renderTile(
+                        fetched = fetched,
+                        refs = refs,
+                        zoom = zoom,
+                        tileSize = tileSize,
+                        actualZoom = zoom,
+                        x = x,
+                        y = y,
+                        lineBatch = lineBatch,
+                        superSampling = superSampling,
+                        isWanted = isWanted,
+                    )
+                } finally {
+                    withContext(NonCancellable) { lineBatches.give(lineBatch) }
+                }
             }
             if (rendered == null) {
                 VectorStats.bitmapReleased(renderBytes)
@@ -844,32 +857,69 @@ class VectorRasterizer(
      */
     private val heldBuckets = mutableMapOf<String, HeldBucket>()
 
-    private class HeldBucket(val bucket: SymbolBucket, var lastSeen: Long)
+    private class HeldBucket(val bucket: SymbolBucket, var lastSeen: Long, var present: Boolean = true)
 
-    /** The cross-tile index's entry key for [bucket]: one per style layer per canonical tile. */
-    private fun indexSlotOf(bucket: SymbolBucket): String =
-        "${bucket.layerId}/${bucket.ref.z}/${bucket.ref.x}/${bucket.ref.y}"
+    /**
+     * The list the identity pass last ran over, when that pass held nothing beyond it -- i.e. when
+     * running it again over the same list would change nothing. `place` is asked on every viewport
+     * update, sixty times a second through a gesture, while the bucket list only changes when a
+     * layout pass publishes; walking every bucket of every symbol layer through [heldBuckets] and
+     * the cross-tile index each time was the larger part of what a deferred cycle cost.
+     */
+    private var settledIdentityBuckets: List<SymbolBucket>? = null
+
+    /** When [settledIdentityBuckets] was last seen, which is when each of its buckets was. */
+    private var settledIdentitySeenAt = 0L
 
     /** See [heldBuckets]: [buckets] plus whatever left it less than [SYMBOL_BUCKET_HOLD_MS] ago. */
     private fun heldForSymbolFade(buckets: List<SymbolBucket>, now: Long): List<SymbolBucket> {
-        val present = mutableSetOf<String>()
+        /* The calls skipped since the last full pass saw every bucket that pass saw. */
+        for (held in heldBuckets.values) {
+            if (held.present && held.lastSeen < settledIdentitySeenAt) held.lastSeen = settledIdentitySeenAt
+            held.present = false
+        }
         for (bucket in buckets) {
-            val slot = indexSlotOf(bucket)
-            present += slot
+            val slot = bucket.indexSlot
             val held = heldBuckets[slot]
-            if (held != null && held.bucket === bucket) held.lastSeen = now
-            else heldBuckets[slot] = HeldBucket(bucket, now)
+            if (held != null && held.bucket === bucket) {
+                held.lastSeen = now
+                held.present = true
+            } else {
+                heldBuckets[slot] = HeldBucket(bucket, now)
+            }
         }
 
-        val extra = mutableListOf<SymbolBucket>()
-        val entries = heldBuckets.entries.iterator()
+        var extra: MutableList<SymbolBucket>? = null
+        val entries = heldBuckets.values.iterator()
         while (entries.hasNext()) {
-            val (slot, held) = entries.next()
-            if (slot in present) continue
-            if (now - held.lastSeen >= SYMBOL_BUCKET_HOLD_MS) entries.remove() else extra += held.bucket
+            val held = entries.next()
+            if (held.present) continue
+            if (now - held.lastSeen >= SYMBOL_BUCKET_HOLD_MS) {
+                entries.remove()
+            } else {
+                (extra ?: mutableListOf<SymbolBucket>().also { extra = it }) += held.bucket
+            }
         }
-        return if (extra.isEmpty()) buckets else buckets + extra
+        settledIdentityBuckets = if (extra == null) buckets else null
+        settledIdentitySeenAt = now
+        return extra?.let { buckets + it } ?: buckets
     }
+
+    /**
+     * Where the placement pass runs: a thread of its own, out of the pool the tiles are rasterized
+     * on.
+     *
+     * It used to share `Dispatchers.Default` with them. Core's tile workers rasterize there, up to
+     * one per core but one, and the layout pass takes the one that is left -- so while tiles were
+     * loading, which is exactly while the map is moving, a placement request sat in the queue until
+     * a tile finished: a quarter of a second and more behind the viewport it was asked for, measured
+     * at over a second on iOS. Labels then lagged every gesture by that much. A placement is tens
+     * of milliseconds of work and wants to start *now*; one more runnable thread costs the
+     * rasterizers a sliver of a core and lets the scheduler, not a queue, decide.
+     *
+     * Limited to one, which is also what confines everything `place` mutates.
+     */
+    private val placementDispatcher = IODispatcher.limitedParallelism(1)
 
     /** The previous cycle's placement, which seeds the fades and the variable-anchor choices. */
     private var previousPlacement: Placement? = null
@@ -1101,6 +1151,7 @@ class VectorRasterizer(
         demCacheMutex.withLock { demCache.clear() }
         pathCacheMutex.withLock { pathCache.clear() }
         geometryCacheMutex.withLock { geometryCache.clear() }
+        lineBatches.clear()
         if (critical) byteCacheMutex.withLock { byteCache.clear() }
 
         val live = lastPublished
@@ -1143,19 +1194,25 @@ class VectorRasterizer(
         buckets: List<SymbolBucket>,
         viewportInfo: ViewportInfo,
         now: Long,
-    ): PlacementOutcome = withContext(Dispatchers.Default) {
+    ): PlacementOutcome = withContext(placementDispatcher) {
         /* Identities first, as upstream does before the scheduling decision: fading and the
          * variable-anchor memory are both keyed on them, a bucket that has not changed keeps the ids
          * it already has, and whether any changed is half of `placementInputsChanged`. */
         var symbolBucketsChanged = false
         val density = densityState.value?.density ?: 1f
-        for ((layerId, layerBuckets) in heldForSymbolFade(buckets, now).groupBy { it.layerId }) {
-            if (crossTileIndex.addLayer(layerId, layerBuckets, density)) symbolBucketsChanged = true
+        if (buckets === settledIdentityBuckets) {
+            /* Same list, nothing held beyond it: every bucket already has its ids and the index
+             * would report no change. Only the time it was seen moves on. */
+            settledIdentitySeenAt = now
+        } else {
+            for ((layerId, layerBuckets) in heldForSymbolFade(buckets, now).groupBy { it.layerId }) {
+                if (crossTileIndex.addLayer(layerId, layerBuckets, density)) symbolBucketsChanged = true
+            }
+            /* Pruned against the *style*, which is what upstream's `pruneUnusedLayers` is for -- a
+             * layer the style no longer has. Pruning against this cycle's buckets instead meant one
+             * call whose list happened to be short, or empty, wiped every identity on the map. */
+            crossTileIndex.pruneUnusedLayers(symbolLayerIds)
         }
-        /* Pruned against the *style*, which is what upstream's `pruneUnusedLayers` is for -- a layer
-         * the style no longer has. Pruning against this cycle's buckets instead meant one call whose
-         * list happened to be short, or empty, wiped every identity on the map. */
-        crossTileIndex.pruneUnusedLayers(symbolLayerIds)
 
         val previous = previousPlacement
 
@@ -1177,6 +1234,7 @@ class VectorRasterizer(
                 viewportInfo = viewportInfo,
                 zoom = viewportInfo.fractionalZoom,
                 collisionDetectionEnabled = configuration.collisionDetectionEnabled,
+                expectedSymbols = previous?.placements?.size ?: 16,
             )
             val result = VectorStats.measure(VectorStats.Phase.PLACEMENT) {
                 placement.placeBuckets(order, previous)
@@ -1344,7 +1402,8 @@ private const val GEOMETRY_BYTES_PER_TILE_BYTE = 2L
 
 /**
  * Roughly how many bytes a decoded [Tile] keeps alive: its geometry and tag integers, which are
- * `IntArray`s, plus a feature object and two array headers per feature.
+ * `IntArray`s, plus a feature object and two array headers per feature -- [decodedFeatureBytes],
+ * the one part that differs by platform.
  */
 internal fun estimatedTileBytes(tile: Tile): Long {
     var ints = 0L
@@ -1353,8 +1412,23 @@ internal fun estimatedTileBytes(tile: Tile): Long {
         features += layer.features.size
         for (feature in layer.features) ints += feature.geometry.size + feature.tags.size
     }
-    return ints * BYTES_PER_DECODED_INT + features * BYTES_PER_DECODED_FEATURE
+    return ints * BYTES_PER_DECODED_INT + features * decodedFeatureBytes()
+}
+
+/**
+ * Roughly how many bytes a [TileGeometry] for [tile] keeps alive once decoded: the coordinates, at
+ * [GEOMETRY_BYTES_PER_TILE_BYTE] times the integers they came from, plus a fixed cost for every
+ * polygon's fill `Path` ([fillPathBytes]), which does not scale with its vertices.
+ *
+ * An upper bound, because a [TileGeometry] decodes a tile layer only when a style layer draws it: an
+ * over-weighed entry costs a re-decode, where an under-weighed one is memory nothing accounted for.
+ */
+internal fun estimatedGeometryBytes(tile: Tile): Long {
+    var polygons = 0L
+    for (layer in tile.layers) {
+        for (feature in layer.features) if (feature.type == Tile.GeomType.POLYGON) polygons++
+    }
+    return estimatedTileBytes(tile) * GEOMETRY_BYTES_PER_TILE_BYTE + polygons * fillPathBytes()
 }
 
 private const val BYTES_PER_DECODED_INT = 4L
-private const val BYTES_PER_DECODED_FEATURE = 80L

@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import ovh.plrapps.mapcompose.vector.data.SpriteManager
 import ovh.plrapps.mapcompose.vector.renderer.utils.PatternBrushCache
 import ovh.plrapps.mapcompose.vector.renderer.utils.SHARP_CORNER_OFFSET
+import ovh.plrapps.mapcompose.vector.renderer.utils.DashPattern
 import ovh.plrapps.mapcompose.vector.renderer.utils.blur2
 import ovh.plrapps.mapcompose.vector.renderer.utils.dashPattern
 import ovh.plrapps.mapcompose.vector.renderer.utils.dashRuns
@@ -18,10 +19,12 @@ import ovh.plrapps.mapcompose.vector.renderer.utils.LineMeshBuilder
 import ovh.plrapps.mapcompose.vector.renderer.utils.lineInset
 import ovh.plrapps.mapcompose.vector.renderer.utils.lineOutset
 import ovh.plrapps.mapcompose.vector.renderer.utils.withTranslate
+import ovh.plrapps.mapcompose.vector.spec.FeatureClasses
 import ovh.plrapps.mapcompose.vector.spec.Tile
 import ovh.plrapps.mapcompose.vector.spec.style.LineLayer
 import ovh.plrapps.mapcompose.vector.spec.style.StyleSpecDefaults
 import ovh.plrapps.mapcompose.vector.spec.style.expression.EvalFeature
+import ovh.plrapps.mapcompose.vector.spec.style.props.followsFeatureClass
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsColor
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsDoubleList
 import ovh.plrapps.mapcompose.vector.spec.style.props.processAsFloat
@@ -75,18 +78,9 @@ class LineLayerPainter internal constructor(
     ) : this(spriteManager, patternBrushes, LineBatch())
 
 
-    /* What the builder's sink colours the chunk it is handed with: the feature being tessellated.
-     * The builder is finished at the end of every feature, so a chunk never spans two of them. */
-    private var sinkScope: DrawScope? = null
-    private var sinkOpacity = 1f
-    private var sinkColor: Color? = null
-    private var sinkColorAt: ((Float) -> Color)? = null
-    private var sinkDx = 0f
-    private var sinkDy = 0f
-
-    private val builder = LineMeshBuilder { mesh ->
-        batch.add(sinkScope!!, mesh, sinkOpacity, sinkColor, sinkColorAt, sinkDx, sinkDy)
-    }
+    /* Shared with the batch: one builder tessellates every line layer of a render. It is finished
+     * at the end of every feature, so a chunk never spans two of them. */
+    private val builder = batch.builder
 
     override suspend fun paint(
         canvas: DrawScope,
@@ -127,41 +121,53 @@ class LineLayerPainter internal constructor(
         actualZoom: Double,
         decoded: List<FloatArray>? = null,
         cull: FeatureCull? = null,
+    ) = append(
+        canvas, feature, style, canvasSize, extent, zoom, featureProperties, actualZoom, decoded, cull,
+        classes = null, featureIndex = -1, views = null,
+    )
+
+    /**
+     * [append] for a feature of a tile layer whose [classes] are known: [featureIndex] is its
+     * position in that layer, and the style is then evaluated once per class -- see [resolve].
+     * [views] stands in for a null [featureProperties], and is only asked when the style really has
+     * to be evaluated against this feature.
+     */
+    internal fun append(
+        canvas: DrawScope,
+        feature: Tile.Feature,
+        style: LineLayer,
+        canvasSize: Int,
+        extent: Int,
+        zoom: Double,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        decoded: List<FloatArray>?,
+        cull: FeatureCull?,
+        classes: FeatureClasses?,
+        featureIndex: Int,
+        views: FeatureViews?,
     ) {
         if (feature.type != Tile.GeomType.LINESTRING && feature.type != Tile.GeomType.POLYGON) return
 
         val paint = style.paint
-        val layout = style.layout
         val density = canvas.density
 
         val polylines = decoded ?: decodePolylines(feature, canvasSize, extent)
         if (polylines.isEmpty()) return
 
-        val lineColor = paint.lineColor?.processAsColor(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_COLOR
-        val lineOpacity = paint.lineOpacity.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_OPACITY.toFloat()
-        val lineWidth = (paint.lineWidth.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_WIDTH.toFloat()) * density
-        val lineGapWidth = (paint.lineGapWidth.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_GAP_WIDTH.toFloat()) * density
-        val lineBlur = (paint.lineBlur.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_BLUR.toFloat()) * density
-        val lineOffset = (paint.lineOffset.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_OFFSET.toFloat()) * density
-        val translate = paint.lineTranslate.processAsDoubleList(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_TRANSLATE
-        val translateAnchor = paint.lineTranslateAnchor?.processAsString(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_TRANSLATE_ANCHOR
-
-        val cap = layout.lineCap?.processAsString(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_CAP
-        val join = layout.lineJoin?.processAsString(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_JOIN
-        val miterLimit = layout.lineMiterLimit.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_MITER_LIMIT.toFloat()
-        val roundLimit = layout.lineRoundLimit.processAsFloat(featureProperties, actualZoom)
-            ?: StyleSpecDefaults.LINE_ROUND_LIMIT.toFloat()
+        val resolved = resolve(style, featureProperties, actualZoom, density, classes, featureIndex, views)
+        val lineColor = resolved.color
+        val lineOpacity = resolved.opacity
+        val lineWidth = resolved.width
+        val lineGapWidth = resolved.gapWidth
+        val lineBlur = resolved.blur
+        val lineOffset = resolved.offset
+        val translate = resolved.translate
+        val translateAnchor = resolved.translateAnchor
+        val cap = resolved.cap
+        val join = resolved.join
+        val miterLimit = resolved.miterLimit
+        val roundLimit = resolved.roundLimit
 
         if (lineWidth <= 0f && lineGapWidth <= 0f) return
 
@@ -170,16 +176,12 @@ class LineLayerPainter internal constructor(
              * offset, stretched at a miter by at most the miter limit, and moved by the translate.
              * Every term is an upper bound, so a feature skipped here would have drawn nothing. */
             val outer = lineOutset(lineGapWidth, lineWidth, density) + abs(lineOffset)
-            val shift = translate.sumOf { abs(it) }.toFloat() * density
+            val shift = resolved.translateReach * density
             if (!cull.reaches(outer * max(miterLimit, 2f) + shift + 1f)) return
         }
 
-        val dash = paint.lineDasharray
-            .processAsDoubleList(featureProperties, actualZoom)
-            ?.let { dashPattern(it, lineWidth) }
-
-        val patternName = paint.linePattern?.processAsString(featureProperties, actualZoom)
-        val patternBrush = patternBrushes.get(spriteManager, patternName)
+        val dash = resolved.dash
+        val patternBrush = patternBrushes.get(spriteManager, resolved.patternName)
         val gradient = paint.lineGradient
 
         val inset = lineInset(lineGapWidth, density)
@@ -212,18 +214,20 @@ class LineLayerPainter internal constructor(
         }
         if (lineOpacity <= 0f) return
 
-        sinkScope = canvas
-        sinkOpacity = lineOpacity
-        sinkColor = if (gradient != null) null else lineColor
-        sinkColorAt = if (gradient != null) {
-            { progress ->
-                gradient.processAsGradientColor(progress.toDouble(), actualZoom) ?: StyleSpecDefaults.LINE_COLOR
-            }
-        } else {
-            null
-        }
-        sinkDx = (translate.getOrNull(0) ?: 0.0).toFloat() * density
-        sinkDy = (translate.getOrNull(1) ?: 0.0).toFloat() * density
+        batch.target(
+            scope = canvas,
+            opacity = lineOpacity,
+            color = lineColor,
+            colorAt = if (gradient != null) {
+                { progress ->
+                    gradient.processAsGradientColor(progress.toDouble(), actualZoom) ?: StyleSpecDefaults.LINE_COLOR
+                }
+            } else {
+                null
+            },
+            dx = (translate.getOrNull(0) ?: 0.0).toFloat() * density,
+            dy = (translate.getOrNull(1) ?: 0.0).toFloat() * density,
+        )
 
         for (polyline in polylines) {
             if (polyline.size < 4) continue
@@ -251,7 +255,133 @@ class LineLayerPainter internal constructor(
         }
         // The chunk is coloured by this feature's sink state, so it must not outlive the feature.
         builder.finish()
-        sinkScope = null
+        batch.release()
+    }
+
+    /**
+     * Everything the style says about one feature's line, evaluated.
+     *
+     * One per feature **class** where the layer allows it -- see [FeatureClasses]. A road layer
+     * evaluates fourteen properties per feature, and a tile's roads fall into a few dozen
+     * combinations of the properties those expressions read.
+     */
+    private class ResolvedLine(
+        val color: Color,
+        val opacity: Float,
+        val width: Float,
+        val gapWidth: Float,
+        val blur: Float,
+        val offset: Float,
+        val translate: List<Double>,
+        /** `|dx| + |dy|` of [translate], in style pixels: how far it can move the ribbon. */
+        val translateReach: Float,
+        val translateAnchor: String,
+        val cap: String,
+        val join: String,
+        val miterLimit: Float,
+        val roundLimit: Float,
+        val dash: DashPattern?,
+        val patternName: String?,
+    )
+
+    /* The per-class results, valid for exactly the inputs below; a painter serves one style layer
+     * over one tile layer of one render, so in practice this is filled once and read from then on. */
+    private var classResults: Array<ResolvedLine?>? = null
+    private var classResultsFor: FeatureClasses? = null
+    private var classResultsStyle: LineLayer? = null
+    private var classResultsZoom = Double.NaN
+    private var classResultsDensity = Float.NaN
+
+    private fun resolve(
+        style: LineLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        density: Float,
+        classes: FeatureClasses?,
+        featureIndex: Int,
+        views: FeatureViews?,
+    ): ResolvedLine {
+        if (classes == null || featureIndex < 0 || !followsFeatureClass(style)) {
+            return evaluate(style, featureProperties ?: views?.at(featureIndex), actualZoom, density)
+        }
+        var results = classResults
+        if (results == null || classResultsFor !== classes || classResultsStyle !== style ||
+            classResultsZoom != actualZoom || classResultsDensity != density
+        ) {
+            results = arrayOfNulls(classes.count)
+            classResults = results
+            classResultsFor = classes
+            classResultsStyle = style
+            classResultsZoom = actualZoom
+            classResultsDensity = density
+        }
+        val classId = classes.classOf[featureIndex]
+        return results[classId]
+            ?: evaluate(style, featureProperties ?: views?.at(featureIndex), actualZoom, density)
+                .also { results[classId] = it }
+    }
+
+    private var followsClassStyle: LineLayer? = null
+    private var followsClass = false
+
+    /** Whether every property [evaluate] reads has one value per feature class. */
+    private fun followsFeatureClass(style: LineLayer): Boolean {
+        if (followsClassStyle !== style) {
+            val paint = style.paint
+            val layout = style.layout
+            followsClass = paint.lineColor.followsFeatureClass() && paint.lineOpacity.followsFeatureClass() &&
+                paint.lineWidth.followsFeatureClass() && paint.lineGapWidth.followsFeatureClass() &&
+                paint.lineBlur.followsFeatureClass() && paint.lineOffset.followsFeatureClass() &&
+                paint.lineTranslate.followsFeatureClass() && paint.lineTranslateAnchor.followsFeatureClass() &&
+                paint.lineDasharray.followsFeatureClass() && paint.linePattern.followsFeatureClass() &&
+                layout.lineCap.followsFeatureClass() && layout.lineJoin.followsFeatureClass() &&
+                layout.lineMiterLimit.followsFeatureClass() && layout.lineRoundLimit.followsFeatureClass()
+            followsClassStyle = style
+        }
+        return followsClass
+    }
+
+    private fun evaluate(
+        style: LineLayer,
+        featureProperties: EvalFeature?,
+        actualZoom: Double,
+        density: Float,
+    ): ResolvedLine {
+        val paint = style.paint
+        val layout = style.layout
+        val lineWidth = (paint.lineWidth.processAsFloat(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.LINE_WIDTH.toFloat()) * density
+        val translate = paint.lineTranslate.processAsDoubleList(featureProperties, actualZoom)
+            ?: StyleSpecDefaults.LINE_TRANSLATE
+        return ResolvedLine(
+            color = paint.lineColor?.processAsColor(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_COLOR,
+            opacity = paint.lineOpacity.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_OPACITY.toFloat(),
+            width = lineWidth,
+            gapWidth = (paint.lineGapWidth.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_GAP_WIDTH.toFloat()) * density,
+            blur = (paint.lineBlur.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_BLUR.toFloat()) * density,
+            offset = (paint.lineOffset.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_OFFSET.toFloat()) * density,
+            translate = translate,
+            translateReach = translate.sumOf { abs(it) }.toFloat(),
+            translateAnchor = paint.lineTranslateAnchor?.processAsString(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_TRANSLATE_ANCHOR,
+            cap = layout.lineCap?.processAsString(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_CAP,
+            join = layout.lineJoin?.processAsString(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_JOIN,
+            miterLimit = layout.lineMiterLimit.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_MITER_LIMIT.toFloat(),
+            roundLimit = layout.lineRoundLimit.processAsFloat(featureProperties, actualZoom)
+                ?: StyleSpecDefaults.LINE_ROUND_LIMIT.toFloat(),
+            dash = paint.lineDasharray
+                .processAsDoubleList(featureProperties, actualZoom)
+                ?.let { dashPattern(it, lineWidth) },
+            patternName = paint.linePattern?.processAsString(featureProperties, actualZoom),
+        )
     }
 
     private fun decodePolylines(
