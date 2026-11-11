@@ -26,7 +26,7 @@ fun MapUI(
     val pathState = state.pathState
 
     val density = LocalDensity.current
-    remember(density) {
+    remember(density, state) {
         state.densityState.value = density
     }
 
