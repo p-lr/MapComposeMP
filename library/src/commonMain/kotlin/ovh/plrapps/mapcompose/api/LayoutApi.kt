@@ -13,13 +13,14 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,6 +34,7 @@ import ovh.plrapps.mapcompose.ui.state.ZoomPanRotateState
 import ovh.plrapps.mapcompose.utils.*
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The scale of the map. By convention, the scale at full dimension is 1.0.
@@ -624,20 +626,30 @@ fun MapState.viewportChangeFlow(): Flow<MapState> {
  * least [thresholdMillis] which is 400ms by default.
  */
 fun MapState.idleStateFlow(thresholdMillis: Long = 400): StateFlow<Boolean> {
-    val stateFlow = MutableStateFlow(false)
+    return idleFlow(thresholdMillis).stateIn(scope, SharingStarted.Eagerly, false)
+}
 
+/**
+ * Runs [block] once, on the first move after the map was idle for the first time.
+ * [block] is run on MapState's lifecycle. It's cancelled on [MapState.shutdown].
+ */
+fun MapState.onFirstMove(thresholdMillis: Long = 400, block: suspend () -> Unit) {
     scope.launch {
-        snapshotFlow {
-            "$centroidX,$centroidY"
-        }.map {
-            stateFlow.value = false
-        }.collectLatest {
-            delay(thresholdMillis)
-            stateFlow.value = true
-        }
+        idleFlow(thresholdMillis)
+            .dropWhile { idle -> !idle }   // wait for the first idle
+            .first { idle -> !idle }       // cancel collection on first move
+        block()
     }
+}
 
-    return stateFlow.asStateFlow()
+private fun MapState.idleFlow(thresholdMillis: Long): Flow<Boolean> {
+    return snapshotFlow {
+        "$centroidX,$centroidY"
+    }.transformLatest {
+        emit(false)
+        delay(thresholdMillis.milliseconds)
+        emit(true)
+    }
 }
 
 
