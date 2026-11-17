@@ -1,12 +1,14 @@
 package ovh.plrapps.mapcompose.core
 
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asSkiaBitmap
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 /**
  * The [BitmapTileProvider] path through [TileCollector]: a rendered bitmap is handed over as is, and
@@ -57,6 +59,17 @@ class TileCollectorBitmapTest {
 
         assertSame(bitmap, tiles.single().bitmap)
         assertEquals(TileSpec(3, 1, 2), TileSpec(tiles.single().zoom, tiles.single().row, tiles.single().col))
+    }
+
+    /** A mutable Skia bitmap is copied on every draw and re-uploaded to the GPU every frame. */
+    @Test
+    fun `a rendered bitmap is made immutable when it is the only layer`() = runTest {
+        val bitmap = ImageBitmap(8, 8)
+        val provider = Provider { _, _ -> BitmapTileResult.Rendered(bitmap) }
+
+        val tiles = collect(provider, listOf(TileSpec(3, 1, 2)), expectedOutputs = 1)
+
+        assertTrue(tiles.single().bitmap!!.asSkiaBitmap().isImmutable)
     }
 
     @Test
