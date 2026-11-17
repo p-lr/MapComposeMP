@@ -120,7 +120,12 @@ private fun decodeViaSurface(bytes: ByteArray, ratio: Int): Bitmap? = runCatchin
         img.close()
     }
 }.getOrNull()
-internal actual fun adoptRenderedBitmap(bitmap: ImageBitmap, hasLayers: Boolean): ImageBitmap = bitmap
+internal actual fun adoptRenderedBitmap(bitmap: ImageBitmap, hasLayers: Boolean): ImageBitmap {
+    /* Same as a decoded first layer: with layers, overlays are drawn into this bitmap and
+     * processFinalImage makes the composite immutable. */
+    if (!hasLayers) bitmap.asSkiaBitmap().setImmutable()
+    return bitmap
+}
 
 /** Frees the pixels now rather than whenever the collector gets to them: a tile is megabytes. */
 internal actual fun releaseRenderedBitmap(bitmap: ImageBitmap) {

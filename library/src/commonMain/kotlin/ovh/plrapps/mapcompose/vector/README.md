@@ -1326,8 +1326,12 @@ pixel read, the encoded file, the `Buffer` copy, core's read of it and the decod
 last on the JVM heap on Android, where they were what ran the app out of memory.
 
 On Android a single-layer tile is then copied to a `HARDWARE` bitmap and the software one recycled
-(`adoptRenderedBitmap`), as a decoded tile would have been decoded straight into one. A tile drawn
-over another layer is scaled onto it, whatever its own resolution.
+(`adoptRenderedBitmap`), as a decoded tile would have been decoded straight into one. On Skia
+(iOS, desktop, wasm) the same call marks it immutable, as `decodeFirstLayer` does a decoded tile: a
+mutable Skia bitmap is copied on every draw and gets a new image id, so the GPU re-uploads it every
+frame. Missing that call cost the vector map on an iPhone 15 a third of its peak memory and a third
+of its main-thread CPU. A tile drawn over another layer is scaled onto it, whatever its own
+resolution, and the composite is made immutable by `processFinalImage`.
 
 The provider is also handed an `isWanted` predicate, read off `TileCanvasState`'s current visible
 tiles. `VectorRasterizer.getTile` checks it after the fetch, once the render budget is granted, and
